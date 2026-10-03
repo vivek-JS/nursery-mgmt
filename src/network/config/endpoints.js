@@ -74,6 +74,11 @@ export const API = {
       "/api/banking/statement/:id/verify",
       HTTP_METHODS.POST
     ),
+    POST_IMPORT_STATEMENT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/statement/import",
+      HTTP_METHODS.POST
+    ),
     GET_SUSPENSE: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/suspense", HTTP_METHODS.GET),
     POST_RESOLVE_SUSPENSE: new APICustomRouter(
       PAYMENTS_API_HOST,

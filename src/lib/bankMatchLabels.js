@@ -1,4 +1,28 @@
 /**
+ * Translate a /banking/payments/verify outcome into the payment-subdocument
+ * shape getStatementMatchPresentation reads, so an on-demand check is labelled
+ * exactly the way a stored payment is.
+ */
+export function checkOutcomeAsPaymentShape(outcome) {
+  switch (outcome?.result) {
+    case "VERIFIED":
+      return {
+        bankVerificationStatus: "BANK_VERIFIED",
+        bankVerificationSource: outcome.matchedBy ? "STATEMENT_API" : "TXN_STATUS_API",
+        bankVerificationMatchedBy: outcome.matchedBy || null,
+      }
+    case "MULTIPLE_MATCH":
+    case "NEEDS_REVIEW":
+      return { bankReconciliationConflict: true }
+    case "AMOUNT_MISMATCH":
+    case "NOT_FOUND":
+      return { bankVerificationStatus: "VERIFY_FAILED" }
+    default:
+      return null
+  }
+}
+
+/**
  * Indian English labels for bank reconciliation state on a payment subdocument.
  */
 export function getStatementMatchPresentation(payment) {

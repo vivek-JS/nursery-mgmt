@@ -100,6 +100,8 @@ export function BankReconciliationLive({
   const [statementRows, setStatementRows] = useState([])
   const [loadingStatement, setLoadingStatement] = useState(false)
   const [busyStatementId, setBusyStatementId] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [importSummary, setImportSummary] = useState(null)
 
   const apiError = (e, fallback) =>
     e?.response?.data?.message || e?.message || fallback
@@ -316,6 +318,34 @@ export function BankReconciliationLive({
     }
   }
 
+  const handleImportStatement = async ({ csv, account }) => {
+    if (!account) {
+      Toast.error("Pick the bank account these lines belong to")
+      return
+    }
+    setImporting(true)
+    setImportSummary(null)
+    try {
+      const res = await NetworkManager(API.BANKING.POST_IMPORT_STATEMENT).request({
+        csv,
+        accountNumber: account,
+      })
+      const data = res?.data?.data ?? {}
+      setImportSummary(data)
+      if (data.inserted > 0) {
+        Toast.success(`Imported ${data.inserted} line${data.inserted === 1 ? "" : "s"}`)
+      } else {
+        Toast.info("Nothing new — every line was already in the statement")
+      }
+      if (!accountNumber) setAccountNumber(account)
+      await fetchStatement()
+    } catch (e) {
+      Toast.error(apiError(e, "Could not import the statement"))
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const counts = useMemo(
     () => ({
       pending: unclearedList?.length ?? 0,
@@ -344,7 +374,8 @@ export function BankReconciliationLive({
           <div>
             <h2 className="text-sm font-semibold text-foreground mb-1">Banking</h2>
             <p className="text-xs text-muted-foreground">
-              Sandbox — ICICI UAT credentials only, no live account is contacted.
+              Match payments against the bank. Import a statement under Statement if the
+              bank connection is not set up — everything else works the same either way.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 items-end">
@@ -486,6 +517,11 @@ export function BankReconciliationLive({
             busyId={busyStatementId}
             onVerify={handleVerifyStatementLine}
             onRefresh={fetchStatement}
+            accounts={accounts}
+            defaultAccount={accountNumber}
+            importing={importing}
+            importSummary={importSummary}
+            onImport={handleImportStatement}
           />
         )}
       </div>
@@ -987,12 +1023,153 @@ function CashDepositPanel({
   )
 }
 
-function StatementTable({ rows, loading, busyId, onVerify, onRefresh }) {
+/**
+ * Load a statement the accountant downloaded from net banking.
+ *
+ * This is the way lines get in while the ICICI API is unavailable, so the rest
+ * of the tab — matching, suspense, per-payment checks — works without the bank.
+ */
+function ImportStatementPanel({ accounts, defaultAccount, importing, summary, onImport }) {
+  const [open, setOpen] = useState(false)
+  const [csv, setCsv] = useState("")
+  const [account, setAccount] = useState(defaultAccount || "")
+  const [fileName, setFileName] = useState("")
+
+  const readFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setFileName(file.name)
+    setCsv(await file.text())
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="text-xs font-semibold px-2 py-1 rounded-sm border border-slate-400/60 text-slate-700 hover:bg-slate-500/10"
+        onClick={() => setOpen(true)}
+      >
+        Import statement
+      </button>
+    )
+  }
+
+  return (
+    <div className="w-full erp-card p-3 mb-3">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-semibold">Import a statement</h4>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:underline"
+          onClick={() => setOpen(false)}
+        >
+          Close
+        </button>
+      </div>
+
+      <p className="text-[11px] text-muted-foreground mb-2">
+        Download the statement as CSV from net banking, then upload it or paste it below.
+        Importing the same file twice is safe — lines already loaded are skipped.
+      </p>
+
+      <div className="flex flex-wrap items-end gap-2 mb-2">
+        <label className="text-xs">
+          <span className="block text-muted-foreground mb-0.5">Account</span>
+          <input
+            list="import-accounts"
+            className="erp-input text-xs"
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+            placeholder="Account number"
+          />
+          <datalist id="import-accounts">
+            {accounts.map((a) => (
+              <option key={a} value={a} />
+            ))}
+          </datalist>
+        </label>
+
+        <label className="text-xs font-semibold px-2 py-1.5 rounded-sm border border-slate-400/60 text-slate-700 hover:bg-slate-500/10 cursor-pointer">
+          {fileName || "Choose CSV file"}
+          <input type="file" accept=".csv,.txt,text/csv" className="sr-only" onChange={readFile} />
+        </label>
+      </div>
+
+      <textarea
+        className="erp-input w-full text-[11px] font-mono"
+        rows={6}
+        value={csv}
+        onChange={(e) => setCsv(e.target.value)}
+        placeholder={"Txn Date,Description,Ref No./Cheque No.,Debit,Credit,Balance\n01/04/2026,UPI/CR/412345678901/RAHUL,412345678901,,1500.00,51500.00"}
+      />
+
+      <div className="flex flex-wrap items-center gap-2 mt-2">
+        <button
+          type="button"
+          className="btn-primary text-xs"
+          disabled={importing || !csv.trim() || !account.trim()}
+          onClick={() => onImport({ csv, account: account.trim() })}
+        >
+          {importing ? "Importing…" : "Import"}
+        </button>
+        {csv.trim() && (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:underline"
+            onClick={() => {
+              setCsv("")
+              setFileName("")
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {summary && (
+        <div className="mt-2 text-[11px]">
+          <p>
+            Added {summary.inserted} of {summary.total} lines
+            {summary.duplicates > 0 && ` · ${summary.duplicates} already loaded`}
+            {summary.credits > 0 && ` · ${summary.credits} credits`}
+          </p>
+          {summary.unreadable?.length > 0 && (
+            <p className="text-amber-700 mt-0.5">
+              {summary.unreadable.length} line{summary.unreadable.length === 1 ? "" : "s"} could not
+              be read (line {summary.unreadable.map((u) => u.line).join(", ")})
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatementTable({
+  rows,
+  loading,
+  busyId,
+  onVerify,
+  onRefresh,
+  accounts = [],
+  defaultAccount,
+  importing,
+  importSummary,
+  onImport,
+}) {
   return (
     <>
       <p className="text-xs text-muted-foreground mb-2">
-        Lines pulled from the bank. Marking one verified retires it from matching.
+        Lines from the bank. Marking one verified retires it from matching.
       </p>
+      <ImportStatementPanel
+        accounts={accounts}
+        defaultAccount={defaultAccount}
+        importing={importing}
+        summary={importSummary}
+        onImport={onImport}
+      />
       <RefreshBar onRefresh={onRefresh} loading={loading} />
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
@@ -1012,7 +1189,9 @@ function StatementTable({ rows, loading, busyId, onVerify, onRefresh }) {
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <EmptyRow colSpan={7}>No statement lines — try Sync statement</EmptyRow>
+                <EmptyRow colSpan={7}>
+                  No statement lines for this range — import a statement or sync from the bank
+                </EmptyRow>
               ) : (
                 rows.map((r) => {
                   const credit = Number(r.amount) > 0

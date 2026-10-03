@@ -100,7 +100,7 @@ import PaymentQRModal from "components/Modals/PaymentQRModal"
 import AttachmentViewerModal, { resolvePaymentMediaUrl } from "components/Modals/AttachmentViewerModal"
 import { transferableFarmerPlantPayments } from "features/accountant-dashboard/farmerPlantPaymentTransfer.utils"
 import axiosInstance from "services/axiosConfig"
-import { getStatementMatchPresentation } from "lib/bankMatchLabels"
+import { getStatementMatchPresentation, checkOutcomeAsPaymentShape } from "lib/bankMatchLabels"
 import {
   useCanAddPayment,
   useHasPaymentAccess,
@@ -2369,6 +2369,8 @@ const FarmerOrdersTable = ({
   const [transferSubmitting, setTransferSubmitting] = useState(false)
   const [transferSourceRow, setTransferSourceRow] = useState(null)
   const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
+  const [bankCheckLoadingPaymentId, setBankCheckLoadingPaymentId] = useState(null)
+  const [bankCheckOutcomes, setBankCheckOutcomes] = useState({})
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
   const [dcInvoiceEditOpen, setDcInvoiceEditOpen] = useState(false)
   const [dcInvoiceEditRow, setDcInvoiceEditRow] = useState(null)
@@ -5922,6 +5924,47 @@ const loadFilterOptions = async () => {
       Toast.error(msg)
     } finally {
       setVerifyIciciLoadingPaymentId(null)
+    }
+  }
+
+  /**
+   * Match one saved payment against the bank statement. Only an exact UTR and
+   * amount match clears it; anything else is routed to suspense for an
+   * accountant to confirm, so the outcome is shown rather than acted on here.
+   */
+  const handleCheckBankForPayment = async (payment) => {
+    const paymentId = payment?._id ? String(payment._id) : ""
+    if (!paymentId) {
+      Toast.error("Save the payment before checking it against the bank")
+      return
+    }
+    const orderMongoId = selectedOrder?.details?._id || selectedOrder?._id
+    if (!orderMongoId) {
+      Toast.error("Could not work out which order this payment belongs to")
+      return
+    }
+
+    setBankCheckLoadingPaymentId(paymentId)
+    try {
+      const res = await NetworkManager(API.BANKING.POST_VERIFY_PAYMENT).request({
+        source: selectedOrder?.isAgriSalesOrder ? "agriSales" : "order",
+        orderMongoId: String(orderMongoId),
+        paymentId,
+      })
+      const outcome = res?.data?.data ?? {}
+      setBankCheckOutcomes((prev) => ({ ...prev, [paymentId]: outcome }))
+      if (outcome.result === "VERIFIED") {
+        Toast.success(outcome.message || "Matched in the bank statement")
+        await refreshModalData()
+      } else {
+        Toast.info(outcome.message || "No exact match — sent to suspense for review")
+      }
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message || e?.response?.data?.error || e?.message || "Bank check failed"
+      Toast.error(msg)
+    } finally {
+      setBankCheckLoadingPaymentId(null)
     }
   }
 
@@ -12354,6 +12397,27 @@ const mapSlotForUi = (slotData) => {
                                     (String(payment.modeOfPayment || "").toUpperCase().includes("UPI") ||
                                       String(payment.modeOfPayment || "").toUpperCase().includes("QR"))
                                   const payId = payment?._id != null ? String(payment._id) : String(pIndex)
+                                  // Only a saved payment carrying a reference can be looked up
+                                  // in the statement; a discount or wallet entry never reaches
+                                  // the bank at all.
+                                  const canCheckBank =
+                                    hasPaymentAccess &&
+                                    Boolean(payment?._id) &&
+                                    Number(payment?.paidAmount) > 0 &&
+                                    !payment?.isWalletPayment &&
+                                    !payment?.isDiscount &&
+                                    String(payment?.modeOfPayment || "") !== "Discount" &&
+                                    Boolean(
+                                      String(payment?.utrNumber || "").trim() ||
+                                        String(payment?.transactionId || "").trim() ||
+                                        String(payment?.chequeNumber || "").trim()
+                                    ) &&
+                                    payment?.bankVerificationStatus !== "BANK_VERIFIED"
+                                  const bankCheckOutcome = bankCheckOutcomes[payId]
+                                  const bankCheckShape = checkOutcomeAsPaymentShape(bankCheckOutcome)
+                                  const bankCheckPres = bankCheckShape
+                                    ? getStatementMatchPresentation(bankCheckShape)
+                                    : null
                                   const receiptUrls = orderPaymentReceiptUrls(payment)
                                     .map(resolvePaymentMediaUrl)
                                     .filter(Boolean)
@@ -12378,6 +12442,17 @@ const mapSlotForUi = (slotData) => {
                                               className="text-xs font-medium px-2 py-1 rounded border border-teal-600 text-teal-700 hover:bg-teal-50 disabled:opacity-50"
                                             >
                                               {verifyIciciLoadingPaymentId === payId ? "Checking…" : "Verify with ICICI"}
+                                            </button>
+                                          )}
+                                          {canCheckBank && (
+                                            <button
+                                              type="button"
+                                              disabled={bankCheckLoadingPaymentId === payId}
+                                              onClick={() => handleCheckBankForPayment(payment)}
+                                              title="Match this reference and amount against the bank statement"
+                                              className="text-xs font-medium px-2 py-1 rounded border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                                            >
+                                              {bankCheckLoadingPaymentId === payId ? "Checking…" : "Check bank"}
                                             </button>
                                           )}
                                           {canAddPayment && (
@@ -12412,7 +12487,20 @@ const mapSlotForUi = (slotData) => {
                                       </div>
                                       <div className="text-xs">
                                         <span className={bankPres.className}>{bankPres.label}</span>
+                                        {bankCheckPres && (
+                                          <span className="ml-2 text-[11px] text-gray-500">
+                                            just checked:{" "}
+                                            <span className={bankCheckPres.className}>
+                                              {bankCheckPres.label}
+                                            </span>
+                                          </span>
+                                        )}
                                       </div>
+                                      {bankCheckOutcome?.message ? (
+                                        <div className="text-[11px] text-gray-600">
+                                          {bankCheckOutcome.message}
+                                        </div>
+                                      ) : null}
                                       {refLine ? (
                                         <div className="text-[11px] text-gray-600 break-all">
                                           Ref: {refLine}
