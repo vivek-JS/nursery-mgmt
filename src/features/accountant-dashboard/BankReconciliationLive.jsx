@@ -296,8 +296,6 @@ export function BankReconciliationLive({
         const res = await NetworkManager(API.BANKING.GET_PENDING_PAYMENTS).request(
           {},
           {
-            dateFrom: reconcileDateFrom,
-            dateTo: reconcileDateTo,
             limit: PENDING_PAGE_SIZE,
             skip,
           }
@@ -334,7 +332,7 @@ export function BankReconciliationLive({
         }
       }
     },
-    [reconcileDateFrom, reconcileDateTo]
+    []
   )
 
   const loadMorePending = useCallback(() => {
@@ -797,7 +795,9 @@ function PendingTable({
   return (
     <>
       <p className="text-xs text-muted-foreground mb-2">
-        ERP payments with a UTR or cheque that should match a statement credit.
+        ERP payments with a UTR or cheque. The Statement column is the match
+        against the loaded bank file (UTR + amount). Date range above is for
+        Sync / Statement, not this list.
       </p>
       <RefreshBar onRefresh={onRefresh} loading={loading}>
         {shown > 0 && (
