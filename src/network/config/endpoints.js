@@ -37,6 +37,70 @@ export const API = {
     GET_PAYMENTS: new APIRouter("api/v2/other/getPayments", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PAYMENTS_CSV: new APIRouter("api/v2/other/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
   },
+  /**
+   * Consolidated banking stack (`/api/banking`, not under `/api/v1`) — confidence
+   * scoring, suspense, cash book. Supersedes the legacy `/api/payments/*` routes above.
+   */
+  BANKING: {
+    POST_STATEMENT_SYNC: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/icici/statement",
+      HTTP_METHODS.POST
+    ),
+    POST_RECONCILE: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/reconcile", HTTP_METHODS.POST),
+    POST_VERIFY_PAYMENT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payments/verify",
+      HTTP_METHODS.POST
+    ),
+    GET_PENDING_PAYMENTS: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payments/pending",
+      HTTP_METHODS.GET
+    ),
+    GET_VERIFIED_PAYMENTS: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payments/verified",
+      HTTP_METHODS.GET
+    ),
+    GET_STATEMENT: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/statement", HTTP_METHODS.GET),
+    GET_STATEMENT_ACCOUNTS: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/statement/accounts",
+      HTTP_METHODS.GET
+    ),
+    POST_VERIFY_STATEMENT_LINE: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/statement/:id/verify",
+      HTTP_METHODS.POST
+    ),
+    GET_SUSPENSE: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/suspense", HTTP_METHODS.GET),
+    POST_RESOLVE_SUSPENSE: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/suspense/:id/resolve",
+      HTTP_METHODS.POST
+    ),
+    POST_LINK_SUSPENSE: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/suspense/:id/link",
+      HTTP_METHODS.POST
+    ),
+    POST_CASH_DEPOSIT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/cash-deposit",
+      HTTP_METHODS.POST
+    ),
+    GET_CASH_DEPOSITS: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/cash-deposit",
+      HTTP_METHODS.GET
+    ),
+    POST_VERIFY_CASH_DEPOSIT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/cash-deposit/:id/verify",
+      HTTP_METHODS.POST
+    ),
+  },
   AUTH: {
     // if you want to return offline json if api fails
     LOGIN: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),

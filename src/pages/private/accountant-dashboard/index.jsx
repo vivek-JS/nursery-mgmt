@@ -423,7 +423,7 @@ const AccountantDashboard = () => {
   const fetchUncleared = async () => {
     setLoadingUncleared(true)
     try {
-      const instance = NetworkManager(API.PAYMENTS.GET_RECONCILIATION_UNVERIFIED)
+      const instance = NetworkManager(API.BANKING.GET_PENDING_PAYMENTS)
       const res = await instance.request({}, { dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
       setUnclearedList(res?.data?.data ?? [])
     } catch (e) {
@@ -437,7 +437,7 @@ const AccountantDashboard = () => {
   const fetchForApproval = async () => {
     setLoadingForApproval(true)
     try {
-      const instance = NetworkManager(API.PAYMENTS.GET_RECONCILIATION_FOR_APPROVAL)
+      const instance = NetworkManager(API.BANKING.GET_VERIFIED_PAYMENTS)
       const res = await instance.request({}, { dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
       setForApprovalList(res?.data?.data ?? [])
     } catch (e) {
@@ -459,7 +459,7 @@ const AccountantDashboard = () => {
     setBankStatementLoading(true)
     setBankStatementMessage(null)
     try {
-      const instance = NetworkManager(API.PAYMENTS.POST_ICICI_BANK_STATEMENT)
+      const instance = NetworkManager(API.BANKING.POST_STATEMENT_SYNC)
       const res = await instance.request({
         fromDate: reconcileDateFrom,
         toDate: reconcileDateTo,
@@ -483,7 +483,7 @@ const AccountantDashboard = () => {
     setReconcileLoading(true)
     setReconcileResult(null)
     try {
-      const instance = NetworkManager(API.PAYMENTS.POST_RECONCILE)
+      const instance = NetworkManager(API.BANKING.POST_RECONCILE)
       const res = await instance.request({ dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
       setReconcileResult(res?.data ?? {})
       Toast.success(res?.data?.updatedCount ? `${res.data.updatedCount} payment(s) verified by bank` : "Reconciliation complete")

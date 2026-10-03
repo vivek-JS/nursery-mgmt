@@ -1,5 +1,32 @@
-import React from "react"
+import React, { useState } from "react"
+import { API, NetworkManager } from "network/core"
+import { Toast } from "helpers/toasts/toastHelper"
+import { getStatementMatchPresentation } from "lib/bankMatchLabels"
 import { PAYMENT_MODES, isDiscountDraft, paymentTxnOrUtrTrimmed } from "./paymentFormDefaults"
+
+/**
+ * Translate a /banking/payments/verify outcome into the payment-subdocument shape
+ * getStatementMatchPresentation reads, so this row labels a result exactly the way
+ * the order modal labels a stored payment.
+ */
+function checkOutcomeAsPaymentShape(outcome) {
+  switch (outcome?.result) {
+    case "VERIFIED":
+      return {
+        bankVerificationStatus: "BANK_VERIFIED",
+        bankVerificationSource: outcome.matchedBy ? "STATEMENT_API" : "TXN_STATUS_API",
+        bankVerificationMatchedBy: outcome.matchedBy || null,
+      }
+    case "MULTIPLE_MATCH":
+    case "NEEDS_REVIEW":
+      return { bankReconciliationConflict: true }
+    case "AMOUNT_MISMATCH":
+    case "NOT_FOUND":
+      return { bankVerificationStatus: "VERIFY_FAILED" }
+    default:
+      return null
+  }
+}
 
 function Field({ label, children, className = "" }) {
   return (
@@ -29,6 +56,42 @@ export default function CompactPaymentRow({
   const mode = draft.isWalletPayment ? "Wallet" : draft.modeOfPayment
   const isDiscount = isDiscountDraft(draft)
   const bankEnabled = !isDiscount && (mode === "Cheque" || mode === "NEFT/RTGS")
+
+  const [bankChecking, setBankChecking] = useState(false)
+  const [bankOutcome, setBankOutcome] = useState(null)
+
+  const savedPaymentId = draft._id || draft.paymentId
+  const canCheckBank = Boolean(
+    savedPaymentId &&
+      draft.orderMongoId &&
+      draft.source &&
+      !isDiscount &&
+      !draft.isWalletPayment &&
+      paymentTxnOrUtrTrimmed(draft) &&
+      Number(draft.paidAmount) > 0
+  )
+
+  const handleCheckBank = async () => {
+    setBankChecking(true)
+    try {
+      const res = await NetworkManager(API.BANKING.POST_VERIFY_PAYMENT).request({
+        source: draft.source,
+        orderMongoId: String(draft.orderMongoId),
+        paymentId: String(savedPaymentId),
+      })
+      const outcome = res?.data?.data ?? {}
+      setBankOutcome(outcome)
+      if (outcome.message) Toast.info(outcome.message)
+    } catch (e) {
+      setBankOutcome(null)
+      Toast.error(e?.response?.data?.message || e?.message || "Bank check failed")
+    } finally {
+      setBankChecking(false)
+    }
+  }
+
+  const bankShape = checkOutcomeAsPaymentShape(bankOutcome)
+  const bankPres = bankShape ? getStatementMatchPresentation(bankShape) : null
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
@@ -169,14 +232,27 @@ export default function CompactPaymentRow({
 
       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
         <Field label="Txn / UTR">
-          <input
-            type="text"
-            value={draft.utrNumber || draft.transactionId || ""}
-            disabled={draft.isWalletPayment || isDiscount || mode === "Cash"}
-            onChange={(e) => onChange({ utrNumber: e.target.value, transactionId: e.target.value })}
-            className={inputCls}
-            placeholder={mode === "UPI" ? "UTR required" : "Optional"}
-          />
+          <div className="flex min-w-0 items-center gap-1">
+            <input
+              type="text"
+              value={draft.utrNumber || draft.transactionId || ""}
+              disabled={draft.isWalletPayment || isDiscount || mode === "Cash"}
+              onChange={(e) => onChange({ utrNumber: e.target.value, transactionId: e.target.value })}
+              className={inputCls}
+              placeholder={mode === "UPI" ? "UTR required" : "Optional"}
+            />
+            {canCheckBank && (
+              <button
+                type="button"
+                disabled={bankChecking}
+                onClick={handleCheckBank}
+                title="Match this UTR and amount against the bank statement"
+                className="shrink-0 rounded border border-teal-600 px-2 py-1.5 text-[10px] font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-50">
+                {bankChecking ? "Checking…" : "Check bank"}
+              </button>
+            )}
+          </div>
+          {bankPres && <div className={`mt-0.5 text-[10px] ${bankPres.className}`}>{bankPres.label}</div>}
         </Field>
         {mode === "Cheque" && !draft.isWalletPayment && (
           <Field label="Cheque #">

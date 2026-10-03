@@ -1,9 +1,56 @@
-import React, { useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import moment from "moment"
-import axiosInstance from "services/axiosConfig"
+import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { BankApprovalMenu } from "./BankApprovalMenu"
 import { StatusBadge } from "./StatusBadge"
+import { getStatementMatchPresentation } from "./bankMatchLabels"
+
+const SUB_TABS = [
+  { id: "pending", label: "Pending" },
+  { id: "verified", label: "Verified" },
+  { id: "suspense", label: "Suspense" },
+  { id: "cash", label: "Cash deposit" },
+  { id: "statement", label: "Statement" },
+]
+
+const SUSPENSE_REASON_LABEL = {
+  NO_MATCH: "No match",
+  MULTIPLE_MATCH: "Multiple match",
+  AMOUNT_MISMATCH: "Amount mismatch",
+  DATE_MISMATCH: "Date mismatch",
+  ORPHAN_CREDIT: "Orphan credit",
+  MANUAL_REVIEW: "Needs review",
+}
+
+const CHECK_LABEL = {
+  VERIFIED: { text: "Matched on UTR", tone: "ok" },
+  AMOUNT_MISMATCH: { text: "Amount mismatch", tone: "bad" },
+  MULTIPLE_MATCH: { text: "Several possible credits", tone: "warn" },
+  NEEDS_REVIEW: { text: "Needs confirmation", tone: "warn" },
+  NOT_FOUND: { text: "Not in bank", tone: "warn" },
+}
+
+const TONE_CLASS = {
+  ok: "border-emerald-600/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100",
+  warn: "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-100",
+  bad: "border-rose-600/30 bg-rose-500/10 text-rose-900 dark:text-rose-100",
+  muted: "border-border bg-muted/40 text-muted-foreground",
+}
+
+function Pill({ tone = "muted", children }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${TONE_CLASS[tone]}`}
+    >
+      {children}
+    </span>
+  )
+}
+
+const fmtDate = (d) => (d ? moment(d).format("DD-MM-YYYY") : "—")
+const fmtAmount = (n) => (n == null || n === "" ? "—" : Number(n).toLocaleString("en-IN"))
+const paymentRef = (p) => p?.utrNumber || p?.transactionId || p?.chequeNumber || p?.ref || "—"
 
 export function BankReconciliationLive({
   reconcileDateFrom,
@@ -25,202 +72,575 @@ export function BankReconciliationLive({
   onReconcile,
   onApproveOrReject
 }) {
-  const [iciciVerifyPaymentId, setIciciVerifyPaymentId] = useState(null)
+  const [subTab, setSubTab] = useState("pending")
+  const [accountNumber, setAccountNumber] = useState("")
+  const [accounts, setAccounts] = useState([])
 
-  const handleVerifyIciciUncleared = async (p) => {
-    const ref = p.merchantTranId || p.qrReferenceId
-    if (!ref || String(ref).trim() === "") {
-      Toast.error("No ICICI transaction reference on this row")
-      return
+  /** paymentId → { result, message } from the last on-demand check. */
+  const [checkResults, setCheckResults] = useState({})
+  const [checkingPaymentId, setCheckingPaymentId] = useState(null)
+
+  const [suspenseList, setSuspenseList] = useState([])
+  const [loadingSuspense, setLoadingSuspense] = useState(false)
+  const [linkTarget, setLinkTarget] = useState(null)
+  const [busySuspenseId, setBusySuspenseId] = useState(null)
+
+  const [deposits, setDeposits] = useState([])
+  const [loadingDeposits, setLoadingDeposits] = useState(false)
+  const [depositForm, setDepositForm] = useState({
+    entryDate: moment().format("YYYY-MM-DD"),
+    amount: "",
+    accountNumber: "",
+    slipNumber: "",
+    narration: "",
+  })
+  const [savingDeposit, setSavingDeposit] = useState(false)
+  const [busyDepositId, setBusyDepositId] = useState(null)
+
+  const [statementRows, setStatementRows] = useState([])
+  const [loadingStatement, setLoadingStatement] = useState(false)
+  const [busyStatementId, setBusyStatementId] = useState(null)
+
+  const apiError = (e, fallback) =>
+    e?.response?.data?.message || e?.message || fallback
+
+  useEffect(() => {
+    let cancelled = false
+    const loadAccounts = async () => {
+      try {
+        const res = await NetworkManager(API.BANKING.GET_STATEMENT_ACCOUNTS).request()
+        if (cancelled) return
+        const list = res?.data?.data ?? []
+        setAccounts(list)
+        if (list.length === 1) setAccountNumber(list[0])
+      } catch {
+        if (!cancelled) setAccounts([])
+      }
     }
-    setIciciVerifyPaymentId(String(p.paymentId))
+    loadAccounts()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const fetchSuspense = useCallback(async () => {
+    setLoadingSuspense(true)
     try {
-      await axiosInstance.get(`/api/payments/icici/status/${encodeURIComponent(String(ref).trim())}`)
-      Toast.success("ICICI payment status checked — bank fields updated if matched")
-      if (typeof onRefreshUncleared === "function") await onRefreshUncleared()
-      if (typeof onRefreshForApproval === "function") await onRefreshForApproval()
+      const res = await NetworkManager(API.BANKING.GET_SUSPENSE).request({}, { limit: 200 })
+      setSuspenseList(res?.data?.data ?? [])
     } catch (e) {
-      const msg =
-        e?.response?.data?.message ||
-        e?.response?.data?.error ||
-        e?.message ||
-        "ICICI status check failed"
-      Toast.error(msg)
+      Toast.error(apiError(e, "Failed to load suspense entries"))
+      setSuspenseList([])
     } finally {
-      setIciciVerifyPaymentId(null)
+      setLoadingSuspense(false)
+    }
+  }, [])
+
+  const fetchDeposits = useCallback(async () => {
+    setLoadingDeposits(true)
+    try {
+      const res = await NetworkManager(API.BANKING.GET_CASH_DEPOSITS).request(
+        {},
+        {
+          dateFrom: reconcileDateFrom,
+          dateTo: reconcileDateTo,
+          ...(accountNumber ? { accountNumber } : {}),
+        }
+      )
+      setDeposits(res?.data?.data ?? [])
+    } catch (e) {
+      Toast.error(apiError(e, "Failed to load cash deposits"))
+      setDeposits([])
+    } finally {
+      setLoadingDeposits(false)
+    }
+  }, [reconcileDateFrom, reconcileDateTo, accountNumber])
+
+  const fetchStatement = useCallback(async () => {
+    setLoadingStatement(true)
+    try {
+      const res = await NetworkManager(API.BANKING.GET_STATEMENT).request(
+        {},
+        {
+          dateFrom: reconcileDateFrom,
+          dateTo: reconcileDateTo,
+          ...(accountNumber ? { accountNumber } : {}),
+        }
+      )
+      setStatementRows(res?.data?.data ?? [])
+    } catch (e) {
+      Toast.error(apiError(e, "Failed to load statement"))
+      setStatementRows([])
+    } finally {
+      setLoadingStatement(false)
+    }
+  }, [reconcileDateFrom, reconcileDateTo, accountNumber])
+
+  useEffect(() => {
+    if (subTab === "suspense") fetchSuspense()
+    if (subTab === "cash") fetchDeposits()
+    if (subTab === "statement") fetchStatement()
+  }, [subTab, fetchSuspense, fetchDeposits, fetchStatement])
+
+  const handleCheckBank = async (p) => {
+    setCheckingPaymentId(String(p.paymentId))
+    try {
+      const res = await NetworkManager(API.BANKING.POST_VERIFY_PAYMENT).request({
+        source: p.source,
+        orderMongoId: p.orderMongoId,
+        paymentId: String(p.paymentId),
+      })
+      const data = res?.data?.data ?? {}
+      setCheckResults((prev) => ({ ...prev, [String(p.paymentId)]: data }))
+      if (data.result === "VERIFIED") {
+        Toast.success(data.message || "Payment verified by bank")
+        if (onRefreshUncleared) await onRefreshUncleared()
+        if (onRefreshForApproval) await onRefreshForApproval()
+      } else {
+        Toast.info(data.message || "Bank check complete")
+        if (data.result !== "NOT_FOUND" && onRefreshUncleared) await onRefreshUncleared()
+      }
+    } catch (e) {
+      Toast.error(apiError(e, "Bank check failed"))
+    } finally {
+      setCheckingPaymentId(null)
     }
   }
+
+  const handleLinkSuspense = async (entry, payment) => {
+    setBusySuspenseId(String(entry._id))
+    try {
+      await NetworkManager(API.BANKING.POST_LINK_SUSPENSE).request(
+        {
+          source: payment.source,
+          orderMongoId: payment.orderMongoId,
+          paymentId: String(payment.paymentId),
+        },
+        { pathParams: [String(entry._id)] }
+      )
+      Toast.success("Suspense entry linked to payment")
+      setLinkTarget(null)
+      await fetchSuspense()
+      if (onRefreshUncleared) await onRefreshUncleared()
+      if (onRefreshForApproval) await onRefreshForApproval()
+    } catch (e) {
+      Toast.error(apiError(e, "Could not link payment"))
+    } finally {
+      setBusySuspenseId(null)
+    }
+  }
+
+  const handleWriteOff = async (entry) => {
+    setBusySuspenseId(String(entry._id))
+    try {
+      await NetworkManager(API.BANKING.POST_RESOLVE_SUSPENSE).request(
+        { action: "WRITE_OFF", resolutionNotes: "Written off from banking tab" },
+        { pathParams: [String(entry._id)] }
+      )
+      Toast.success("Suspense entry written off")
+      await fetchSuspense()
+    } catch (e) {
+      Toast.error(apiError(e, "Write-off failed"))
+    } finally {
+      setBusySuspenseId(null)
+    }
+  }
+
+  const handleSaveDeposit = async (e) => {
+    e.preventDefault()
+    const account = depositForm.accountNumber || accountNumber
+    if (!(Number(depositForm.amount) > 0)) {
+      Toast.error("Enter a deposit amount")
+      return
+    }
+    if (!account) {
+      Toast.error("Select a bank account")
+      return
+    }
+    setSavingDeposit(true)
+    try {
+      await NetworkManager(API.BANKING.POST_CASH_DEPOSIT).request({
+        ...depositForm,
+        accountNumber: account,
+      })
+      Toast.success("Cash deposit recorded")
+      setDepositForm({
+        entryDate: moment().format("YYYY-MM-DD"),
+        amount: "",
+        accountNumber: account,
+        slipNumber: "",
+        narration: "",
+      })
+      await fetchDeposits()
+    } catch (err) {
+      Toast.error(apiError(err, "Could not save deposit"))
+    } finally {
+      setSavingDeposit(false)
+    }
+  }
+
+  const handleVerifyDeposit = async (deposit) => {
+    setBusyDepositId(String(deposit._id))
+    try {
+      const res = await NetworkManager(API.BANKING.POST_VERIFY_CASH_DEPOSIT).request(
+        {},
+        { pathParams: [String(deposit._id)] }
+      )
+      const body = res?.data ?? {}
+      if (body.matched === false) {
+        Toast.error(body.message || "No matching bank credit yet")
+      } else {
+        Toast.success("Deposit matched to bank credit")
+      }
+      await fetchDeposits()
+    } catch (e) {
+      Toast.error(apiError(e, "Verification failed"))
+    } finally {
+      setBusyDepositId(null)
+    }
+  }
+
+  const handleVerifyStatementLine = async (row) => {
+    setBusyStatementId(String(row._id))
+    try {
+      await NetworkManager(API.BANKING.POST_VERIFY_STATEMENT_LINE).request(
+        {},
+        { pathParams: [String(row._id)] }
+      )
+      Toast.success("Statement line marked verified")
+      await fetchStatement()
+    } catch (e) {
+      Toast.error(apiError(e, "Could not mark line verified"))
+    } finally {
+      setBusyStatementId(null)
+    }
+  }
+
+  const counts = useMemo(
+    () => ({
+      pending: unclearedList?.length ?? 0,
+      verified: forApprovalList?.length ?? 0,
+      suspense: suspenseList.length,
+      cash: deposits.length,
+      statement: statementRows.length,
+    }),
+    [unclearedList, forApprovalList, suspenseList, deposits, statementRows]
+  )
+
+  const suspenseByAccount = useMemo(() => {
+    const groups = new Map()
+    for (const entry of suspenseList) {
+      const key = entry.accountNumber || "Unknown account"
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(entry)
+    }
+    return [...groups.entries()]
+  }, [suspenseList])
 
   return (
     <div className="space-y-4">
       <div className="erp-card animate-fade-up stagger-2 p-4">
-        <h2 className="text-sm font-semibold text-foreground mb-1">Statement – Unverified entries</h2>
-        <p className="text-xs text-muted-foreground mb-3">Match bank entries and mark payments verified.</p>
-        <div className="flex flex-wrap gap-2 items-end mb-3">
-          <label className="text-[11px] font-semibold text-muted-foreground">
-            From
-            <input
-              type="date"
-              className="erp-input block mt-1 text-xs"
-              value={reconcileDateFrom}
-              onChange={(e) => onDateFromChange(e.target.value)}
-            />
-          </label>
-          <label className="text-[11px] font-semibold text-muted-foreground">
-            To
-            <input
-              type="date"
-              className="erp-input block mt-1 text-xs"
-              value={reconcileDateTo}
-              onChange={(e) => onDateToChange(e.target.value)}
-            />
-          </label>
-          <button type="button" className="btn-primary text-xs" onClick={onRefreshUncleared} disabled={loadingUncleared}>
-            {loadingUncleared ? "…" : "Refresh"}
-          </button>
-          <button
-            type="button"
-            className="btn-primary text-xs"
-            onClick={onFetchBankStatement}
-            disabled={bankStatementLoading}
-            title="Fetch ICICI statement lines into ERP for this date range"
-          >
-            {bankStatementLoading ? "…" : "Fetch bank statement"}
-          </button>
-          <button type="button" className="btn-primary text-xs" onClick={onReconcile} disabled={reconcileLoading}>
-            {reconcileLoading ? "…" : "Reconcile with bank"}
-          </button>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground mb-1">Banking</h2>
+            <p className="text-xs text-muted-foreground">
+              Sandbox — ICICI UAT credentials only, no live account is contacted.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 items-end">
+            {accounts.length > 0 && (
+              <label className="text-[11px] font-semibold text-muted-foreground">
+                Account
+                <select
+                  className="erp-input block mt-1 text-xs"
+                  value={accountNumber}
+                  onChange={(e) => setAccountNumber(e.target.value)}
+                >
+                  <option value="">All accounts</option>
+                  {accounts.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="text-[11px] font-semibold text-muted-foreground">
+              From
+              <input
+                type="date"
+                className="erp-input block mt-1 text-xs"
+                value={reconcileDateFrom}
+                onChange={(e) => onDateFromChange(e.target.value)}
+              />
+            </label>
+            <label className="text-[11px] font-semibold text-muted-foreground">
+              To
+              <input
+                type="date"
+                className="erp-input block mt-1 text-xs"
+                value={reconcileDateTo}
+                onChange={(e) => onDateToChange(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-primary text-xs"
+              onClick={onFetchBankStatement}
+              disabled={bankStatementLoading}
+              title="Pull ICICI statement lines into ERP for this date range"
+            >
+              {bankStatementLoading ? "…" : "Sync statement"}
+            </button>
+            <button
+              type="button"
+              className="btn-primary text-xs"
+              onClick={onReconcile}
+              disabled={reconcileLoading}
+            >
+              {reconcileLoading ? "…" : "Reconcile all"}
+            </button>
+          </div>
         </div>
+
+        <div className="flex flex-wrap gap-1 border-b border-border mb-3 overflow-x-auto">
+          {SUB_TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setSubTab(t.id)}
+              className={`px-3 py-2 text-xs font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                subTab === t.id
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+              <span className="ml-1.5 text-[10px] text-muted-foreground">{counts[t.id]}</span>
+            </button>
+          ))}
+        </div>
+
         {bankStatementMessage && (
           <p className="text-[11px] text-muted-foreground mb-2 max-w-2xl">{bankStatementMessage}</p>
         )}
-        {reconcileResult && (
+        {reconcileResult && subTab === "pending" && (
           <div className="mb-3 px-3 py-2 rounded-sm bg-status-collected-bg text-status-collected text-xs font-medium">
             {reconcileResult.updatedCount && reconcileResult.updatedCount > 0
               ? `${reconcileResult.updatedCount} payment(s) verified by bank.`
               : "No new matches."}
           </div>
         )}
-        {loadingUncleared ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Mode</th>
-                  <th>UTR / Txn / Cheque</th>
-                  <th>Source</th>
-                  <th>Bank status</th>
-                  <th>ICICI</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unclearedList.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="text-center text-muted-foreground py-6">
-                      No unverified entries
-                    </td>
-                  </tr>
-                ) : (
-                  unclearedList.map((p) => (
-                    <tr key={String(p.paymentId)}>
-                      <td>{p.orderId}</td>
-                      <td>{p.paymentDate ? moment(p.paymentDate).format("DD-MM-YYYY") : "—"}</td>
-                      <td className="tabular">{p.paidAmount}</td>
-                      <td>{p.modeOfPayment}</td>
-                      <td>{p.utrNumber || p.transactionId || p.chequeNumber || p.ref}</td>
-                      <td>{p.source}</td>
-                      <td>
-                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:text-amber-100">
-                          Not matched
-                        </span>
-                      </td>
-                      <td>
-                        {(p.merchantTranId || p.qrReferenceId) ? (
-                          <button
-                            type="button"
-                            className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
-                            disabled={iciciVerifyPaymentId === String(p.paymentId)}
-                            onClick={() => handleVerifyIciciUncleared(p)}
-                          >
-                            {iciciVerifyPaymentId === String(p.paymentId) ? "…" : "Verify with ICICI"}
-                          </button>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+
+        {subTab === "pending" && (
+          <PendingTable
+            rows={unclearedList}
+            loading={loadingUncleared}
+            checkResults={checkResults}
+            checkingPaymentId={checkingPaymentId}
+            onCheck={handleCheckBank}
+            onRefresh={onRefreshUncleared}
+          />
+        )}
+
+        {subTab === "verified" && (
+          <VerifiedTable
+            rows={forApprovalList}
+            loading={loadingForApproval}
+            updatingPaymentId={updatingPaymentId}
+            onRefresh={onRefreshForApproval}
+            onApproveOrReject={onApproveOrReject}
+          />
+        )}
+
+        {subTab === "suspense" && (
+          <SuspenseTables
+            groups={suspenseByAccount}
+            loading={loadingSuspense}
+            busyId={busySuspenseId}
+            onRefresh={fetchSuspense}
+            onOpenLink={setLinkTarget}
+            onWriteOff={handleWriteOff}
+          />
+        )}
+
+        {subTab === "cash" && (
+          <CashDepositPanel
+            form={depositForm}
+            onFormChange={setDepositForm}
+            accounts={accounts}
+            defaultAccount={accountNumber}
+            saving={savingDeposit}
+            onSubmit={handleSaveDeposit}
+            rows={deposits}
+            loading={loadingDeposits}
+            busyId={busyDepositId}
+            onVerify={handleVerifyDeposit}
+          />
+        )}
+
+        {subTab === "statement" && (
+          <StatementTable
+            rows={statementRows}
+            loading={loadingStatement}
+            busyId={busyStatementId}
+            onVerify={handleVerifyStatementLine}
+            onRefresh={fetchStatement}
+          />
         )}
       </div>
 
-      <div className="erp-card animate-fade-up stagger-3 p-4">
-        <h2 className="text-sm font-semibold text-foreground mb-1">Accountant approval – Verified by bank</h2>
-        <p className="text-xs text-muted-foreground mb-3">Approve or reject payments that cleared bank verification.</p>
-        <div className="flex flex-wrap gap-2 items-end mb-3">
-          <label className="text-[11px] font-semibold text-muted-foreground">
-            From
-            <input
-              type="date"
-              className="erp-input block mt-1 text-xs"
-              value={reconcileDateFrom}
-              onChange={(e) => onDateFromChange(e.target.value)}
-            />
-          </label>
-          <label className="text-[11px] font-semibold text-muted-foreground">
-            To
-            <input
-              type="date"
-              className="erp-input block mt-1 text-xs"
-              value={reconcileDateTo}
-              onChange={(e) => onDateToChange(e.target.value)}
-            />
-          </label>
-          <button type="button" className="btn-primary text-xs" onClick={onRefreshForApproval} disabled={loadingForApproval}>
-            {loadingForApproval ? "…" : "Refresh"}
-          </button>
+      {linkTarget && (
+        <LinkPaymentDrawer
+          entry={linkTarget}
+          candidates={unclearedList}
+          busy={busySuspenseId === String(linkTarget._id)}
+          onClose={() => setLinkTarget(null)}
+          onLink={(payment) => handleLinkSuspense(linkTarget, payment)}
+        />
+      )}
+    </div>
+  )
+}
+
+function RefreshBar({ onRefresh, loading, children }) {
+  return (
+    <div className="flex flex-wrap gap-2 items-center mb-3">
+      {onRefresh && (
+        <button type="button" className="btn-primary text-xs" onClick={onRefresh} disabled={loading}>
+          {loading ? "…" : "Refresh"}
+        </button>
+      )}
+      {children}
+    </div>
+  )
+}
+
+function EmptyRow({ colSpan, children }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="text-center text-muted-foreground py-6">
+        {children}
+      </td>
+    </tr>
+  )
+}
+
+function PendingTable({ rows, loading, checkResults, checkingPaymentId, onCheck, onRefresh }) {
+  return (
+    <>
+      <p className="text-xs text-muted-foreground mb-2">
+        Payments with a reference that the bank has not confirmed yet.
+      </p>
+      <RefreshBar onRefresh={onRefresh} loading={loading} />
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Date</th>
+                <th>Party</th>
+                <th>Amount</th>
+                <th>Mode</th>
+                <th>UTR / Txn / Cheque</th>
+                <th>Bank check</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <EmptyRow colSpan={8}>No pending bank payments</EmptyRow>
+              ) : (
+                rows.map((p) => {
+                  const id = String(p.paymentId)
+                  const outcome = checkResults[id]
+                  const label = outcome ? CHECK_LABEL[outcome.result] : null
+                  const hasRef = Boolean(p.utrNumber || p.transactionId || p.chequeNumber)
+                  return (
+                    <tr key={id}>
+                      <td>{p.orderId}</td>
+                      <td>{fmtDate(p.paymentDate)}</td>
+                      <td>{p.farmerName || p.customerName || "—"}</td>
+                      <td className="tabular">{fmtAmount(p.paidAmount)}</td>
+                      <td>{p.modeOfPayment}</td>
+                      <td>{paymentRef(p)}</td>
+                      <td>
+                        {label ? (
+                          <Pill tone={label.tone}>{label.text}</Pill>
+                        ) : (
+                          <Pill tone="muted">Not checked</Pill>
+                        )}
+                        {outcome?.message && (
+                          <div className="text-[11px] text-muted-foreground mt-0.5 max-w-[22rem]">
+                            {outcome.message}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                          disabled={!hasRef || checkingPaymentId === id}
+                          title={hasRef ? "Check this UTR against the bank" : "No reference to check"}
+                          onClick={() => onCheck(p)}
+                        >
+                          {checkingPaymentId === id ? "…" : "Check bank"}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
         </div>
-        {loadingForApproval ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>UTR / Txn / Cheque</th>
-                  <th>Customer</th>
-                  <th>Bank status</th>
-                  <th>Decision</th>
-                </tr>
-              </thead>
-              <tbody>
-                {forApprovalList.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center text-muted-foreground py-6">
-                      No payments pending approval
-                    </td>
-                  </tr>
-                ) : (
-                  forApprovalList.map((p) => (
+      )}
+    </>
+  )
+}
+
+function VerifiedTable({ rows, loading, updatingPaymentId, onRefresh, onApproveOrReject }) {
+  return (
+    <>
+      <p className="text-xs text-muted-foreground mb-2">
+        Cleared bank verification. Approve to mark them collected.
+      </p>
+      <RefreshBar onRefresh={onRefresh} loading={loading} />
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>UTR / Txn / Cheque</th>
+                <th>Customer</th>
+                <th>Bank status</th>
+                <th>Decision</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <EmptyRow colSpan={7}>No payments pending approval</EmptyRow>
+              ) : (
+                rows.map((p) => {
+                  const match = getStatementMatchPresentation(p)
+                  return (
                     <tr key={String(p.paymentId)}>
                       <td>{p.orderId}</td>
-                      <td>{p.paymentDate ? moment(p.paymentDate).format("DD-MM-YYYY") : "—"}</td>
-                      <td className="tabular">{p.paidAmount}</td>
-                      <td>{p.utrNumber || p.transactionId || p.chequeNumber}</td>
+                      <td>{fmtDate(p.paymentDate)}</td>
+                      <td className="tabular">{fmtAmount(p.paidAmount)}</td>
+                      <td>{paymentRef(p)}</td>
                       <td>{p.farmerName || p.customerName || "—"}</td>
                       <td>
                         <StatusBadge status="BANK_VERIFIED" />
+                        <div className="text-[11px] text-muted-foreground mt-0.5">{match.label}</div>
                       </td>
                       <td>
                         <BankApprovalMenu
@@ -249,13 +669,394 @@ export function BankReconciliationLive({
                         />
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
+}
+
+function SuspenseTables({ groups, loading, busyId, onRefresh, onOpenLink, onWriteOff }) {
+  return (
+    <>
+      <p className="text-xs text-muted-foreground mb-2">
+        Bank credits with no order, a different amount, or more than one possible match.
+      </p>
+      <RefreshBar onRefresh={onRefresh} loading={loading} />
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : groups.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-6 text-center">Nothing in suspense</p>
+      ) : (
+        groups.map(([account, entries]) => (
+          <div key={account} className="mb-4">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+              {account}
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>UTR</th>
+                    <th>Amount</th>
+                    <th>Narration</th>
+                    <th>Reason</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry) => (
+                    <tr key={String(entry._id)}>
+                      <td>{fmtDate(entry.txnDate)}</td>
+                      <td>{entry.utr || "—"}</td>
+                      <td className="tabular">{fmtAmount(entry.amount)}</td>
+                      <td className="max-w-[20rem] truncate" title={entry.narration}>
+                        {entry.narration || "—"}
+                      </td>
+                      <td>
+                        <Pill tone="bad">
+                          {SUSPENSE_REASON_LABEL[entry.reason] || entry.reason}
+                        </Pill>
+                      </td>
+                      <td>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                            disabled={busyId === String(entry._id)}
+                            onClick={() => onOpenLink(entry)}
+                          >
+                            Link payment
+                          </button>
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-border text-muted-foreground hover:bg-muted/50 disabled:opacity-50"
+                            disabled={busyId === String(entry._id)}
+                            onClick={() => onWriteOff(entry)}
+                          >
+                            Write off
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
+        ))
+      )}
+    </>
+  )
+}
+
+function LinkPaymentDrawer({ entry, candidates, busy, onClose, onLink }) {
+  const sameAmount = useMemo(
+    () =>
+      (candidates || []).filter(
+        (p) => Math.abs(Number(p.paidAmount) - Number(entry.amount)) < 0.02
+      ),
+    [candidates, entry.amount]
+  )
+  const others = useMemo(
+    () =>
+      (candidates || []).filter(
+        (p) => Math.abs(Number(p.paidAmount) - Number(entry.amount)) >= 0.02
+      ),
+    [candidates, entry.amount]
+  )
+  const [showAll, setShowAll] = useState(false)
+  const rows = showAll ? [...sameAmount, ...others] : sameAmount
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
+      <div
+        className="w-full max-w-xl h-full overflow-y-auto bg-background border-l border-border p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Link bank credit to a payment</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {fmtDate(entry.txnDate)} · {fmtAmount(entry.amount)} · {entry.utr || "no UTR"}
+            </p>
+          </div>
+          <button type="button" className="text-xs text-muted-foreground" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        {sameAmount.length === 0 && !showAll && (
+          <p className="text-xs text-muted-foreground mb-3">
+            No pending payment of this amount.
+          </p>
         )}
+        <button
+          type="button"
+          className="text-[11px] font-semibold text-muted-foreground underline mb-3"
+          onClick={() => setShowAll((v) => !v)}
+        >
+          {showAll ? "Show only matching amounts" : "Show all pending payments"}
+        </button>
+
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Date</th>
+              <th>Party</th>
+              <th>Amount</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <EmptyRow colSpan={5}>No candidate payments</EmptyRow>
+            ) : (
+              rows.map((p) => (
+                <tr key={String(p.paymentId)}>
+                  <td>{p.orderId}</td>
+                  <td>{fmtDate(p.paymentDate)}</td>
+                  <td>{p.farmerName || p.customerName || "—"}</td>
+                  <td className="tabular">{fmtAmount(p.paidAmount)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => onLink(p)}
+                    >
+                      {busy ? "…" : "Link"}
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
+  )
+}
+
+function CashDepositPanel({
+  form,
+  onFormChange,
+  accounts,
+  defaultAccount,
+  saving,
+  onSubmit,
+  rows,
+  loading,
+  busyId,
+  onVerify,
+}) {
+  const set = (patch) => onFormChange({ ...form, ...patch })
+  return (
+    <>
+      <p className="text-xs text-muted-foreground mb-2">
+        Cash paid into the bank over the counter. Verify matches it to the credit the bank posts.
+      </p>
+      <form onSubmit={onSubmit} className="flex flex-wrap gap-2 items-end mb-4">
+        <label className="text-[11px] font-semibold text-muted-foreground">
+          Date
+          <input
+            type="date"
+            className="erp-input block mt-1 text-xs"
+            value={form.entryDate}
+            onChange={(e) => set({ entryDate: e.target.value })}
+          />
+        </label>
+        <label className="text-[11px] font-semibold text-muted-foreground">
+          Amount
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            className="erp-input block mt-1 text-xs"
+            value={form.amount}
+            onChange={(e) => set({ amount: e.target.value })}
+          />
+        </label>
+        <label className="text-[11px] font-semibold text-muted-foreground">
+          Bank account
+          {accounts.length > 0 ? (
+            <select
+              className="erp-input block mt-1 text-xs"
+              value={form.accountNumber || defaultAccount || ""}
+              onChange={(e) => set({ accountNumber: e.target.value })}
+            >
+              <option value="">Select…</option>
+              {accounts.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="erp-input block mt-1 text-xs"
+              value={form.accountNumber}
+              onChange={(e) => set({ accountNumber: e.target.value })}
+            />
+          )}
+        </label>
+        <label className="text-[11px] font-semibold text-muted-foreground">
+          Slip no.
+          <input
+            type="text"
+            className="erp-input block mt-1 text-xs"
+            value={form.slipNumber}
+            onChange={(e) => set({ slipNumber: e.target.value })}
+          />
+        </label>
+        <label className="text-[11px] font-semibold text-muted-foreground flex-1 min-w-[12rem]">
+          Narration
+          <input
+            type="text"
+            className="erp-input block mt-1 text-xs w-full"
+            value={form.narration}
+            onChange={(e) => set({ narration: e.target.value })}
+          />
+        </label>
+        <button type="submit" className="btn-primary text-xs" disabled={saving}>
+          {saving ? "…" : "Save deposit"}
+        </button>
+      </form>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Slip no.</th>
+                <th>Amount</th>
+                <th>Bank</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <EmptyRow colSpan={6}>No cash deposits in this range</EmptyRow>
+              ) : (
+                rows.map((d) => (
+                  <tr key={String(d._id)}>
+                    <td>{fmtDate(d.entryDate)}</td>
+                    <td>{d.slipNumber || "—"}</td>
+                    <td className="tabular">{fmtAmount(d.amount)}</td>
+                    <td>{d.accountNumber || "—"}</td>
+                    <td>
+                      {d.depositVerified ? (
+                        <Pill tone="ok">Verified</Pill>
+                      ) : (
+                        <Pill tone="warn">Unverified</Pill>
+                      )}
+                    </td>
+                    <td>
+                      {d.depositVerified ? (
+                        <span className="text-[11px] text-muted-foreground">—</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                          disabled={busyId === String(d._id)}
+                          onClick={() => onVerify(d)}
+                        >
+                          {busyId === String(d._id) ? "…" : "Verify"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
+}
+
+function StatementTable({ rows, loading, busyId, onVerify, onRefresh }) {
+  return (
+    <>
+      <p className="text-xs text-muted-foreground mb-2">
+        Lines pulled from the bank. Marking one verified retires it from matching.
+      </p>
+      <RefreshBar onRefresh={onRefresh} loading={loading} />
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Narration</th>
+                <th>Reference / UTR</th>
+                <th>Debit</th>
+                <th>Credit</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <EmptyRow colSpan={7}>No statement lines — try Sync statement</EmptyRow>
+              ) : (
+                rows.map((r) => {
+                  const credit = Number(r.amount) > 0
+                  return (
+                    <tr
+                      key={String(r._id)}
+                      className={r.statementVerified ? "text-muted-foreground" : undefined}
+                    >
+                      <td>{fmtDate(r.txnDate)}</td>
+                      <td className="max-w-[24rem] truncate" title={r.narration}>
+                        {r.narration || "—"}
+                      </td>
+                      <td>{r.referenceNumber || r.utr || "—"}</td>
+                      <td className="tabular">{credit ? "—" : fmtAmount(Math.abs(r.amount))}</td>
+                      <td className="tabular">{credit ? fmtAmount(r.amount) : "—"}</td>
+                      <td>
+                        {r.statementVerified ? (
+                          <Pill tone="ok">Verified</Pill>
+                        ) : (
+                          <Pill tone="muted">{r.reconciliationStatus || "New"}</Pill>
+                        )}
+                      </td>
+                      <td>
+                        {r.statementVerified ? (
+                          <span className="text-[11px] text-muted-foreground">—</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                            disabled={busyId === String(r._id)}
+                            onClick={() => onVerify(r)}
+                          >
+                            {busyId === String(r._id) ? "…" : "Mark verified"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   )
 }
