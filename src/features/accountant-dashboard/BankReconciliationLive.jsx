@@ -52,6 +52,28 @@ const fmtDate = (d) => (d ? moment(d).format("DD-MM-YYYY") : "—")
 const fmtAmount = (n) => (n == null || n === "" ? "—" : Number(n).toLocaleString("en-IN"))
 const paymentRef = (p) => p?.utrNumber || p?.transactionId || p?.chequeNumber || p?.ref || "—"
 const STATEMENT_PAGE_SIZE = 50
+const PENDING_PAGE_SIZE = 50
+
+function pendingOutcome(payment, checkResults) {
+  const checked = checkResults[String(payment.paymentId)]
+  if (checked?.result) return checked
+  if (payment.statementMatch === "EXACT") {
+    return { result: "VERIFIED", message: "UTR and amount are already on the statement" }
+  }
+  if (payment.statementMatch === "AMOUNT_MISMATCH") {
+    return {
+      result: "AMOUNT_MISMATCH",
+      message:
+        payment.statementAmount != null
+          ? `Statement has ₹${Number(payment.statementAmount).toLocaleString("en-IN")}`
+          : "Same UTR, different amount",
+    }
+  }
+  if (payment.statementMatch === "NOT_FOUND") {
+    return { result: "NOT_FOUND", message: "Not on the loaded statement" }
+  }
+  return null
+}
 
 export function BankReconciliationLive({
   reconcileDateFrom,
@@ -113,6 +135,19 @@ export function BankReconciliationLive({
   const prevSyncingRef = useRef(false)
   statementRowsRef.current = statementRows
   statementHasMoreRef.current = statementHasMore
+
+  const [pendingRows, setPendingRows] = useState([])
+  const [pendingTotal, setPendingTotal] = useState(0)
+  const [pendingHasMore, setPendingHasMore] = useState(false)
+  const [loadingPending, setLoadingPending] = useState(false)
+  const [loadingMorePending, setLoadingMorePending] = useState(false)
+  const pendingRowsRef = useRef([])
+  const pendingHasMoreRef = useRef(false)
+  const pendingLoadLockRef = useRef(false)
+  const pendingReqIdRef = useRef(0)
+  const prevReconcileRef = useRef(false)
+  pendingRowsRef.current = pendingRows
+  pendingHasMoreRef.current = pendingHasMore
 
   const apiError = (e, fallback) =>
     e?.response?.data?.message || e?.message || fallback
@@ -238,6 +273,78 @@ export function BankReconciliationLive({
     void fetchStatement({ append: true })
   }, [fetchStatement])
 
+  const fetchPending = useCallback(
+    async ({ append = false } = {}) => {
+      if (append) {
+        if (pendingLoadLockRef.current || !pendingHasMoreRef.current) return
+        pendingLoadLockRef.current = true
+        setLoadingMorePending(true)
+      } else {
+        pendingReqIdRef.current += 1
+        pendingLoadLockRef.current = false
+        pendingRowsRef.current = []
+        pendingHasMoreRef.current = false
+        setPendingRows([])
+        setPendingHasMore(false)
+        setLoadingPending(true)
+      }
+
+      const reqId = pendingReqIdRef.current
+      const skip = append ? pendingRowsRef.current.length : 0
+
+      try {
+        const res = await NetworkManager(API.BANKING.GET_PENDING_PAYMENTS).request(
+          {},
+          {
+            dateFrom: reconcileDateFrom,
+            dateTo: reconcileDateTo,
+            limit: PENDING_PAGE_SIZE,
+            skip,
+          }
+        )
+        if (reqId !== pendingReqIdRef.current) return
+
+        const body = res?.data ?? {}
+        const page = Array.isArray(body.data) ? body.data : []
+        const total = Number(body.total ?? 0)
+        setPendingTotal(total)
+        setPendingRows((prev) => {
+          const next = append ? [...prev, ...page] : page
+          const more =
+            typeof body.hasMore === "boolean" ? body.hasMore : next.length < total && page.length > 0
+          pendingHasMoreRef.current = more
+          setPendingHasMore(more)
+          return next
+        })
+      } catch (e) {
+        if (reqId !== pendingReqIdRef.current) return
+        Toast.error(apiError(e, "Failed to load uncleared payments"))
+        if (!append) {
+          setPendingRows([])
+          setPendingTotal(0)
+          pendingHasMoreRef.current = false
+          setPendingHasMore(false)
+        }
+      } finally {
+        if (append) {
+          pendingLoadLockRef.current = false
+          setLoadingMorePending(false)
+        } else if (reqId === pendingReqIdRef.current) {
+          setLoadingPending(false)
+        }
+      }
+    },
+    [reconcileDateFrom, reconcileDateTo]
+  )
+
+  const loadMorePending = useCallback(() => {
+    void fetchPending({ append: true })
+  }, [fetchPending])
+
+  useEffect(() => {
+    void fetchPending()
+  }, [fetchPending])
+
   useEffect(() => {
     if (subTab === "suspense") fetchSuspense()
     if (subTab === "cash") fetchDeposits()
@@ -245,11 +352,19 @@ export function BankReconciliationLive({
   }, [subTab, fetchSuspense, fetchDeposits, fetchStatement])
 
   useEffect(() => {
-    if (prevSyncingRef.current && !bankStatementLoading && subTab === "statement") {
-      void fetchStatement()
+    if (prevSyncingRef.current && !bankStatementLoading) {
+      if (subTab === "statement") void fetchStatement()
+      void fetchPending()
     }
     prevSyncingRef.current = bankStatementLoading
-  }, [bankStatementLoading, subTab, fetchStatement])
+  }, [bankStatementLoading, subTab, fetchStatement, fetchPending])
+
+  useEffect(() => {
+    if (prevReconcileRef.current && !reconcileLoading) {
+      void fetchPending()
+    }
+    prevReconcileRef.current = reconcileLoading
+  }, [reconcileLoading, fetchPending])
 
   const handleCheckBank = async (p) => {
     setCheckingPaymentId(String(p.paymentId))
@@ -263,11 +378,27 @@ export function BankReconciliationLive({
       setCheckResults((prev) => ({ ...prev, [String(p.paymentId)]: data }))
       if (data.result === "VERIFIED") {
         Toast.success(data.message || "Payment verified by bank")
-        if (onRefreshUncleared) await onRefreshUncleared()
+        setPendingRows((prev) => prev.filter((row) => String(row.paymentId) !== String(p.paymentId)))
+        setPendingTotal((n) => Math.max(0, n - 1))
         if (onRefreshForApproval) await onRefreshForApproval()
       } else {
         Toast.info(data.message || "Bank check complete")
-        if (data.result !== "NOT_FOUND" && onRefreshUncleared) await onRefreshUncleared()
+        setPendingRows((prev) =>
+          prev.map((row) =>
+            String(row.paymentId) === String(p.paymentId)
+              ? {
+                  ...row,
+                  statementMatch:
+                    data.result === "AMOUNT_MISMATCH"
+                      ? "AMOUNT_MISMATCH"
+                      : data.result === "NOT_FOUND"
+                        ? "NOT_FOUND"
+                        : row.statementMatch,
+                  statementAmount: data.bankAmount ?? row.statementAmount,
+                }
+              : row
+          )
+        )
       }
     } catch (e) {
       Toast.error(apiError(e, "Bank check failed"))
@@ -290,7 +421,7 @@ export function BankReconciliationLive({
       Toast.success("Suspense entry linked to payment")
       setLinkTarget(null)
       await fetchSuspense()
-      if (onRefreshUncleared) await onRefreshUncleared()
+      await fetchPending()
       if (onRefreshForApproval) await onRefreshForApproval()
     } catch (e) {
       Toast.error(apiError(e, "Could not link payment"))
@@ -412,6 +543,7 @@ export function BankReconciliationLive({
       }
       if (!accountNumber) setAccountNumber(account)
       await fetchStatement()
+      await fetchPending()
     } catch (e) {
       Toast.error(apiError(e, "Could not import the statement"))
     } finally {
@@ -421,13 +553,13 @@ export function BankReconciliationLive({
 
   const counts = useMemo(
     () => ({
-      pending: unclearedList?.length ?? 0,
+      pending: pendingTotal,
       verified: forApprovalList?.length ?? 0,
       suspense: suspenseList.length,
       cash: deposits.length,
       statement: statementTotal,
     }),
-    [unclearedList, forApprovalList, suspenseList, deposits, statementTotal]
+    [pendingTotal, forApprovalList, suspenseList, deposits, statementTotal]
   )
 
   const suspenseByAccount = useMemo(() => {
@@ -538,12 +670,17 @@ export function BankReconciliationLive({
 
         {subTab === "pending" && (
           <PendingTable
-            rows={unclearedList}
-            loading={loadingUncleared}
+            rows={pendingRows}
+            total={pendingTotal}
+            pageSize={PENDING_PAGE_SIZE}
+            hasMore={pendingHasMore}
+            loading={loadingPending}
+            loadingMore={loadingMorePending}
             checkResults={checkResults}
             checkingPaymentId={checkingPaymentId}
             onCheck={handleCheckBank}
-            onRefresh={onRefreshUncleared}
+            onRefresh={() => fetchPending()}
+            onLoadMore={loadMorePending}
           />
         )}
 
@@ -607,7 +744,7 @@ export function BankReconciliationLive({
       {linkTarget && (
         <LinkPaymentDrawer
           entry={linkTarget}
-          candidates={unclearedList}
+          candidates={pendingRows}
           busy={busySuspenseId === String(linkTarget._id)}
           onClose={() => setLinkTarget(null)}
           onLink={(payment) => handleLinkSuspense(linkTarget, payment)}
@@ -640,19 +777,42 @@ function EmptyRow({ colSpan, children }) {
   )
 }
 
-function PendingTable({ rows, loading, checkResults, checkingPaymentId, onCheck, onRefresh }) {
+function PendingTable({
+  rows,
+  total = 0,
+  pageSize = PENDING_PAGE_SIZE,
+  hasMore = false,
+  loading,
+  loadingMore = false,
+  checkResults,
+  checkingPaymentId,
+  onCheck,
+  onRefresh,
+  onLoadMore,
+}) {
+  const scrollRef = useRef(null)
+  const shown = rows.length
+  const totalLabel = Number(total).toLocaleString("en-IN")
+
   return (
     <>
       <p className="text-xs text-muted-foreground mb-2">
-        Payments with a reference that the bank has not confirmed yet.
+        ERP payments with a UTR or cheque that should match a statement credit.
       </p>
-      <RefreshBar onRefresh={onRefresh} loading={loading} />
-      {loading ? (
+      <RefreshBar onRefresh={onRefresh} loading={loading}>
+        {shown > 0 && (
+          <span className="text-[11px] text-muted-foreground">
+            Showing {shown.toLocaleString("en-IN")} of {totalLabel}
+            {hasMore ? ` · ${pageSize} per page · scroll for more` : ""}
+          </span>
+        )}
+      </RefreshBar>
+      {loading && shown === 0 ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div ref={scrollRef} className="overflow-auto max-h-[min(68vh,720px)]">
           <table className="data-table">
-            <thead>
+            <thead className="sticky top-0 bg-background z-[1]">
               <tr>
                 <th>Order</th>
                 <th>Date</th>
@@ -660,17 +820,17 @@ function PendingTable({ rows, loading, checkResults, checkingPaymentId, onCheck,
                 <th>Amount</th>
                 <th>Mode</th>
                 <th>UTR / Txn / Cheque</th>
-                <th>Bank check</th>
+                <th>Statement</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <EmptyRow colSpan={8}>No pending bank payments</EmptyRow>
+                <EmptyRow colSpan={8}>No pending bank payments in this date range</EmptyRow>
               ) : (
                 rows.map((p) => {
                   const id = String(p.paymentId)
-                  const outcome = checkResults[id]
+                  const outcome = pendingOutcome(p, checkResults)
                   const label = outcome ? CHECK_LABEL[outcome.result] : null
                   const hasRef = Boolean(p.utrNumber || p.transactionId || p.chequeNumber)
                   return (
@@ -710,6 +870,16 @@ function PendingTable({ rows, loading, checkResults, checkingPaymentId, onCheck,
               )}
             </tbody>
           </table>
+          {shown > 0 && (
+            <ListScrollSentinel
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={onLoadMore}
+              rootRef={scrollRef}
+              loadingLabel="Loading more payments…"
+              endLabel="End of pending payments"
+            />
+          )}
         </div>
       )}
     </>
@@ -1224,7 +1394,14 @@ function ImportStatementPanel({ accounts, defaultAccount, importing, summary, on
   )
 }
 
-function StatementScrollSentinel({ hasMore, loadingMore, onLoadMore, rootRef }) {
+function ListScrollSentinel({
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  rootRef,
+  loadingLabel = "Loading more…",
+  endLabel = "End of list",
+}) {
   const sentinelRef = useRef(null)
 
   useEffect(() => {
@@ -1243,13 +1420,13 @@ function StatementScrollSentinel({ hasMore, loadingMore, onLoadMore, rootRef }) 
   }, [hasMore, onLoadMore, rootRef])
 
   if (!hasMore && !loadingMore) {
-    return <p className="py-3 text-center text-[11px] text-muted-foreground">End of statement</p>
+    return <p className="py-3 text-center text-[11px] text-muted-foreground">{endLabel}</p>
   }
 
   return (
     <div ref={sentinelRef} className="flex justify-center py-3">
       {loadingMore ? (
-        <span className="text-xs text-muted-foreground">Loading more lines…</span>
+        <span className="text-xs text-muted-foreground">{loadingLabel}</span>
       ) : (
         <button
           type="button"
@@ -1368,11 +1545,13 @@ function StatementTable({
             </tbody>
           </table>
           {shown > 0 && (
-            <StatementScrollSentinel
+            <ListScrollSentinel
               hasMore={hasMore}
               loadingMore={loadingMore}
               onLoadMore={onLoadMore}
               rootRef={scrollRef}
+              loadingLabel="Loading more lines…"
+              endLabel="End of statement"
             />
           )}
         </div>
