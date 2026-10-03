@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import moment from "moment"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
@@ -51,6 +51,7 @@ function Pill({ tone = "muted", children }) {
 const fmtDate = (d) => (d ? moment(d).format("DD-MM-YYYY") : "—")
 const fmtAmount = (n) => (n == null || n === "" ? "—" : Number(n).toLocaleString("en-IN"))
 const paymentRef = (p) => p?.utrNumber || p?.transactionId || p?.chequeNumber || p?.ref || "—"
+const STATEMENT_PAGE_SIZE = 50
 
 export function BankReconciliationLive({
   reconcileDateFrom,
@@ -98,10 +99,20 @@ export function BankReconciliationLive({
   const [busyDepositId, setBusyDepositId] = useState(null)
 
   const [statementRows, setStatementRows] = useState([])
+  const [statementTotal, setStatementTotal] = useState(0)
+  const [statementHasMore, setStatementHasMore] = useState(false)
   const [loadingStatement, setLoadingStatement] = useState(false)
+  const [loadingMoreStatement, setLoadingMoreStatement] = useState(false)
   const [busyStatementId, setBusyStatementId] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importSummary, setImportSummary] = useState(null)
+  const statementRowsRef = useRef([])
+  const statementHasMoreRef = useRef(false)
+  const statementLoadLockRef = useRef(false)
+  const statementReqIdRef = useRef(0)
+  const prevSyncingRef = useRef(false)
+  statementRowsRef.current = statementRows
+  statementHasMoreRef.current = statementHasMore
 
   const apiError = (e, fallback) =>
     e?.response?.data?.message || e?.message || fallback
@@ -158,31 +169,87 @@ export function BankReconciliationLive({
     }
   }, [reconcileDateFrom, reconcileDateTo, accountNumber])
 
-  const fetchStatement = useCallback(async () => {
-    setLoadingStatement(true)
-    try {
-      const res = await NetworkManager(API.BANKING.GET_STATEMENT).request(
-        {},
-        {
-          dateFrom: reconcileDateFrom,
-          dateTo: reconcileDateTo,
-          ...(accountNumber ? { accountNumber } : {}),
+  const fetchStatement = useCallback(
+    async ({ append = false } = {}) => {
+      if (append) {
+        if (statementLoadLockRef.current || !statementHasMoreRef.current) return
+        statementLoadLockRef.current = true
+        setLoadingMoreStatement(true)
+      } else {
+        statementReqIdRef.current += 1
+        statementLoadLockRef.current = false
+        statementRowsRef.current = []
+        statementHasMoreRef.current = false
+        setStatementRows([])
+        setStatementHasMore(false)
+        setLoadingStatement(true)
+      }
+
+      const reqId = statementReqIdRef.current
+      const skip = append ? statementRowsRef.current.length : 0
+
+      try {
+        const res = await NetworkManager(API.BANKING.GET_STATEMENT).request(
+          {},
+          {
+            dateFrom: reconcileDateFrom,
+            dateTo: reconcileDateTo,
+            limit: STATEMENT_PAGE_SIZE,
+            skip,
+            ...(accountNumber ? { accountNumber } : {}),
+          }
+        )
+        if (reqId !== statementReqIdRef.current) return
+
+        const body = res?.data ?? {}
+        const page = Array.isArray(body.data) ? body.data : []
+        const total = Number(body.total ?? 0)
+        setStatementTotal(total)
+        setStatementRows((prev) => {
+          const next = append ? [...prev, ...page] : page
+          const more =
+            typeof body.hasMore === "boolean" ? body.hasMore : next.length < total && page.length > 0
+          statementHasMoreRef.current = more
+          setStatementHasMore(more)
+          return next
+        })
+      } catch (e) {
+        if (reqId !== statementReqIdRef.current) return
+        Toast.error(apiError(e, "Failed to load statement"))
+        if (!append) {
+          setStatementRows([])
+          setStatementTotal(0)
+          statementHasMoreRef.current = false
+          setStatementHasMore(false)
         }
-      )
-      setStatementRows(res?.data?.data ?? [])
-    } catch (e) {
-      Toast.error(apiError(e, "Failed to load statement"))
-      setStatementRows([])
-    } finally {
-      setLoadingStatement(false)
-    }
-  }, [reconcileDateFrom, reconcileDateTo, accountNumber])
+      } finally {
+        if (append) {
+          statementLoadLockRef.current = false
+          setLoadingMoreStatement(false)
+        } else if (reqId === statementReqIdRef.current) {
+          setLoadingStatement(false)
+        }
+      }
+    },
+    [reconcileDateFrom, reconcileDateTo, accountNumber]
+  )
+
+  const loadMoreStatement = useCallback(() => {
+    void fetchStatement({ append: true })
+  }, [fetchStatement])
 
   useEffect(() => {
     if (subTab === "suspense") fetchSuspense()
     if (subTab === "cash") fetchDeposits()
-    if (subTab === "statement") fetchStatement()
+    if (subTab === "statement") void fetchStatement()
   }, [subTab, fetchSuspense, fetchDeposits, fetchStatement])
+
+  useEffect(() => {
+    if (prevSyncingRef.current && !bankStatementLoading && subTab === "statement") {
+      void fetchStatement()
+    }
+    prevSyncingRef.current = bankStatementLoading
+  }, [bankStatementLoading, subTab, fetchStatement])
 
   const handleCheckBank = async (p) => {
     setCheckingPaymentId(String(p.paymentId))
@@ -310,7 +377,13 @@ export function BankReconciliationLive({
         { pathParams: [String(row._id)] }
       )
       Toast.success("Statement line marked verified")
-      await fetchStatement()
+      setStatementRows((prev) =>
+        prev.map((r) =>
+          String(r._id) === String(row._id)
+            ? { ...r, statementVerified: true, statementVerifiedAt: new Date().toISOString() }
+            : r
+        )
+      )
     } catch (e) {
       Toast.error(apiError(e, "Could not mark line verified"))
     } finally {
@@ -352,9 +425,9 @@ export function BankReconciliationLive({
       verified: forApprovalList?.length ?? 0,
       suspense: suspenseList.length,
       cash: deposits.length,
-      statement: statementRows.length,
+      statement: statementTotal,
     }),
-    [unclearedList, forApprovalList, suspenseList, deposits, statementRows]
+    [unclearedList, forApprovalList, suspenseList, deposits, statementTotal]
   )
 
   const suspenseByAccount = useMemo(() => {
@@ -513,10 +586,15 @@ export function BankReconciliationLive({
         {subTab === "statement" && (
           <StatementTable
             rows={statementRows}
+            total={statementTotal}
+            pageSize={STATEMENT_PAGE_SIZE}
+            hasMore={statementHasMore}
             loading={loadingStatement}
+            loadingMore={loadingMoreStatement}
             busyId={busyStatementId}
             onVerify={handleVerifyStatementLine}
-            onRefresh={fetchStatement}
+            onRefresh={() => fetchStatement()}
+            onLoadMore={loadMoreStatement}
             accounts={accounts}
             defaultAccount={accountNumber}
             importing={importing}
@@ -1146,18 +1224,66 @@ function ImportStatementPanel({ accounts, defaultAccount, importing, summary, on
   )
 }
 
+function StatementScrollSentinel({ hasMore, loadingMore, onLoadMore, rootRef }) {
+  const sentinelRef = useRef(null)
+
+  useEffect(() => {
+    const target = sentinelRef.current
+    const root = rootRef?.current || null
+    if (!target || !hasMore || !onLoadMore) return undefined
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onLoadMore()
+      },
+      { root, rootMargin: "160px 0px", threshold: 0 }
+    )
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, onLoadMore, rootRef])
+
+  if (!hasMore && !loadingMore) {
+    return <p className="py-3 text-center text-[11px] text-muted-foreground">End of statement</p>
+  }
+
+  return (
+    <div ref={sentinelRef} className="flex justify-center py-3">
+      {loadingMore ? (
+        <span className="text-xs text-muted-foreground">Loading more lines…</span>
+      ) : (
+        <button
+          type="button"
+          className="text-[11px] font-semibold text-muted-foreground underline"
+          onClick={onLoadMore}
+        >
+          Load more
+        </button>
+      )}
+    </div>
+  )
+}
+
 function StatementTable({
   rows,
+  total = 0,
+  pageSize = STATEMENT_PAGE_SIZE,
+  hasMore = false,
   loading,
+  loadingMore = false,
   busyId,
   onVerify,
   onRefresh,
+  onLoadMore,
   accounts = [],
   defaultAccount,
   importing,
   importSummary,
   onImport,
 }) {
+  const scrollRef = useRef(null)
+  const shown = rows.length
+  const totalLabel = Number(total).toLocaleString("en-IN")
+
   return (
     <>
       <p className="text-xs text-muted-foreground mb-2">
@@ -1170,13 +1296,20 @@ function StatementTable({
         summary={importSummary}
         onImport={onImport}
       />
-      <RefreshBar onRefresh={onRefresh} loading={loading} />
-      {loading ? (
+      <RefreshBar onRefresh={onRefresh} loading={loading}>
+        {shown > 0 && (
+          <span className="text-[11px] text-muted-foreground">
+            Showing {shown.toLocaleString("en-IN")} of {totalLabel}
+            {hasMore ? ` · ${pageSize} per page · scroll for more` : ""}
+          </span>
+        )}
+      </RefreshBar>
+      {loading && shown === 0 ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div ref={scrollRef} className="overflow-auto max-h-[min(68vh,720px)]">
           <table className="data-table">
-            <thead>
+            <thead className="sticky top-0 bg-background z-[1]">
               <tr>
                 <th>Date</th>
                 <th>Narration</th>
@@ -1234,6 +1367,14 @@ function StatementTable({
               )}
             </tbody>
           </table>
+          {shown > 0 && (
+            <StatementScrollSentinel
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={onLoadMore}
+              rootRef={scrollRef}
+            />
+          )}
         </div>
       )}
     </>
