@@ -97,6 +97,10 @@ import ConfirmDialog from "components/Modals/ConfirmDialog"
 import BulkPaymentEntryDialog from "components/Modals/BulkPaymentEntryDialog"
 import PaymentTransferDialog from "components/Modals/PaymentTransferDialog"
 import PaymentQRModal from "components/Modals/PaymentQRModal"
+import PaymentCompleteDialog, {
+  paymentHasBankRef,
+  paymentsFromAddResponse,
+} from "components/payments/PaymentCompleteDialog"
 import AttachmentViewerModal, { resolvePaymentMediaUrl } from "components/Modals/AttachmentViewerModal"
 import { transferableFarmerPlantPayments } from "features/accountant-dashboard/farmerPlantPaymentTransfer.utils"
 import axiosInstance from "services/axiosConfig"
@@ -2371,6 +2375,7 @@ const FarmerOrdersTable = ({
   const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
   const [bankCheckLoadingPaymentId, setBankCheckLoadingPaymentId] = useState(null)
   const [bankCheckOutcomes, setBankCheckOutcomes] = useState({})
+  const [paymentCompleteDialog, setPaymentCompleteDialog] = useState(null)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
   const [dcInvoiceEditOpen, setDcInvoiceEditOpen] = useState(false)
   const [dcInvoiceEditRow, setDcInvoiceEditRow] = useState(null)
@@ -3212,6 +3217,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           } else {
             await getOrders()
           }
+          await checkSavedPaymentsAgainstBank(paymentsFromAddResponse(response.data, 1), true)
         } else {
           Toast.error("Failed to add payment")
         }
@@ -3524,6 +3530,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           if (updatedOrder) {
             setSelectedOrder(updatedOrder)
           }
+          await checkSavedPaymentsAgainstBank(paymentsFromAddResponse(response.data, 1), false)
         } catch (error) {
           console.error("Error refreshing orders after payment:", error)
           // Fallback to the original refresh method
@@ -3710,6 +3717,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     try {
       if (isAgriSalesOrder) {
         const instance = NetworkManager(API.INVENTORY.ADD_AGRI_SALES_ORDER_PAYMENT)
+        const savedFromApi = []
         for (const payload of payments) {
           const body = {
             ...payload,
@@ -3721,6 +3729,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             Toast.error("Failed to add payment")
             return
           }
+          savedFromApi.push(...paymentsFromAddResponse(response.data, 1))
         }
         Toast.success(
           payments.length === 1
@@ -3728,6 +3737,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             : `${payments.length} payments added successfully`
         )
         await refreshAfterPaymentSaved(orderId, payments)
+        await checkSavedPaymentsAgainstBank(savedFromApi, true)
         return
       }
 
@@ -3741,6 +3751,10 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
               : `${payments.length} payments added successfully`)
         )
         await refreshAfterPaymentSaved(orderId, payments)
+        await checkSavedPaymentsAgainstBank(
+          paymentsFromAddResponse(response.data, payments.length),
+          false
+        )
       } else {
         Toast.error("Failed to add payments")
       }
@@ -5861,6 +5875,36 @@ const loadFilterOptions = async () => {
     return payments.some((p) => p.paymentStatus === "PENDING" && p.qrReferenceId && p.qrExpiresAt && new Date(p.qrExpiresAt) > now)
   }, [selectedOrder?.details?.payment])
 
+  const activeQrPayment = React.useMemo(() => {
+    const payments = selectedOrder?.details?.payment || []
+    const now = new Date()
+    return (
+      payments.find(
+        (p) =>
+          p.paymentStatus === "PENDING" &&
+          p.qrReferenceId &&
+          p.qrExpiresAt &&
+          new Date(p.qrExpiresAt) > now
+      ) || null
+    )
+  }, [selectedOrder?.details?.payment])
+
+  const openStoredPaymentQR = () => {
+    if (!activeQrPayment) return
+    const refId = activeQrPayment.merchantTranId || activeQrPayment.qrReferenceId
+    setPaymentQRModalData({
+      qrImageOrString: activeQrPayment.qrImage || activeQrPayment.qrPayload || "",
+      amount: activeQrPayment.paidAmount,
+      orderId: selectedOrder?.details?.orderId || selectedOrder?.order,
+      customerName: selectedOrder?.farmerName || selectedOrder?.details?.farmer?.name,
+      mobileNumber: selectedOrder?.details?.farmer?.mobileNumber,
+      expiresAt: activeQrPayment.qrExpiresAt,
+      qrReferenceId: refId,
+      merchantTranId: refId,
+    })
+    setPaymentQRModalOpen(true)
+  }
+
   const handleGeneratePaymentQR = async () => {
     // Mongo _id lives in details.orderid for table rows (see getOrders map); some payloads use details._id
     const orderId =
@@ -5965,6 +6009,51 @@ const loadFilterOptions = async () => {
       Toast.error(msg)
     } finally {
       setBankCheckLoadingPaymentId(null)
+    }
+  }
+
+  const checkSavedPaymentsAgainstBank = async (savedPayments, isAgri) => {
+    const toCheck = (savedPayments || []).filter(paymentHasBankRef).filter((p) => p._id)
+    if (!toCheck.length) return
+    const orderMongoId =
+      selectedOrder?.details?._id || selectedOrder?.details?.orderid || selectedOrder?._id
+    if (!orderMongoId) return
+
+    const verified = []
+    for (const p of toCheck) {
+      const paymentId = String(p._id)
+      setBankCheckLoadingPaymentId(paymentId)
+      try {
+        const res = await NetworkManager(API.BANKING.POST_VERIFY_PAYMENT).request({
+          source: isAgri ? "agriSales" : "order",
+          orderMongoId: String(orderMongoId),
+          paymentId,
+        })
+        const outcome = res?.data?.data ?? {}
+        setBankCheckOutcomes((prev) => ({ ...prev, [paymentId]: outcome }))
+        if (outcome.result === "VERIFIED") {
+          verified.push({
+            _id: paymentId,
+            paidAmount: p.paidAmount,
+            utrNumber: p.utrNumber || outcome.utr || "",
+            transactionId: p.transactionId || "",
+            message: outcome.message,
+          })
+        } else if (outcome.message) {
+          Toast.info(outcome.message)
+        }
+      } catch (e) {
+        Toast.error(
+          e?.response?.data?.message || e?.message || "Bank check failed for the new payment"
+        )
+      } finally {
+        setBankCheckLoadingPaymentId(null)
+      }
+    }
+
+    if (verified.length) {
+      await refreshModalData()
+      setPaymentCompleteDialog({ payments: verified, orderPaidOff: paymentSummary?.balance === 0 })
     }
   }
 
@@ -12295,6 +12384,15 @@ const mapSlotForUi = (slotData) => {
                               <Typography variant="subtitle2" fontWeight={600} color="success.dark">Add Payment</Typography>
                               {canAddPayment && (
                                 <>
+                                  {hasActiveQR && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); openStoredPaymentQR(); }}
+                                      className="bg-teal-600 text-white px-3 py-1 rounded-lg hover:bg-teal-700 text-sm"
+                                    >
+                                      Show Payment QR
+                                    </button>
+                                  )}
                                   {paymentSummary?.balance > 0 && !hasActiveQR && (
                                     <button
                                       type="button"
@@ -14686,6 +14784,13 @@ const mapSlotForUi = (slotData) => {
         onClose={() => setPaymentAttachModal(null)}
         title={paymentAttachModal?.title}
         urls={paymentAttachModal?.urls}
+      />
+
+      <PaymentCompleteDialog
+        open={Boolean(paymentCompleteDialog)}
+        onClose={() => setPaymentCompleteDialog(null)}
+        payments={paymentCompleteDialog?.payments}
+        orderPaidOff={paymentCompleteDialog?.orderPaidOff}
       />
 
       <PaymentQRModal
