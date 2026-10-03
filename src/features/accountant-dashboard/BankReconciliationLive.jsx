@@ -374,8 +374,8 @@ export function BankReconciliationLive({
           <div>
             <h2 className="text-sm font-semibold text-foreground mb-1">Banking</h2>
             <p className="text-xs text-muted-foreground">
-              Match payments against the bank. Import a statement under Statement if the
-              bank connection is not set up — everything else works the same either way.
+              Sandbox ICICI — Sync statement pulls the test account for 1 Jan to 10 Feb
+              2024. After that, Check bank and Reconcile all work against those lines.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 items-end">

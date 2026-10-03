@@ -123,8 +123,8 @@ const AccountantDashboard = () => {
 
   const [unclearedList, setUnclearedList] = useState([])
   const [forApprovalList, setForApprovalList] = useState([])
-  const [reconcileDateFrom, setReconcileDateFrom] = useState(moment().subtract(7, "days").format("YYYY-MM-DD"))
-  const [reconcileDateTo, setReconcileDateTo] = useState(moment().format("YYYY-MM-DD"))
+  const [reconcileDateFrom, setReconcileDateFrom] = useState("2024-01-01")
+  const [reconcileDateTo, setReconcileDateTo] = useState("2024-02-10")
   const [loadingUncleared, setLoadingUncleared] = useState(false)
   const [loadingForApproval, setLoadingForApproval] = useState(false)
   const [reconcileLoading, setReconcileLoading] = useState(false)
