@@ -27,6 +27,7 @@ import RefreshIcon from "@mui/icons-material/Refresh"
 import CloseIcon from "@mui/icons-material/Close"
 import PrintIcon from "@mui/icons-material/Print"
 import { NetworkManager, API } from "network/core"
+import DrawerExportButton from "components/DrawerExportButton"
 
 function fmtDate(d) {
   if (!d) return "—"
@@ -719,9 +720,56 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
               <Typography variant="h6" fontWeight={800}>
                 {detail.isExcess ? "Excess · covered orders" : "Orders covered"}
               </Typography>
-              <IconButton onClick={() => setDetail(null)}>
-                <CloseIcon />
-              </IconButton>
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                <DrawerExportButton
+                  fileName={`sowing-entry-${detail.requestNumber || ""}`}
+                  getSheets={() => [
+                    {
+                      title: `Sowing entry ${detail.requestNumber || ""}`,
+                      headers: ["Request", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Labour ladies", "Labour gents", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
+                      rows: [[
+                        detail.requestNumber,
+                        detail.plantName,
+                        detail.subtypeName,
+                        detail.shedName,
+                        detail.batchNumber,
+                        detail.outwardNumber,
+                        detail.sowedQuantity,
+                        detail.laboursLadies || 0,
+                        detail.laboursGents || 0,
+                        detail.packetsIssued ?? detail.packetsRequested ?? 0,
+                        detail.packetsUsed ?? 0,
+                        detail.packetsReturned ?? 0,
+                        detail.isExcess ? "Yes" : "No",
+                        detail.affectedSlot?.label,
+                        detail.completionNotes,
+                      ]],
+                    },
+                    {
+                      title: "Orders covered",
+                      headers: ["Order", "Farmer", "Plants", "Booked", "Delivery", "Cover offset (days)", "Sowing done", "Sowed on"],
+                      rows: (detail.linkedOrders || []).map((o) => [
+                        o.orderNumber,
+                        o.farmerName,
+                        o.plants || 0,
+                        o.bookingDate ? fmtDay(o.bookingDate) : "",
+                        o.deliveryDate ? fmtDay(o.deliveryDate) : "",
+                        o.coverOffsetDays,
+                        o.sowingDone ? "Yes" : "No",
+                        o.sowingDoneAt ? fmtDay(o.sowingDoneAt) : "",
+                      ]),
+                    },
+                    {
+                      title: "Event history",
+                      headers: ["Event", "Quantity", "Unit", "Message", "At"],
+                      rows: (detail.completionEvents || []).map((ev) => [ev.type, ev.quantity, ev.unit, ev.message, fmtDate(ev.at)]),
+                    },
+                  ]}
+                />
+                <IconButton onClick={() => setDetail(null)}>
+                  <CloseIcon />
+                </IconButton>
+              </Stack>
             </Stack>
             <Typography variant="body2" color="text.secondary" mb={1.5}>
               {detail.requestNumber} · {detail.plantName} · {detail.subtypeName}

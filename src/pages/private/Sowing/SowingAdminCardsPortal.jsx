@@ -34,6 +34,7 @@ import {
 } from "@mui/icons-material";
 import moment from "moment";
 import { NetworkManager, API } from "network/core";
+import DrawerExportButton from "components/DrawerExportButton";
 import { Toast } from "helpers/toasts/toastHelper";
 import { useSelector } from "react-redux";
 
@@ -837,9 +838,30 @@ const SowingAdminCardsPortal = () => {
                 Sowing Activity
               </Typography>
             </Stack>
-            <IconButton onClick={() => setInsightsOpen(false)}>
-              <Close />
-            </IconButton>
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <DrawerExportButton
+                fileName="sowing-activity"
+                getSheets={() => [
+                  {
+                    title: "Sowing activity",
+                    headers: ["Time", "Event", "Plant", "Subtype", "Batch", "Expected ready", "Reason", "By"],
+                    rows: filteredInsights.map((rec) => [
+                      rec.timestamp ? moment(rec.timestamp).format("DD-MM-YYYY hh:mm A") : "",
+                      rec.eventType,
+                      rec.plantName,
+                      rec.subtypeName,
+                      rec.batchNumber,
+                      rec.expectedReadyDate,
+                      rec.reason,
+                      rec.performedByName,
+                    ]),
+                  },
+                ]}
+              />
+              <IconButton onClick={() => setInsightsOpen(false)}>
+                <Close />
+              </IconButton>
+            </Stack>
           </Stack>
           <TextField
             size="small"

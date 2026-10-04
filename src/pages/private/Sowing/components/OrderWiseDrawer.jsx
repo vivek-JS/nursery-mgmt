@@ -19,6 +19,7 @@ import {
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
 import { NetworkManager, API } from "network/core"
+import DrawerExportButton from "components/DrawerExportButton"
 import SeedPlanChip from "./SeedPlanChip"
 import RaisingIntakeModal from "./RaisingIntakeModal"
 import { useSowHorizon } from "./SowHorizonContext"
@@ -265,6 +266,27 @@ export default function OrderWiseDrawer({
     }
   }
 
+  const getExportSheets = () => [
+    {
+      title: `${raisingOnly ? "Farmer seed orders" : "Orders to sow"} - ${card?.plantName || ""} ${card?.subtypeName || ""}`.trim(),
+      headers: ["Order", "Farmer", "Plants", "Suggested packets", "Booking date", "Delivery date", "Sow by", "Days until sow", "Seed source", "Raising status", "Already requested", "Customer seed in hand (pkt)"],
+      rows: rows.map((o) => [
+        o.orderNumber,
+        o.farmerName,
+        o.numberOfPlants,
+        o.suggestedPackets,
+        fmtDelivery(bookingDateRaw(o)),
+        fmtDelivery(o.deliveryDate) || o.slotStartDay,
+        fmtDelivery(o.sowByDate),
+        o.daysUntilSow,
+        o.sowingPlan?.seedSource,
+        raisingRowStatus(o)?.label,
+        o.alreadyRequested ? o.existingRequestNumber || "Yes" : "",
+        o.raisingInHandPackets,
+      ]),
+    },
+  ]
+
   return (
     <Drawer anchor="right" open={open} onClose={onClose} PaperProps={{ sx: { width: { xs: "100%", sm: 420 } } }}>
       <Box sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column" }}>
@@ -277,9 +299,17 @@ export default function OrderWiseDrawer({
               {card?.plantName} · {card?.subtypeName}
             </Typography>
           </Box>
-          <IconButton onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {rows.length > 0 ? (
+              <DrawerExportButton
+                getSheets={getExportSheets}
+                fileName={`sowing-orders-${card?.plantName || ""}-${card?.subtypeName || ""}`}
+              />
+            ) : null}
+            <IconButton onClick={onClose}>
+              <CloseIcon />
+            </IconButton>
+          </Stack>
         </Stack>
 
         <Typography variant="body2" sx={{ mb: 1.5 }}>

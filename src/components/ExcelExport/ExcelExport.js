@@ -63,6 +63,14 @@ export function resolveLatestDispatchInfo(obj) {
 
 /** Build CSV text from GET /order/getOrders rows (aligned with dashboard list). */
 export function ordersListRowsToCsv(rows) {
+  const { headers, rows: table } = ordersListToTable(rows)
+  const lines = [headers.map(escapeCsvCell).join(",")]
+  for (const row of table) lines.push(row.map(escapeCsvCell).join(","))
+  return lines.join("\r\n")
+}
+
+/** Same columns as the CSV, as `{ headers, rows }` (used by the side-drawer export buttons). */
+export function ordersListToTable(rows) {
   const headers = [
     "Sr No",
     "Order ID",
@@ -92,7 +100,7 @@ export function ordersListRowsToCsv(rows) {
     "Sales person",
     "Reference"
   ]
-  const lines = [headers.map(escapeCsvCell).join(",")]
+  const table = []
   let sr = 0
   for (const obj of rows) {
     const farmer = obj.farmer || {}
@@ -158,9 +166,9 @@ export function ordersListRowsToCsv(rows) {
       obj.salesPerson?.name || "",
       reference
     ]
-    lines.push(row.map(escapeCsvCell).join(","))
+    table.push(row)
   }
-  return lines.join("\r\n")
+  return { headers, rows: table }
 }
 
 const ExcelExport = ({

@@ -13,8 +13,17 @@ import {
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
 import { NetworkManager, API } from "network/core"
+import DrawerExportButton from "components/DrawerExportButton"
 import SeedPlanChip from "./SeedPlanChip"
 import { fmt } from "./sowingPackingUtils"
+
+const exportDay = (value) => {
+  if (!value) return ""
+  const d = new Date(value)
+  return Number.isNaN(d.getTime())
+    ? String(value)
+    : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+}
 
 /**
  * Orders linked / covered by an active or completed sowing request.
@@ -80,6 +89,45 @@ export default function SowingLinkedOrdersDrawer({
   const pkts =
     Number(req?.packetsRequested) || Number(card?.totalPacketsInProgress) || 0
 
+  const getExportSheets = () => [
+    {
+      title: `${pureExcess ? "Excess sowing" : "Covered orders"} - ${card?.plantName || ""} ${card?.subtypeName || ""} - ${req?.requestNumber || ""}`.trim(),
+      headers: ["Request", "Status", "Packets"],
+      rows: [[req?.requestNumber || "", req?.status || "", pkts]],
+    },
+    {
+      title: "Orders",
+      headers: [
+        "Order",
+        "Farmer",
+        "Plants",
+        "Suggested packets",
+        "Booking date",
+        "Delivery date",
+        "Sow by",
+        "Sowing",
+        "Seed source",
+        "Company packets",
+        "Raising packets",
+        "Customer seed in hand (pkt)",
+      ],
+      rows: rows.map((o) => [
+        o.orderNumber,
+        o.farmerName,
+        o.numberOfPlants,
+        o.suggestedPackets,
+        exportDay(o.bookingDate || o.orderBookingDate || o.createdAt),
+        exportDay(o.deliveryDate),
+        o.sowByDate,
+        o.sowingDone ? "Done" : "Need sow",
+        o.sowingPlan?.seedSource,
+        o.sowingPlan?.companySeedPackets,
+        o.sowingPlan?.raisingSeedPackets,
+        o.raisingInHandPackets,
+      ]),
+    },
+  ]
+
   return (
     <Drawer
       anchor="right"
@@ -97,9 +145,17 @@ export default function SowingLinkedOrdersDrawer({
               {card?.plantName} · {card?.subtypeName}
             </Typography>
           </Box>
-          <IconButton onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {!pureExcess && rows.length > 0 ? (
+              <DrawerExportButton
+                getSheets={getExportSheets}
+                fileName={`sowing-covered-orders-${req?.requestNumber || card?.subtypeName || ""}`}
+              />
+            ) : null}
+            <IconButton onClick={onClose}>
+              <CloseIcon />
+            </IconButton>
+          </Stack>
         </Stack>
 
         <Typography variant="body2" sx={{ mb: 1.5 }}>

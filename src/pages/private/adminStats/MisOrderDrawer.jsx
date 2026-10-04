@@ -23,6 +23,7 @@ import {
 import CloseIcon from "@mui/icons-material/Close"
 import moment from "moment"
 import { API, NetworkManager } from "network/core"
+import DrawerExportButton from "components/DrawerExportButton"
 import { asDisplayLabel, coerceMongoId } from "./misConstants"
 
 const PAGE_SIZE = 20
@@ -441,6 +442,61 @@ export default function MisOrderDrawer({ open, onClose, filter, onSelectDate }) 
   const regularTabLabel = `In range${tabCountLabel(dueSummary?.inRange)}`
   const pastDueTabLabel = `Past due${tabCountLabel(dueSummary?.pastDue)}`
 
+  /** Exports every order for the current filter, not only the pages scrolled into view. */
+  const getExportSheets = async () => {
+    if (isSummary) {
+      return [
+        {
+          title: title || "Summary",
+          headers: ["Date", "Orders", "Plants"],
+          rows: [
+            ...summary.rows.map((row) => [summaryDateLabel(row), row.orders, row.plants]),
+            ["TOTAL", summary.total.orders, summary.total.plants],
+          ],
+        },
+      ]
+    }
+    if (!filter || filter.bucket === "unique") return []
+    const all = []
+    const pageSize = 100 // the API caps a page at 100
+    let pageNum = 1
+    let totalPages = 1
+    do {
+      const res = await NetworkManager(API.ORDER.ADMIN_MIS_ORDERS).request(
+        {},
+        { ...buildMisOrdersParams(filter, pageNum, drawerTab), limit: pageSize }
+      )
+      if (!res?.success) throw new Error(res?.message || "Failed to load orders")
+      const payload = extractMisOrdersPayload(res)
+      all.push(...payload.orders)
+      totalPages = payload.totalPages
+      pageNum += 1
+    } while (pageNum <= totalPages && pageNum <= 200)
+    const unique = mergeOrderPages([], all, false)
+    return [
+      {
+        title: title || "Orders",
+        headers: ["Order", "Farmer", "Village", "Taluka", "District", "Plant", "Plants", "Status", "Booked", "Delivery", "Dispatched", "Completed", "Vehicle / DC", "Sales person"],
+        rows: unique.map((order) => [
+          order.orderId,
+          farmerLabel(order),
+          asDisplayLabel(order?.farmerVillage, ""),
+          asDisplayLabel(order?.farmerTaluka, ""),
+          asDisplayLabel(order?.farmerDistrict, ""),
+          plantLabel(order) === "—" ? "" : plantLabel(order),
+          plantCount(order),
+          order.orderStatus,
+          formatIstDate(order.orderBookingDate),
+          formatIstDate(order.deliveryDate),
+          order.dispatchedDate ? formatIstDate(order.dispatchedDate) : "",
+          order.completedDate ? formatIstDate(order.completedDate) : "",
+          dispatchVehicleLine(order) || "",
+          order.salesPersonName,
+        ]),
+      },
+    ]
+  }
+
   return (
     <Drawer
       anchor="right"
@@ -466,6 +522,9 @@ export default function MisOrderDrawer({ open, onClose, filter, onSelectDate }) 
             </Typography>
           )}
         </Box>
+        {filter && filter.bucket !== "unique" ? (
+          <DrawerExportButton getSheets={getExportSheets} fileName={`mis-${title || "orders"}`} />
+        ) : null}
         <IconButton size="small" onClick={onClose} aria-label="Close">
           <CloseIcon />
         </IconButton>

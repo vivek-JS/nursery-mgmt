@@ -14,6 +14,7 @@ import {
   TableBody,
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
+import DrawerExportButton from "components/DrawerExportButton"
 import { fmt } from "./sowingPackingUtils"
 
 /**
@@ -37,6 +38,36 @@ export default function GapDaysDrawer({ open, onClose, card }) {
     Number(card?.totalPlantsToSowWithBuffer) ||
     Number(card?.totalGap) ||
     dueGap + todayGap + upcomingGap
+
+  const getExportSheets = () => {
+    const toRow = (bucket) => (r) => [
+      bucket,
+      r.startDay || "",
+      r.endDay && r.endDay !== r.startDay ? r.endDay : r.startDay || "",
+      [r.month, r.year].filter(Boolean).join(" "),
+      r.daysUntilSow,
+      r.orderCount || 0,
+      r.bookedPlants || 0,
+      r.sowedPlants || 0,
+      r.plantsToSowWithBuffer || r.rawGap || 0,
+    ]
+    return [
+      {
+        title: `${card?.plantName || "Plant"} - ${card?.subtypeName || "Subtype"} gap by sow window`,
+        headers: ["Total gap", "Overdue", "Today", "Upcoming", "Orders", "Buffer %"],
+        rows: [[total, dueGap, todayGap, upcomingGap, card?.orderCount || 0, card?.sowingBuffer || 0]],
+      },
+      {
+        title: "Delivery slots",
+        headers: ["Bucket", "From", "To", "Month", "Days until sow", "Orders", "Booked", "Sowed", "Gap"],
+        rows: [
+          ...due.map(toRow("Overdue")),
+          ...today.map(toRow("Today")),
+          ...upcoming.map(toRow("Upcoming")),
+        ],
+      },
+    ]
+  }
 
   const renderTable = (rows, emptyLabel) => {
     if (!rows.length) {
@@ -145,9 +176,15 @@ export default function GapDaysDrawer({ open, onClose, card }) {
               {card?.sowingBuffer ? ` · +${card.sowingBuffer}% buffer` : ""}
             </Typography>
           </Box>
-          <IconButton size="small" onClick={onClose}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <DrawerExportButton
+              getSheets={getExportSheets}
+              fileName={`sowing-gap-${card?.plantName || ""}-${card?.subtypeName || ""}`}
+            />
+            <IconButton size="small" onClick={onClose}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Stack>
         </Stack>
         <Stack direction="row" spacing={1} mt={1.5} flexWrap="wrap" useFlexGap>
           <Chip

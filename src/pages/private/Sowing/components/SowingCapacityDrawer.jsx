@@ -14,6 +14,7 @@ import {
 import CloseIcon from "@mui/icons-material/Close"
 import { Link as RouterLink } from "react-router-dom"
 import { NetworkManager, API } from "network/core"
+import DrawerExportButton from "components/DrawerExportButton"
 import { fmt, STATUS_STYLE } from "../capacitySheetUtils"
 
 function Stat({ label, value, color }) {
@@ -110,6 +111,53 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
   const title =
     focus === "gap" ? "Orders on this booking slot" : focus === "canBook" ? "Lagwad excess" : slot ? `${slot.plantName} · ${slot.subtypeName}` : "Capacity"
 
+  const getExportSheets = () => [
+    {
+      title: `${slot?.plantName || ""} ${slot?.subtypeName || ""} - ${title}`.trim(),
+      headers: ["Slots", "Can book", "Gap", "Booked", "Sowed"],
+      rows: [
+        [
+          packs.map((pack) => (pack.slot ? `${pack.slot.startDay} to ${pack.slot.endDay}` : "")).filter(Boolean).join(" | "),
+          stats.canBook,
+          stats.gap,
+          stats.booked,
+          stats.sowed,
+        ],
+      ],
+    },
+    {
+      title: "Orders on this booking slot",
+      headers: ["Order", "Farmer", "Mobile", "Plants", "Booking date", "Delivery date", "Seed plan", "Sowing", "Slot"],
+      rows: shownOrders.map((order) => [
+        order.orderNumber,
+        order.farmerName,
+        order.farmerMobile,
+        order.plants,
+        formatWhen(order.bookingDate),
+        formatWhen(order.deliveryDate),
+        order.seedPlan,
+        order.sowingDone ? "Done" : "Need sow",
+        order.slotLabel,
+      ]),
+    },
+    {
+      title: "Lagwad excess",
+      headers: ["Request", "Slot", "Sow date", "Ready date", "Sowed", "Covered by orders", "Sellable 90%", "Reserve 10%", "Excess", "Shed"],
+      rows: lagwadEntries.map((entry) => [
+        entry.requestNumber,
+        entry.slotLabel,
+        entry.sowingDate,
+        entry.plantReadyDate,
+        entry.plantsSowed,
+        entry.orderCoveredPlants,
+        entry.actualPlantsApplied,
+        entry.expectedMortalityApplied,
+        entry.excessPlants,
+        entry.shedName,
+      ]),
+    },
+  ]
+
   return (
     <Drawer anchor="right" open={slotIds.length > 0} onClose={onClose} PaperProps={{ sx: { width: { xs: "100%", sm: 460 } } }}>
       <Box sx={{ p: 2 }}>
@@ -136,9 +184,17 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
               </Typography>
             ) : null}
           </Box>
-          <IconButton onClick={onClose} aria-label="Close">
-            <CloseIcon />
-          </IconButton>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {slot && !loading ? (
+              <DrawerExportButton
+                getSheets={getExportSheets}
+                fileName={`sowing-slot-${slot.plantName || ""}-${slot.subtypeName || ""}`}
+              />
+            ) : null}
+            <IconButton onClick={onClose} aria-label="Close">
+              <CloseIcon />
+            </IconButton>
+          </Stack>
         </Stack>
 
         {loading ? (

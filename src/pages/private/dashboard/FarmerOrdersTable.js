@@ -19,6 +19,8 @@ import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 import { API, NetworkManager } from "network/core"
 import { PageLoader, ExcelExport } from "components"
+import DrawerExportButton from "components/DrawerExportButton"
+import { ordersListToTable } from "components/ExcelExport/ExcelExport"
 import DeliveryDateBadge from "components/DeliveryDateBadge"
 import DeliveryDateChangesInfo from "components/DeliveryDateChangesInfo"
 import { formatDeliveryDateDisplay } from "utils/deliveryDateDisplay"
@@ -4518,6 +4520,14 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       return []
     }
     const exportFlags = { exportAll: "true", page: "1", limit: "200000" }
+    if (orderIdsCsv) {
+      // Village / sales-person drawers: the list is a fixed set of orders.
+      const res = await NetworkManager(API.ORDER.GET_ORDERS).request(
+        {},
+        { orderIds: orderIdsCsv, ...exportFlags }
+      )
+      return res?.data?.data?.data || []
+    }
     if (slotId) {
       const res = await NetworkManager(API.ORDER.GET_ORDERS_SLOTS).request(
         {},
@@ -4583,6 +4593,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     const response = await instance.request({}, params)
     return response?.data?.data?.data || []
   }, [
+    orderIdsCsv,
     showAgriSalesOrders,
     viewMode,
     startDate,
@@ -8018,6 +8029,16 @@ const mapSlotForUi = (slotData) => {
               <span className="text-xs font-semibold text-teal-700 whitespace-nowrap">
                 {expectedPlantsTotal.toLocaleString()} plants on card
               </span>
+            ) : null}
+            {canExportOrders && !showAgriSalesOrders ? (
+              <DrawerExportButton
+                fileName={slotId ? `slot-orders-${monthName || ""}-${startDay || ""}-${endDay || ""}` : "orders"}
+                getSheets={async () => {
+                  const { headers, rows } = ordersListToTable(await fetchOrdersForExport())
+                  return [{ title: "Orders", headers, rows }]
+                }}
+                sx={{ py: 0.25 }}
+              />
             ) : null}
             {hasMoreOrders ? (
               <button
