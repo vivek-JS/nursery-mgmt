@@ -7981,24 +7981,35 @@ const mapSlotForUi = (slotData) => {
             </div>
             {ordersListEnvelope.total != null ? (
               <span className="text-xs text-gray-500 whitespace-nowrap">
-                {orders.length.toLocaleString()} of {ordersListEnvelope.total.toLocaleString()} orders
+                {/* Plants total covers EVERY matching order, not only the rows loaded so far. */}
+                {orders.length < ordersListEnvelope.total
+                  ? `Showing ${orders.length.toLocaleString()} of ${ordersListEnvelope.total.toLocaleString()} orders`
+                  : `${ordersListEnvelope.total.toLocaleString()} orders`}
                 {ordersListEnvelope.totalPlantsSum != null ? (
                   <>
                     {" · "}
-                    <span
-                      className={
-                        expectedPlantsTotal != null &&
-                        ordersListEnvelope.totalPlantsSum !== expectedPlantsTotal
-                          ? "font-semibold text-amber-700"
-                          : "font-semibold text-teal-700"
-                      }>
-                      {ordersListEnvelope.totalPlantsSum.toLocaleString()} plants in list
+                    <span className="font-semibold text-teal-700">
+                      {orders.length < ordersListEnvelope.total
+                        ? `all ${ordersListEnvelope.total.toLocaleString()} orders = `
+                        : ""}
+                      {ordersListEnvelope.totalPlantsSum.toLocaleString()} plants
                     </span>
-                    {expectedPlantsTotal != null ? (
-                      <span className="text-gray-400">
-                        {" "}
-                        / {expectedPlantsTotal.toLocaleString()} on card
+                    {expectedPlantsTotal != null &&
+                    ordersListEnvelope.totalPlantsSum !== expectedPlantsTotal ? (
+                      <span
+                        className="font-semibold text-amber-700"
+                        title="The slot card figure and the order list are calculated separately. A difference means some orders are counted on one side only.">
+                        {" · "}card shows {expectedPlantsTotal.toLocaleString()} (
+                        {(
+                          expectedPlantsTotal - ordersListEnvelope.totalPlantsSum
+                        ).toLocaleString()}{" "}
+                        {expectedPlantsTotal > ordersListEnvelope.totalPlantsSum
+                          ? "not in this list"
+                          : "extra in this list"}
+                        )
                       </span>
+                    ) : expectedPlantsTotal != null ? (
+                      <span className="text-gray-400">{" · "}matches card</span>
                     ) : null}
                   </>
                 ) : null}

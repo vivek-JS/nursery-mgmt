@@ -9,6 +9,8 @@ import {
   IconButton,
   InputAdornment,
   Stack,
+  Tab,
+  Tabs,
   Table,
   TableBody,
   TableCell,
@@ -16,20 +18,43 @@ import {
   TableRow,
   TableSortLabel,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined"
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined"
 import SearchIcon from "@mui/icons-material/Search"
+import GridViewRoundedIcon from "@mui/icons-material/GridViewRounded"
+import WarehouseOutlinedIcon from "@mui/icons-material/WarehouseOutlined"
+import { useSearchParams } from "react-router-dom"
 import { NetworkManager, API } from "network/core"
 import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
 import SowingCapacityAsk from "./components/SowingCapacityAsk"
+import SowingShedStockTab from "./components/SowingShedStockTab"
 import {
   fmt,
   formatShortRange,
   rangeForPreset,
   STATUS_STYLE,
 } from "./capacitySheetUtils"
+
+const COLUMN_HINT = {
+  plant:
+    "ही ओळ त्या वनस्पती आणि उपप्रकारातील सर्व स्लॉटची बेरीज दाखवते.",
+  delivery:
+    "रोपे तयार होण्याची तारीख या स्लॉटच्या सुरुवातीपासून शेवटापर्यंत.",
+  canBook:
+    "कॅन बुक = जास्तीची पेरणी − गॅप. जास्ती म्हणजे प्रत्यक्ष पेरलेली रोपे वजा ऑर्डरसाठी आधीच वापरलेली रोपे. धन आकडा म्हणजे एवढी रोपे नवीन बुकिंगसाठी मोकळी आहेत. उणे आकडा म्हणजे गॅप जास्त आहे, आधी पेरणी करा. स्लॉटची साईज किंवा स्लॉटवरील उपलब्ध स्टॉक यात धरला जात नाही.",
+  gap:
+    "गॅप = बुकिंग झालेली पण अजून पेरणी न झालेली रोपे. लाल आकडा म्हणजे या तारखेसाठी पेरणी बाकी आहे. क्लिक केल्यावर त्या बुकिंग स्लॉटवरील ऑर्डर दिसतात.",
+  booked:
+    "बुक = रद्द न केलेल्या ऑर्डरमधील एकूण रोपे.",
+  sowed:
+    "पेरलेली रोपे. ऑर्डर कव्हर झाली असेल तर ती संख्या, नाहीतर प्राथमिक पेरणी. पेरणी पूर्ण झाली तरी ही ओळ दिसते.",
+  status:
+    "पेरणी हवी — गॅप शिल्लक आहे. विक्रीयोग्य जास्ती — पेरणी ऑर्डरपेक्षा जास्त, बुकिंग घेता येते. पूर्ण — गॅप नाही आणि मोकळी जास्ती नाही.",
+}
 
 const SHEET_COLUMNS = [
   { key: "plant", label: "Plant & subtype", align: "left", type: "text" },
@@ -172,6 +197,39 @@ function rowHasNumbers(row) {
   )
 }
 
+function hintTitle(columnKey) {
+  const text = COLUMN_HINT[columnKey]
+  if (!text) return ""
+  return (
+    <Typography sx={{ fontSize: 13, lineHeight: 1.5, fontWeight: 600, maxWidth: 280 }}>
+      {text}
+    </Typography>
+  )
+}
+
+function HeadHint({ columnKey }) {
+  if (!COLUMN_HINT[columnKey]) return null
+  return (
+    <Tooltip arrow placement="top" enterTouchDelay={0} title={hintTitle(columnKey)}>
+      <InfoOutlinedIcon
+        sx={{ fontSize: 14, ml: 0.35, color: "#94a3b8", cursor: "help", verticalAlign: "middle" }}
+        onClick={(event) => event.stopPropagation()}
+      />
+    </Tooltip>
+  )
+}
+
+function CellHint({ columnKey, children }) {
+  if (!COLUMN_HINT[columnKey]) return children
+  return (
+    <Tooltip arrow placement="top" enterTouchDelay={200} title={hintTitle(columnKey)}>
+      <Box component="span" sx={{ display: "block", width: "100%" }}>
+        {children}
+      </Box>
+    </Tooltip>
+  )
+}
+
 function SortHead({ columns, sort, onSort, withLead = false, hoverCol = "", onHover }) {
   return (
     <TableRow>
@@ -207,6 +265,7 @@ function SortHead({ columns, sort, onSort, withLead = false, hoverCol = "", onHo
             }}
           >
             {column.label}
+            <HeadHint columnKey={column.key} />
           </TableSortLabel>
         </TableCell>
       ))}
@@ -240,7 +299,9 @@ function SlotTable({ slots, onOpen }) {
             onClick={() => onOpen(slot.slotId, "slot")}
             sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
-            <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
+            <TableCell sx={{ ...excelCell, fontWeight: 700 }}>
+              <CellHint columnKey="delivery">{formatShortRange(slot.startDay, slot.endDay)}</CellHint>
+            </TableCell>
             <TableCell
               align="right"
               sx={metricSx("canBook", slot.canBook, hoverCol === "canBook")}
@@ -251,7 +312,7 @@ function SlotTable({ slots, onOpen }) {
                 onOpen(slot.slotId, "canBook")
               }}
             >
-              {metricText(slot.canBook)}
+              <CellHint columnKey="canBook">{metricText(slot.canBook)}</CellHint>
             </TableCell>
             <TableCell
               align="right"
@@ -263,14 +324,16 @@ function SlotTable({ slots, onOpen }) {
                 onOpen(slot.slotId, "gap")
               }}
             >
-              {metricText(slot.gap)}
+              <CellHint columnKey="gap">{metricText(slot.gap)}</CellHint>
             </TableCell>
-            <TableCell align="right" sx={metricSx("booked", slot.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>{metricText(slot.booked)}</TableCell>
+            <TableCell align="right" sx={metricSx("booked", slot.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>
+              <CellHint columnKey="booked">{metricText(slot.booked)}</CellHint>
+            </TableCell>
             <TableCell align="right" sx={metricSx("sowed", slot.sowed, hoverCol === "sowed")} onMouseEnter={() => setHoverCol("sowed")} onMouseLeave={() => setHoverCol("")}>
-              {metricText(slot.sowed)}
+              <CellHint columnKey="sowed">{metricText(slot.sowed)}</CellHint>
             </TableCell>
             <TableCell sx={{ ...excelCell, color: (STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).color, fontWeight: 700 }}>
-              {(STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).label}
+              <CellHint columnKey="status">{(STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).label}</CellHint>
             </TableCell>
           </TableRow>
         ))}
@@ -324,7 +387,25 @@ function downloadCsv(rows, from, to) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
+const MAIN_TABS = ["capacity", "shed"]
+
 export default function SowingCapacitySheet() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const mainTab = MAIN_TABS.includes(searchParams.get("tab")) ? searchParams.get("tab") : "capacity"
+  const setMainTab = useCallback(
+    (value) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (value === "capacity") next.delete("tab")
+          else next.set("tab", value)
+          return next
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
+  )
   const initialRange = rangeForPreset("14")
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
@@ -366,8 +447,10 @@ export default function SowingCapacitySheet() {
   }, [applied])
 
   useEffect(() => {
+    if (mainTab !== "capacity") return undefined
     load()
-  }, [load])
+    return undefined
+  }, [load, mainTab])
 
   const fetchSheet = () => {
     if ((from && !to) || (!from && to)) {
@@ -436,201 +519,263 @@ export default function SowingCapacitySheet() {
             <Chip label="Live" size="small" sx={{ bgcolor: "#dcfce7", color: "#166534", fontWeight: 800, height: 22 }} />
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Sowing-allowed plants. Gap, plants you can still book from sowed excess, then booked and sowed.
+            {mainTab === "shed"
+              ? "Shed-wise stock. Open a shed to see each batch: sowed, remaining, gone and the orders it went to."
+              : "Sowing-allowed plants. Gap, plants you can still book from sowed excess, then booked and sowed."}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <TextField
-            size="small"
-            placeholder="Search plant or subtype"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ minWidth: 240, bgcolor: "#fff", borderRadius: 2 }}
-          />
-          <Button
-            variant="outlined"
-            startIcon={<FileDownloadOutlinedIcon />}
-            onClick={() => downloadCsv(rows, applied.from || "all", applied.to || "all")}
-            disabled={!rows.length}
-            sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
-          >
-            Export
-          </Button>
-          <SowingCapacityAsk from={applied.from} to={applied.to} />
-        </Stack>
-      </Stack>
-
-      <Stack
-        direction="row"
-        spacing={1}
-        alignItems="center"
-        flexWrap="wrap"
-        useFlexGap
-        sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2, px: 1.5, py: 1, mb: 1.5 }}
-      >
-        <TextField
-          size="small"
-          type="date"
-          label="From"
-          value={from}
-          onChange={(event) => setFrom(event.target.value)}
-          InputLabelProps={{ shrink: true }}
-          sx={{ bgcolor: "#fff", minWidth: 160 }}
-        />
-        <TextField
-          size="small"
-          type="date"
-          label="To"
-          value={to}
-          onChange={(event) => setTo(event.target.value)}
-          InputLabelProps={{ shrink: true }}
-          sx={{ bgcolor: "#fff", minWidth: 160 }}
-        />
-        <Button
-          variant="outlined"
-          onClick={() => {
-            setFrom("")
-            setTo("")
-          }}
-          disabled={!from && !to}
-          sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
-        >
-          Clear
-        </Button>
-        <Button
-          variant="contained"
-          onClick={fetchSheet}
-          disabled={loading}
-          sx={{ textTransform: "none", fontWeight: 800, bgcolor: "#0f172a" }}
-        >
-          Fetch
-        </Button>
-      </Stack>
-
-      <SeedSourceStrip sources={seedSources} />
-
-      {error ? (
-        <Alert severity="error" sx={{ mb: 1.5 }}>
-          {error}
-        </Alert>
-      ) : null}
-
-      <Box sx={{ bgcolor: "#fff", border: "1px solid #e8edf3", borderRadius: 3, overflow: "hidden", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)" }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" px={2} py={1.25} flexWrap="wrap" useFlexGap>
-          <Typography fontWeight={800}>
-            Plant & Subtype Capacity Master{" "}
-            <Typography component="span" variant="body2" color="text.secondary" fontWeight={600}>
-              ({rows.length} varieties)
-            </Typography>
-          </Typography>
-          <Stack direction="row" spacing={1.5}>
-            <Legend swatch={NUM_COLOR.canBook} label="Can book" />
-            <Legend swatch={NUM_COLOR.gap} label="Gap" />
+        {mainTab === "capacity" ? (
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TextField
+              size="small"
+              placeholder="Search plant or subtype"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ minWidth: 240, bgcolor: "#fff", borderRadius: 2 }}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<FileDownloadOutlinedIcon />}
+              onClick={() => downloadCsv(rows, applied.from || "all", applied.to || "all")}
+              disabled={!rows.length}
+              sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
+            >
+              Export
+            </Button>
+            <SowingCapacityAsk from={applied.from} to={applied.to} />
           </Stack>
-        </Stack>
+        ) : null}
+      </Stack>
 
-        <Box sx={{ overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
-          <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1100 }}>
-            <TableHead>
-              <SortHead columns={SHEET_COLUMNS} sort={sort} onSort={onSort} withLead hoverCol={hoverCol} onHover={setHoverCol} />
-            </TableHead>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={8} sx={excelCell}>
-                    <Box display="flex" justifyContent="center" py={4}>
-                      <CircularProgress size={28} />
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-              {!loading && sortedRows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} sx={excelCell}>
-                    <Alert severity="info">No sowing-allowed slots in this range.</Alert>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-              {sortedRows.map((row, index) => {
-                const key = `${row.plantId}-${row.subtypeId}`
-                const open = openSubtype === key
-                const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
-                const idsFor = (focus) => {
-                  const slots = row.slots || []
-                  const picked = slots.filter((slot) => {
-                    if (focus === "gap") return hasAmount(slot.gap)
-                    if (focus === "canBook") return Number(slot.canBook) !== 0 || hasAmount(slot.excess)
-                    return true
-                  })
-                  return (picked.length ? picked : slots).map((slot) => slot.slotId).filter(Boolean)
-                }
-                const openDetail = (focus) => {
-                  const slotIds = idsFor(focus)
-                  if (slotIds.length) setDetail({ slotIds, focus })
-                }
-                const rowBg = open ? "#f0fdf4" : index % 2 ? "#f8fafc" : "#fff"
-                return (
-                  <React.Fragment key={key}>
-                    <TableRow hover sx={{ bgcolor: rowBg, cursor: "pointer" }} onClick={() => setOpenSubtype(open ? "" : key)}>
-                      <TableCell sx={excelCell}>
-                        <IconButton
-                          size="small"
-                          aria-label={open ? "Hide slots" : "Show slots"}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setOpenSubtype(open ? "" : key)
-                          }}
-                        >
-                          <ExpandMoreIcon sx={{ transform: open ? "rotate(180deg)" : "none", transition: "0.2s" }} />
-                        </IconButton>
-                      </TableCell>
-                      <TableCell sx={excelCell}>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: meta.dot, flexShrink: 0 }} />
-                          <Typography fontWeight={700} fontSize={13.5} color="#0f172a">
-                            {row.plantName} - {row.subtypeName}
-                          </Typography>
-                        </Stack>
-                      </TableCell>
-                      <TableCell sx={{ ...excelCell, color: "#475569" }}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
-                      <TableCell align="right" sx={metricSx("canBook", row.canBook, hoverCol === "canBook")} onMouseEnter={() => setHoverCol("canBook")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={() => openDetail("canBook")}>{metricText(row.canBook)}</MetricButton>
-                      </TableCell>
-                      <TableCell align="right" sx={metricSx("gap", row.gap, hoverCol === "gap")} onMouseEnter={() => setHoverCol("gap")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={() => openDetail("gap")}>{metricText(row.gap)}</MetricButton>
-                      </TableCell>
-                      <TableCell align="right" sx={metricSx("booked", row.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={() => openDetail("slot")}>{metricText(row.booked)}</MetricButton>
-                      </TableCell>
-                      <TableCell align="right" sx={metricSx("sowed", row.sowed, hoverCol === "sowed")} onMouseEnter={() => setHoverCol("sowed")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={() => openDetail("slot")}>{metricText(row.sowed)}</MetricButton>
-                      </TableCell>
-                      <TableCell sx={{ ...excelCell, color: meta.color, fontWeight: 700 }}>
-                        {meta.label}
-                      </TableCell>
-                    </TableRow>
+      <Box
+        sx={{
+          bgcolor: "#fff",
+          border: "1px solid #e2e8f0",
+          borderRadius: 2.5,
+          mb: 1.5,
+          px: 1,
+          boxShadow: "0 4px 16px rgba(15, 23, 42, 0.03)",
+        }}
+      >
+        <Tabs
+          value={mainTab}
+          onChange={(_, value) => setMainTab(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            minHeight: 48,
+            "& .MuiTab-root": {
+              textTransform: "none",
+              fontWeight: 800,
+              minHeight: 48,
+              color: "#64748b",
+            },
+            "& .Mui-selected": { color: "#0f172a" },
+            "& .MuiTabs-indicator": { bgcolor: "#16a34a", height: 3, borderRadius: 2 },
+          }}
+        >
+          <Tab
+            value="capacity"
+            icon={<GridViewRoundedIcon sx={{ fontSize: 18 }} />}
+            iconPosition="start"
+            label="Capacity sheet"
+          />
+          <Tab
+            value="shed"
+            icon={<WarehouseOutlinedIcon sx={{ fontSize: 18 }} />}
+            iconPosition="start"
+            label="Shed-wise stock"
+          />
+        </Tabs>
+      </Box>
+
+      {mainTab === "shed" ? <SowingShedStockTab /> : null}
+
+      {mainTab === "capacity" ? (
+        <>
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            flexWrap="wrap"
+            useFlexGap
+            sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2, px: 1.5, py: 1, mb: 1.5 }}
+          >
+            <TextField
+              size="small"
+              type="date"
+              label="From"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ bgcolor: "#fff", minWidth: 160 }}
+            />
+            <TextField
+              size="small"
+              type="date"
+              label="To"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ bgcolor: "#fff", minWidth: 160 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setFrom("")
+                setTo("")
+              }}
+              disabled={!from && !to}
+              sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
+            >
+              Clear
+            </Button>
+            <Button
+              variant="contained"
+              onClick={fetchSheet}
+              disabled={loading}
+              sx={{ textTransform: "none", fontWeight: 800, bgcolor: "#0f172a" }}
+            >
+              Fetch
+            </Button>
+          </Stack>
+
+          <SeedSourceStrip sources={seedSources} />
+
+          {error ? (
+            <Alert severity="error" sx={{ mb: 1.5 }}>
+              {error}
+            </Alert>
+          ) : null}
+
+          <Box sx={{ bgcolor: "#fff", border: "1px solid #e8edf3", borderRadius: 3, overflow: "hidden", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)" }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" px={2} py={1.25} flexWrap="wrap" useFlexGap>
+              <Typography fontWeight={800}>
+                Plant & Subtype Capacity Master{" "}
+                <Typography component="span" variant="body2" color="text.secondary" fontWeight={600}>
+                  ({rows.length} varieties)
+                </Typography>
+              </Typography>
+              <Stack direction="row" spacing={1.5}>
+                <Legend swatch={NUM_COLOR.canBook} label="Can book" />
+                <Legend swatch={NUM_COLOR.gap} label="Gap" />
+              </Stack>
+            </Stack>
+
+            <Box sx={{ overflow: "auto", maxHeight: "calc(100vh - 320px)" }}>
+              <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1100 }}>
+                <TableHead>
+                  <SortHead columns={SHEET_COLUMNS} sort={sort} onSort={onSort} withLead hoverCol={hoverCol} onHover={setHoverCol} />
+                </TableHead>
+                <TableBody>
+                  {loading ? (
                     <TableRow>
-                      <TableCell colSpan={8} sx={{ p: 0, borderBottom: open ? "1px solid #eef2f6" : 0, bgcolor: "#fafbfc" }}>
-                        <Collapse in={open} unmountOnExit>
-                          <Box sx={{ p: 1.25 }}>
-                            <SlotTable slots={row.slots} onOpen={(slotId, focus) => setDetail({ slotIds: [slotId], focus: focus || "slot" })} />
-                          </Box>
-                        </Collapse>
+                      <TableCell colSpan={8} sx={excelCell}>
+                        <Box display="flex" justifyContent="center" py={4}>
+                          <CircularProgress size={28} />
+                        </Box>
                       </TableCell>
                     </TableRow>
-                  </React.Fragment>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </Box>
+                  ) : null}
+                  {!loading && sortedRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} sx={excelCell}>
+                        <Alert severity="info">No sowing-allowed slots in this range.</Alert>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  {sortedRows.map((row, index) => {
+                    const key = `${row.plantId}-${row.subtypeId}`
+                    const open = openSubtype === key
+                    const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
+                    const idsFor = (focus) => {
+                      const slots = row.slots || []
+                      const picked = slots.filter((slot) => {
+                        if (focus === "gap") return hasAmount(slot.gap)
+                        if (focus === "canBook") return Number(slot.canBook) !== 0 || hasAmount(slot.excess)
+                        return true
+                      })
+                      return (picked.length ? picked : slots).map((slot) => slot.slotId).filter(Boolean)
+                    }
+                    const openDetail = (focus) => {
+                      const slotIds = idsFor(focus)
+                      if (slotIds.length) setDetail({ slotIds, focus })
+                    }
+                    const rowBg = open ? "#f0fdf4" : index % 2 ? "#f8fafc" : "#fff"
+                    return (
+                      <React.Fragment key={key}>
+                        <TableRow hover sx={{ bgcolor: rowBg, cursor: "pointer" }} onClick={() => setOpenSubtype(open ? "" : key)}>
+                          <TableCell sx={excelCell}>
+                            <IconButton
+                              size="small"
+                              aria-label={open ? "Hide slots" : "Show slots"}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setOpenSubtype(open ? "" : key)
+                              }}
+                            >
+                              <ExpandMoreIcon sx={{ transform: open ? "rotate(180deg)" : "none", transition: "0.2s" }} />
+                            </IconButton>
+                          </TableCell>
+                          <TableCell sx={excelCell}>
+                            <CellHint columnKey="plant">
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: meta.dot, flexShrink: 0 }} />
+                                <Typography fontWeight={700} fontSize={13.5} color="#0f172a">
+                                  {row.plantName} - {row.subtypeName}
+                                </Typography>
+                              </Stack>
+                            </CellHint>
+                          </TableCell>
+                          <TableCell sx={{ ...excelCell, color: "#475569" }}>
+                            <CellHint columnKey="delivery">{formatShortRange(row.deliveryFrom, row.deliveryTo)}</CellHint>
+                          </TableCell>
+                          <TableCell align="right" sx={metricSx("canBook", row.canBook, hoverCol === "canBook")} onMouseEnter={() => setHoverCol("canBook")} onMouseLeave={() => setHoverCol("")}>
+                            <CellHint columnKey="canBook">
+                              <MetricButton onClick={() => openDetail("canBook")}>{metricText(row.canBook)}</MetricButton>
+                            </CellHint>
+                          </TableCell>
+                          <TableCell align="right" sx={metricSx("gap", row.gap, hoverCol === "gap")} onMouseEnter={() => setHoverCol("gap")} onMouseLeave={() => setHoverCol("")}>
+                            <CellHint columnKey="gap">
+                              <MetricButton onClick={() => openDetail("gap")}>{metricText(row.gap)}</MetricButton>
+                            </CellHint>
+                          </TableCell>
+                          <TableCell align="right" sx={metricSx("booked", row.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>
+                            <CellHint columnKey="booked">
+                              <MetricButton onClick={() => openDetail("slot")}>{metricText(row.booked)}</MetricButton>
+                            </CellHint>
+                          </TableCell>
+                          <TableCell align="right" sx={metricSx("sowed", row.sowed, hoverCol === "sowed")} onMouseEnter={() => setHoverCol("sowed")} onMouseLeave={() => setHoverCol("")}>
+                            <CellHint columnKey="sowed">
+                              <MetricButton onClick={() => openDetail("slot")}>{metricText(row.sowed)}</MetricButton>
+                            </CellHint>
+                          </TableCell>
+                          <TableCell sx={{ ...excelCell, color: meta.color, fontWeight: 700 }}>
+                            <CellHint columnKey="status">{meta.label}</CellHint>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={8} sx={{ p: 0, borderBottom: open ? "1px solid #eef2f6" : 0, bgcolor: "#fafbfc" }}>
+                            <Collapse in={open} unmountOnExit>
+                              <Box sx={{ p: 1.25 }}>
+                                <SlotTable slots={row.slots} onOpen={(slotId, focus) => setDetail({ slotIds: [slotId], focus: focus || "slot" })} />
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      </React.Fragment>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </Box>
 
             {visibleTotals ? (
               <Stack
@@ -646,36 +791,38 @@ export default function SowingCapacitySheet() {
                 </Typography>
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                   {Number(visibleTotals.canBook) !== 0 ? (
-                    <FooterStat label="Can book" value={fmt(visibleTotals.canBook)} color={Number(visibleTotals.canBook) < 0 ? NEED_SOW : "#047857"} />
+                    <FooterStat hintKey="canBook" label="Can book" value={fmt(visibleTotals.canBook)} color={Number(visibleTotals.canBook) < 0 ? NEED_SOW : "#047857"} />
                   ) : null}
-                  {hasAmount(visibleTotals.gap) ? <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color={NEED_SOW} /> : null}
-                  {hasAmount(visibleTotals.booked) ? <FooterStat label="Booked" value={fmt(visibleTotals.booked)} /> : null}
-                  {hasAmount(visibleTotals.sowed) ? <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} color="#059669" /> : null}
+                  {hasAmount(visibleTotals.gap) ? <FooterStat hintKey="gap" label="Gap" value={fmt(visibleTotals.gap)} color={NEED_SOW} /> : null}
+                  {hasAmount(visibleTotals.booked) ? <FooterStat hintKey="booked" label="Booked" value={fmt(visibleTotals.booked)} /> : null}
+                  {hasAmount(visibleTotals.sowed) ? <FooterStat hintKey="sowed" label="Sowed" value={fmt(visibleTotals.sowed)} color="#059669" /> : null}
                 </Stack>
               </Stack>
             ) : null}
-      </Box>
+          </Box>
 
-      <SowingCapacityDrawer detail={detail} onClose={() => setDetail(null)} />
+          <SowingCapacityDrawer detail={detail} onClose={() => setDetail(null)} />
+        </>
+      ) : null}
     </Box>
   )
 }
 
 const SEED_LABELS = [
-  ["COMPANY", "Company seed"],
-  ["RAISING", "Raising seed"],
-  ["MIXED", "Mixed seed"],
+  ["COMPANY", "Company seed", "कंपनीचे बियाणे. खाली बुक, पेरले आणि गॅप फक्त या बियाण्याच्या ऑर्डर आहेत."],
+  ["RAISING", "Raising seed", "शेतकरी वाढवणीचे बियाणे. खाली बुक, पेरले आणि गॅप फक्त या ऑर्डर आहेत."],
+  ["MIXED", "Mixed seed", "कंपनी आणि वाढवणी दोन्ही मिळून. खाली बुक, पेरले आणि गॅप या मिश्र ऑर्डर आहेत."],
 ]
 
 function SeedSourceStrip({ sources }) {
   if (!sources) return null
-  const cards = SEED_LABELS.map(([key, label]) => ({ key, label, bucket: sources[key] })).filter(
+  const cards = SEED_LABELS.map(([key, label, hint]) => ({ key, label, hint, bucket: sources[key] })).filter(
     (item) => hasAmount(item.bucket?.plants) || hasAmount(item.bucket?.covered) || hasAmount(item.bucket?.gap)
   )
   if (!cards.length) return null
   return (
     <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} mb={1.5}>
-      {cards.map(({ key, label, bucket }) => (
+      {cards.map(({ key, label, hint, bucket }) => (
         <Box
           key={key}
           sx={{
@@ -688,13 +835,18 @@ function SeedSourceStrip({ sources }) {
             boxShadow: "0 4px 16px rgba(15, 23, 42, 0.03)",
           }}
         >
-          <Typography variant="caption" fontWeight={800} color="#64748b" letterSpacing={0.4}>
-            {label.toUpperCase()}
-          </Typography>
+          <Stack direction="row" spacing={0.4} alignItems="center">
+            <Typography variant="caption" fontWeight={800} color="#64748b" letterSpacing={0.4}>
+              {label.toUpperCase()}
+            </Typography>
+            <Tooltip arrow placement="top" title={<Typography sx={{ fontSize: 13, lineHeight: 1.5, fontWeight: 600, maxWidth: 280 }}>{hint}</Typography>}>
+              <InfoOutlinedIcon sx={{ fontSize: 14, color: "#94a3b8", cursor: "help" }} />
+            </Tooltip>
+          </Stack>
           <Stack direction="row" spacing={2.5} mt={0.75}>
-            <SeedStat label="Booked" value={bucket.plants} color={NUM_COLOR.booked} />
-            <SeedStat label="Sowed" value={bucket.covered} color={NUM_COLOR.sowed} />
-            <SeedStat label="Gap" value={bucket.gap} color={NUM_COLOR.gap} />
+            <SeedStat hintKey="booked" label="Booked" value={bucket.plants} color={NUM_COLOR.booked} />
+            <SeedStat hintKey="sowed" label="Sowed" value={bucket.covered} color={NUM_COLOR.sowed} />
+            <SeedStat hintKey="gap" label="Gap" value={bucket.gap} color={NUM_COLOR.gap} />
           </Stack>
         </Box>
       ))}
@@ -702,8 +854,8 @@ function SeedSourceStrip({ sources }) {
   )
 }
 
-function SeedStat({ label, value, color }) {
-  return (
+function SeedStat({ label, value, color, hintKey }) {
+  const body = (
     <Box>
       <Typography variant="caption" color="#94a3b8" fontWeight={700}>
         {label}
@@ -712,6 +864,12 @@ function SeedStat({ label, value, color }) {
         {hasAmount(value) ? fmt(value) : "—"}
       </Typography>
     </Box>
+  )
+  if (!hintKey) return body
+  return (
+    <Tooltip arrow placement="top" title={hintTitle(hintKey)}>
+      {body}
+    </Tooltip>
   )
 }
 
@@ -726,13 +884,19 @@ function Legend({ swatch, label }) {
   )
 }
 
-function FooterStat({ label, value, color = "#0f172a" }) {
-  return (
-    <Typography variant="body2" color="text.secondary">
+function FooterStat({ label, value, color = "#0f172a", hintKey }) {
+  const body = (
+    <Typography variant="body2" color="text.secondary" sx={{ cursor: hintKey ? "help" : "default" }}>
       {label}:{" "}
       <Typography component="span" fontWeight={800} color={color}>
         {value}
       </Typography>
     </Typography>
+  )
+  if (!hintKey) return body
+  return (
+    <Tooltip arrow placement="top" title={hintTitle(hintKey)}>
+      {body}
+    </Tooltip>
   )
 }

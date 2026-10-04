@@ -30,6 +30,15 @@ const fmt = (n) => (Number(n) || 0).toLocaleString()
 const tileBase =
   "relative rounded-lg border text-left transition-all min-w-0"
 
+/** Tooltip body: Marathi lines only. */
+const MarathiTip = ({ lines }) => (
+  <div lang="mr" className="max-w-[16rem] space-y-1 text-xs leading-snug">
+    {lines.map((line) => (
+      <p key={line}>{line}</p>
+    ))}
+  </div>
+)
+
 /**
  * Lagwad-derived slot fields: 90% sellable, 10% mortality, dispatch ready (synced minus order dispatch).
  */
@@ -235,6 +244,26 @@ const SlotLagwadMetrics = ({
           ? "in delivery window"
           : "awaiting in window"
 
+  /** Marathi-only hover help for the pool / can-sell strip (live numbers included). */
+  const poolTipLines = [
+    (lagwadSowingMode ? D.lagwadForSell : D.lagwadPool).mr,
+    forSellExpected > 0
+      ? `${D.lagwadExpectedWindow.mr} सध्या ${fmt(forSellExpected)} रोपे अपेक्षित आहेत${
+          lagwadSowingMode && isDispatchWindow
+            ? `, ऑर्डरनंतर ${fmt(canSellExpected)} रोपे विक्रीसाठी उरतात.`
+            : "."
+        }`
+      : null,
+  ].filter(Boolean)
+  const canSellTipLines = [
+    D.lagwadCanSell.mr,
+    isDispatchWindow
+      ? soldTotal > 0
+        ? `${orderCount || "?"} ऑर्डरसाठी ${fmt(soldTotal)} रोपे आधीच दिली आहेत.`
+        : null
+      : "ही संख्या फक्त आजच्या चालू स्लॉटवर दिसते. इतर स्लॉटवर शून्य असते.",
+  ].filter(Boolean)
+
   const sowLabel = lagwadSowingMode ? "Sow" : "Actual"
   const sowSub = lagwadSowingMode ? "90% sellable" : "on slot (no sow %)"
   const sowTitle = lagwadSowingMode ? D.lagwadSow.mr : D.lagwadActual.mr
@@ -388,37 +417,23 @@ const SlotLagwadMetrics = ({
         <div
           className={`mb-2 rounded-lg border border-slate-200 bg-slate-50/90 px-2 py-1.5 ${variant === "detail" ? "text-sm" : ""}`}>
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-            <div className="tabular-nums">
-              <span className={`${labelSize} font-bold text-slate-600 uppercase`}>
-                {lagwadSowingMode ? "For sell " : "Lagwad pool "}
-              </span>
-              <span className={`${valueSize} font-extrabold text-slate-900`}>{fmt(forSellLagwad)}</span>
-            </div>
-            <div className="tabular-nums">
-              <span className={`${labelSize} font-bold text-emerald-800 uppercase`}>Can sell </span>
-              <span className={`${valueSize} font-extrabold text-emerald-900`}>
-                {isDispatchWindow ? fmt(canSellLagwad) : "0"}
-              </span>
-            </div>
+            <Tooltip arrow placement="top" title={<MarathiTip lines={poolTipLines} />}>
+              <div className="tabular-nums cursor-help">
+                <span className={`${labelSize} font-bold text-slate-600 uppercase`}>
+                  {lagwadSowingMode ? "For sell " : "Lagwad pool "}
+                </span>
+                <span className={`${valueSize} font-extrabold text-slate-900`}>{fmt(forSellLagwad)}</span>
+              </div>
+            </Tooltip>
+            <Tooltip arrow placement="top" title={<MarathiTip lines={canSellTipLines} />}>
+              <div className="tabular-nums cursor-help">
+                <span className={`${labelSize} font-bold text-emerald-800 uppercase`}>Can sell </span>
+                <span className={`${valueSize} font-extrabold text-emerald-900`}>
+                  {isDispatchWindow ? fmt(canSellLagwad) : "0"}
+                </span>
+              </div>
+            </Tooltip>
           </div>
-          <p className={`${labelSize} text-slate-500 leading-snug mt-0.5`}>
-            {lagwadSowingMode
-              ? "For sell = sow + synced + expected awaiting"
-              : "Lagwad pool = max(actual, synced, expected in window) — not triple-counted"}
-            {isDispatchWindow ? " · Can sell = ready − orders" : " · Can sell only on today's slot"}
-            {soldTotal > 0 && isDispatchWindow
-              ? ` (${fmt(soldTotal)} on ${orderCount || "?"} orders)`
-              : ""}
-            {forSellExpected > 0 ? (
-              <>
-                {" "}
-                · Exp. in window: {fmt(forSellExpected)}
-                {lagwadSowingMode && isDispatchWindow
-                  ? `, can ${fmt(canSellExpected)} after orders`
-                  : ""}
-              </>
-            ) : null}
-          </p>
         </div>
       )}
       <div
