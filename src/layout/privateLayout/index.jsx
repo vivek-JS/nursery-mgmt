@@ -38,6 +38,25 @@ import {
 } from "workspace/agriAccess"
 const drawerWidth = 65
 
+// Sidebar entries hidden for SUPER_ADMIN only (routes stay reachable by URL; other roles unaffected)
+const SUPER_ADMIN_HIDDEN_MENU_TITLES = [
+  "Sowing Management",
+  "Direct Sow Portal",
+  "Secondary Dispatch Monitor",
+  "Secondary ops",
+  "Money Ledger",
+  "Primary ops",
+  "Purchase Returns",
+  "Sell Returns",
+  "Stock",
+  "Order Bucketing",
+  "Attendance",
+  "Delivery Report",
+  "Database Backup",
+  "My Rewards",
+  "Reward Programs"
+]
+
 const Main = styled("main", { shouldForwardProp: (prop) => prop !== "open" })(
   ({ theme, open }) => ({
     flexGrow: 1,
@@ -475,6 +494,10 @@ export default function PrivateLayout(props) {
                   return false
                 }
                 
+                if (isSuperAdmin && SUPER_ADMIN_HIDDEN_MENU_TITLES.includes(item.title)) {
+                  return false
+                }
+
                 // PRIMARY users should only see menu items that lead to primary-sowing-entry
                 // Since PRIMARY users are redirected to primary-sowing-entry, hide all menu items
                 if (isPrimaryEmployee && !isSuperAdmin && !isAdmin) {
