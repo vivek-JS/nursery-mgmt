@@ -2376,6 +2376,7 @@ const FarmerOrdersTable = ({
   const [bankCheckLoadingPaymentId, setBankCheckLoadingPaymentId] = useState(null)
   const [bankCheckOutcomes, setBankCheckOutcomes] = useState({})
   const [paymentCompleteDialog, setPaymentCompleteDialog] = useState(null)
+  const paymentBankCheckOpenRef = useRef(false)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
   const [dcInvoiceEditOpen, setDcInvoiceEditOpen] = useState(false)
   const [dcInvoiceEditRow, setDcInvoiceEditRow] = useState(null)
@@ -3211,13 +3212,17 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           setExpandedAddPaymentAccordion(false)
           resetPaymentForm(false)
           
+          await checkSavedPaymentsAgainstBank(
+            paymentsFromAddResponse(response.data, 1),
+            true,
+            selectedOrder?.details?._id || selectedOrder?._id
+          )
           refreshComponent()
           if (selectedOrder) {
             await refreshModalData()
           } else {
             await getOrders()
           }
-          await checkSavedPaymentsAgainstBank(paymentsFromAddResponse(response.data, 1), true)
         } else {
           Toast.error("Failed to add payment")
         }
@@ -3267,6 +3272,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
         setShowPaymentForm(false)
         setExpandedAddPaymentAccordion(false)
         resetPaymentForm(false)
+
+        await checkSavedPaymentsAgainstBank(
+          paymentsFromAddResponse(response.data, 1),
+          false,
+          selectedOrder?.details?._id || selectedOrder?._id
+        )
 
         // Refresh wallet data if it was a wallet payment
         if (newPayment.isWalletPayment) {
@@ -3530,7 +3541,6 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           if (updatedOrder) {
             setSelectedOrder(updatedOrder)
           }
-          await checkSavedPaymentsAgainstBank(paymentsFromAddResponse(response.data, 1), false)
         } catch (error) {
           console.error("Error refreshing orders after payment:", error)
           // Fallback to the original refresh method
@@ -3736,8 +3746,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             ? "Payment added successfully"
             : `${payments.length} payments added successfully`
         )
+        await checkSavedPaymentsAgainstBank(
+          savedFromApi,
+          true,
+          selectedOrder?.details?._id || selectedOrder?._id
+        )
         await refreshAfterPaymentSaved(orderId, payments)
-        await checkSavedPaymentsAgainstBank(savedFromApi, true)
         return
       }
 
@@ -3750,11 +3764,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
               ? "Payment added successfully"
               : `${payments.length} payments added successfully`)
         )
-        await refreshAfterPaymentSaved(orderId, payments)
         await checkSavedPaymentsAgainstBank(
           paymentsFromAddResponse(response.data, payments.length),
-          false
+          false,
+          selectedOrder?.details?._id || selectedOrder?._id
         )
+        await refreshAfterPaymentSaved(orderId, payments)
       } else {
         Toast.error("Failed to add payments")
       }
@@ -5971,10 +5986,38 @@ const loadFilterOptions = async () => {
     }
   }
 
+  const resolveOrderMongoId = (hint) =>
+    hint || selectedOrder?.details?._id || selectedOrder?._id || selectedOrder?.details?.orderid || ""
+
+  const openPaymentBankCheck = (payload) => {
+    paymentBankCheckOpenRef.current = true
+    setPaymentCompleteDialog(payload)
+  }
+
+  const closePaymentBankCheck = () => {
+    paymentBankCheckOpenRef.current = false
+    setPaymentCompleteDialog(null)
+  }
+
+  const patchPaymentBankCheck = (updater) => {
+    if (!paymentBankCheckOpenRef.current) return
+    setPaymentCompleteDialog(updater)
+  }
+
+  const rowFromCheck = (p, outcome = {}, extra = {}) => ({
+    _id: String(p._id || extra.paymentId || ""),
+    paidAmount: p.paidAmount,
+    utrNumber: p.utrNumber || outcome.utr || "",
+    transactionId: p.transactionId || "",
+    result: extra.result || outcome.result || null,
+    message: extra.message || outcome.message || (extra.checking ? "Checking with bank…" : ""),
+  })
+
   /**
    * Match one saved payment against the bank statement. Only an exact UTR and
    * amount match clears it; anything else is routed to suspense for an
-   * accountant to confirm, so the outcome is shown rather than acted on here.
+   * accountant to confirm. After add (and Check bank) the outcome is always
+   * shown in the dialog — a match is not required to open it.
    */
   const handleCheckBankForPayment = async (payment) => {
     const paymentId = payment?._id ? String(payment._id) : ""
@@ -5982,13 +6025,19 @@ const loadFilterOptions = async () => {
       Toast.error("Save the payment before checking it against the bank")
       return
     }
-    const orderMongoId = selectedOrder?.details?._id || selectedOrder?._id
+    const orderMongoId = resolveOrderMongoId()
     if (!orderMongoId) {
       Toast.error("Could not work out which order this payment belongs to")
       return
     }
 
     setBankCheckLoadingPaymentId(paymentId)
+    openPaymentBankCheck({
+      checking: true,
+      payments: [rowFromCheck(payment, {}, { paymentId, checking: true })],
+      orderPaidOff: false,
+      skipReason: null,
+    })
     try {
       const res = await NetworkManager(API.BANKING.POST_VERIFY_PAYMENT).request({
         source: selectedOrder?.isAgriSalesOrder ? "agriSales" : "order",
@@ -5998,28 +6047,70 @@ const loadFilterOptions = async () => {
       const outcome = res?.data?.data ?? {}
       setBankCheckOutcomes((prev) => ({ ...prev, [paymentId]: outcome }))
       if (outcome.result === "VERIFIED") {
-        Toast.success(outcome.message || "Matched in the bank statement")
         await refreshModalData()
-      } else {
-        Toast.info(outcome.message || "No exact match — sent to suspense for review")
       }
+      patchPaymentBankCheck({
+        checking: false,
+        payments: [rowFromCheck(payment, outcome, { paymentId })],
+        orderPaidOff: paymentSummary?.balance === 0 && outcome.result === "VERIFIED",
+        skipReason: null,
+      })
     } catch (e) {
       const msg =
         e?.response?.data?.message || e?.response?.data?.error || e?.message || "Bank check failed"
-      Toast.error(msg)
+      patchPaymentBankCheck({
+        checking: false,
+        payments: [
+          rowFromCheck(payment, {}, { paymentId, result: "ERROR", message: msg }),
+        ],
+        orderPaidOff: false,
+        skipReason: null,
+      })
     } finally {
       setBankCheckLoadingPaymentId(null)
     }
   }
 
-  const checkSavedPaymentsAgainstBank = async (savedPayments, isAgri) => {
-    const toCheck = (savedPayments || []).filter(paymentHasBankRef).filter((p) => p._id)
-    if (!toCheck.length) return
-    const orderMongoId =
-      selectedOrder?.details?._id || selectedOrder?.details?.orderid || selectedOrder?._id
-    if (!orderMongoId) return
+  const checkSavedPaymentsAgainstBank = async (savedPayments, isAgri, orderMongoIdHint) => {
+    const listed = savedPayments || []
+    const withId = listed.filter((p) => p && p._id)
+    const toCheck = withId.filter(paymentHasBankRef)
+    const hadBankRefWithoutId = listed.some((p) => paymentHasBankRef(p) && !p._id)
 
-    const verified = []
+    if (!toCheck.length) {
+      if (hadBankRefWithoutId) {
+        openPaymentBankCheck({
+          checking: false,
+          payments: [],
+          orderPaidOff: false,
+          skipReason: "no-id",
+        })
+      }
+      return
+    }
+
+    const orderMongoId = resolveOrderMongoId(orderMongoIdHint)
+    if (!orderMongoId) {
+      openPaymentBankCheck({
+        checking: false,
+        payments: toCheck.map((p) =>
+          rowFromCheck(p, {}, { result: "ERROR", message: "Could not work out which order this payment belongs to" })
+        ),
+        orderPaidOff: false,
+        skipReason: "no-order",
+      })
+      return
+    }
+
+    openPaymentBankCheck({
+      checking: true,
+      payments: toCheck.map((p) => rowFromCheck(p, {}, { checking: true })),
+      orderPaidOff: false,
+      skipReason: null,
+    })
+
+    const rows = []
+    let anyVerified = false
     for (const p of toCheck) {
       const paymentId = String(p._id)
       setBankCheckLoadingPaymentId(paymentId)
@@ -6028,33 +6119,43 @@ const loadFilterOptions = async () => {
           source: isAgri ? "agriSales" : "order",
           orderMongoId: String(orderMongoId),
           paymentId,
+          allowLiveLookup: false,
         })
         const outcome = res?.data?.data ?? {}
         setBankCheckOutcomes((prev) => ({ ...prev, [paymentId]: outcome }))
-        if (outcome.result === "VERIFIED") {
-          verified.push({
-            _id: paymentId,
-            paidAmount: p.paidAmount,
-            utrNumber: p.utrNumber || outcome.utr || "",
-            transactionId: p.transactionId || "",
-            message: outcome.message,
-          })
-        } else if (outcome.message) {
-          Toast.info(outcome.message)
-        }
+        if (outcome.result === "VERIFIED") anyVerified = true
+        rows.push(rowFromCheck(p, outcome, { paymentId }))
       } catch (e) {
-        Toast.error(
-          e?.response?.data?.message || e?.message || "Bank check failed for the new payment"
+        rows.push(
+          rowFromCheck(p, {}, {
+            paymentId,
+            result: "ERROR",
+            message: e?.response?.data?.message || e?.message || "Bank check failed for the new payment",
+          })
         )
       } finally {
         setBankCheckLoadingPaymentId(null)
       }
+      patchPaymentBankCheck((prev) =>
+        prev
+          ? {
+              ...prev,
+              payments: [
+                ...rows,
+                ...toCheck.slice(rows.length).map((rest) => rowFromCheck(rest, {}, { checking: true })),
+              ],
+            }
+          : prev
+      )
     }
 
-    if (verified.length) {
-      await refreshModalData()
-      setPaymentCompleteDialog({ payments: verified, orderPaidOff: paymentSummary?.balance === 0 })
-    }
+    if (anyVerified) await refreshModalData()
+    patchPaymentBankCheck({
+      checking: false,
+      payments: rows,
+      orderPaidOff: paymentSummary?.balance === 0 && anyVerified,
+      skipReason: null,
+    })
   }
 
 const currentYear = new Date().getFullYear()
@@ -14788,9 +14889,11 @@ const mapSlotForUi = (slotData) => {
 
       <PaymentCompleteDialog
         open={Boolean(paymentCompleteDialog)}
-        onClose={() => setPaymentCompleteDialog(null)}
+        onClose={closePaymentBankCheck}
+        checking={Boolean(paymentCompleteDialog?.checking)}
         payments={paymentCompleteDialog?.payments}
         orderPaidOff={paymentCompleteDialog?.orderPaidOff}
+        skipReason={paymentCompleteDialog?.skipReason}
       />
 
       <PaymentQRModal
