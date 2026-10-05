@@ -3553,7 +3553,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       }
     } catch (error) {
       console.error("Error adding payment:", error)
-      Toast.error("Failed to add payment")
+      Toast.error(error?.response?.data?.message || error?.message || "Failed to add payment")
     } finally {
       setLoading(false)
     }
