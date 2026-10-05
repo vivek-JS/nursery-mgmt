@@ -71,6 +71,12 @@ export function orderPlantDisplayLabel(entry) {
   return plant || subtype || "—"
 }
 
+/** Banana / keli / केळ — complete form requires an existing lagwad batch. */
+export function isBananaPlantOrder(entry) {
+  const { plant, subtype } = orderPlantSubtypeNames(entry)
+  return /banana|keli|केळ/i.test(`${plant} ${subtype}`)
+}
+
 /** Unify list-row, GET /dispatched/:id, and nested `details` order shapes for UI + shed APIs. */
 export function normalizeDispatchOrderPlantFields(order) {
   if (!order || typeof order !== "object") return order

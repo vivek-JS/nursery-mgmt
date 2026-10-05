@@ -21,10 +21,22 @@ import CompleteInvoicePDF from "./CompleteInvoicePDF"
 import { buildCompletePreviewDispatch } from "./orderCompletePreview"
 import LinkShedStockDialog from "./LinkShedStockDialog"
 import {
+  isBananaPlantOrder,
   normalizeDispatchOrderPlantFields,
   orderPlantDisplayLabel,
   orderPlantIds,
 } from "utils/orderPlantResolve"
+import {
+  batchPickGroupLabel,
+  batchPickGroupsFromLines,
+  matchTypedBatchToStock,
+  parseLagwadBatchLine,
+  pickStockLineForGroupAndShed,
+  resolveBatchGroupKey,
+  shedPickLabel,
+  shedsForBatchPickGroup,
+  MANUAL_BATCH_PICK_KEY,
+} from "utils/lagwadBatchPickUtils"
 
 const round2 = (n) => Math.round(Number(n || 0) * 100) / 100
 
@@ -348,7 +360,7 @@ function shedsForBatchNumber(lines, batchNumber) {
     if (String(ln?.batchNumber ?? "").trim() !== bn) continue
     const shed = String(ln?.pollyhouse ?? "").trim() || "—"
     const cur = map.get(shed) || { pollyhouse: shed, plants: 0, lines: [] }
-    cur.plants += Number(ln.availableQuantity) || 0
+    cur.plants += linePlantQty(ln)
     cur.lines.push(ln)
     map.set(shed, cur)
   }
@@ -366,21 +378,6 @@ function pickBatchRecord(lines, batchNumber, pollyhouse) {
     if (match) return match
   }
   return forBatch[0]
-}
-
-function batchOptionLabel(bn, lines) {
-  const sheds = shedsForBatchNumber(lines, bn)
-  const plants = sheds.reduce((s, sh) => s + (Number(sh.plants) || 0), 0)
-  const shedPart =
-    sheds.length > 1
-      ? `${sheds.length} sheds`
-      : sheds[0]?.pollyhouse && sheds[0].pollyhouse !== "—"
-        ? sheds[0].pollyhouse
-        : ""
-  const bits = [bn]
-  if (shedPart) bits.push(shedPart)
-  if (plants > 0) bits.push(`${plants.toLocaleString("en-IN")} ready`)
-  return bits.join(" · ")
 }
 
 function linePlantQty(ln) {
@@ -412,15 +409,28 @@ function lagwadReadyLines(lines) {
   )
 }
 
-function batchDropdownLabel(bn, lines) {
+function lagwadSourceLines(lines) {
   const lagwad = lagwadReadyLines(lines)
-  const source = lagwad.length ? lagwad : lines || []
-  const sheds = shedsForBatchNumber(source, bn)
-  const lagwadPlants = sheds.reduce((s, sh) => s + (Number(sh.plants) || 0), 0)
-  const bits = [`Lot ${bn}`]
-  if (sheds.length) bits.push(`${sheds.length} shed(s)`)
-  if (lagwadPlants > 0) bits.push(`${lagwadPlants.toLocaleString("en-IN")} lagwad ready`)
-  return bits.join(" · ")
+  return lagwad.length ? lagwad : lines || []
+}
+
+function vehicleLinesFromLoads(loaded) {
+  return (loaded || []).map((b) => ({
+    batchNumber: b?.batchNumber,
+    pollyhouse: b?.pollyhouse,
+    availableQuantity: b?.plants,
+    plants: b?.plants,
+    batchId: b?.batchId,
+    secondaryInwardId: b?.secondaryInwardId,
+  }))
+}
+
+function uniqueBatchNumbersFromVehicleLoads(loaded) {
+  return batchPickGroupsFromLines(vehicleLinesFromLoads(loaded))
+}
+
+function vehicleShedRollupsForBatch(loaded, groupKey) {
+  return shedsForBatchPickGroup(vehicleLinesFromLoads(loaded), groupKey)
 }
 
 function findStockLineByKey(lines, key) {
@@ -467,21 +477,49 @@ function vehicleLoadLineKey(b) {
   ].join("|")
 }
 
-function vehicleLoadOptionLabel(b) {
-  const bn = String(b?.batchNumber ?? "").trim()
-  const shed = String(b?.pollyhouse ?? "").trim()
-  const plants = Number(b?.plants) || 0
-  const bits = [bn]
-  if (shed) bits.push(shed)
-  if (plants > 0) bits.push(`${plants.toLocaleString("en-IN")} loaded`)
-  return bits.join(" · ")
-}
-
 function primaryVehicleLoadKey(loaded) {
   const rows = [...(loaded || [])].sort(
     (a, b) => (Number(b?.plants) || 0) - (Number(a?.plants) || 0)
   )
   return rows[0] ? vehicleLoadLineKey(rows[0]) : ""
+}
+
+function emptyManualBatchPayload() {
+  return {
+    batchNumber: "",
+    pollyhouse: "",
+    batchSource: "manual",
+    requiresPollyhouse: false,
+  }
+}
+
+function payloadFromStockLine(order, selectedBatchRecord, batchSheds, selectedShed) {
+  const needsShedSelect = (batchSheds || []).length > 1
+  if (needsShedSelect && !selectedShed) {
+    throw new Error(`Select shed for batch on order #${displayOrderNumber(order)}`)
+  }
+  const resolvedShed =
+    selectedShed ||
+    (batchSheds[0]?.pollyhouse != null && batchSheds[0].pollyhouse !== "—"
+      ? String(batchSheds[0].pollyhouse).trim()
+      : "")
+  const selectedBatchNo = String(selectedBatchRecord?.batchNumber ?? "").trim()
+  return {
+    batchNumber: selectedBatchNo,
+    batchId:
+      selectedBatchRecord?.batchId != null
+        ? String(selectedBatchRecord.batchId)
+        : undefined,
+    pollyhouse: resolvedShed || String(selectedBatchRecord?.pollyhouse ?? "").trim(),
+    secondaryInwardId:
+      selectedBatchRecord?.secondaryInwardId != null
+        ? String(selectedBatchRecord.secondaryInwardId)
+        : undefined,
+    batchSource: selectedBatchRecord?.fromVehicleLoad
+      ? "vehicle_load"
+      : "shed_stock",
+    requiresPollyhouse: needsShedSelect,
+  }
 }
 
 function resolveBatchPayloadForOrder(
@@ -490,11 +528,14 @@ function resolveBatchPayloadForOrder(
   batchNumbersByOrderKey,
   batchShedByOrderKey,
   batchStockByOrderKey,
-  vehicleLoadPickByOrderKey
+  vehicleLoadPickByOrderKey,
+  batchManualEntryByOrderKey = {}
 ) {
   const k = rowKey(order)
   const mode = getBatchUiMode(order, dispatch)
   const loaded = vehicleLoadedBatches(dispatch, order)
+  const banana = isBananaPlantOrder(order)
+  const orderNo = displayOrderNumber(order)
 
   if (mode === "locked_vehicle") {
     const b = loaded[0]
@@ -515,7 +556,7 @@ function resolveBatchPayloadForOrder(
     const b =
       loaded.find((row) => vehicleLoadLineKey(row) === key) || loaded[0]
     if (!b) {
-      throw new Error(`Select a shed-app batch for order #${displayOrderNumber(order)}`)
+      throw new Error(`Select a shed-app batch for order #${orderNo}`)
     }
     return {
       batchNumber: String(b.batchNumber).trim(),
@@ -528,51 +569,83 @@ function resolveBatchPayloadForOrder(
     }
   }
 
-  const stockLines = batchStockByOrderKey[k] || []
-  const selectedBatchNo =
+  const manualEntry = batchManualEntryByOrderKey[k] === true
+  const rawBatchVal =
     batchNumbersByOrderKey[k] != null ? String(batchNumbersByOrderKey[k]).trim() : ""
-  if (!selectedBatchNo) {
-    throw new Error(`Select batch for order #${displayOrderNumber(order)}`)
-  }
-  const lagwad = lagwadReadyLines(stockLines)
-  const shedSource = lagwad.length ? lagwad : stockLines
-  const batchSheds = shedsForBatchNumber(shedSource, selectedBatchNo)
-  const needsShedSelect = batchSheds.length > 1
+  const stockLines = batchStockByOrderKey[k] || []
+  const shedSource = lagwadSourceLines(stockLines)
   const selectedShed =
     batchShedByOrderKey[k] != null ? String(batchShedByOrderKey[k]).trim() : ""
-  if (needsShedSelect && !selectedShed) {
-    throw new Error(`Select shed for batch on order #${displayOrderNumber(order)}`)
+
+  if (manualEntry || rawBatchVal === MANUAL_BATCH_PICK_KEY) {
+    const typed = rawBatchVal === MANUAL_BATCH_PICK_KEY ? "" : rawBatchVal
+    if (!typed) {
+      if (banana) {
+        throw new Error(
+          `Select or type an existing lagwad batch for banana order #${orderNo}`
+        )
+      }
+      return emptyManualBatchPayload()
+    }
+    const matched = matchTypedBatchToStock(shedSource, typed, selectedShed)
+    if (matched?.line) {
+      const batchSheds = shedsForBatchPickGroup(shedSource, matched.groupKey)
+      return payloadFromStockLine(order, matched.line, batchSheds, selectedShed)
+    }
+    if (banana) {
+      throw new Error(
+        `Batch "${typed}" is not in lagwad for banana order #${orderNo}`
+      )
+    }
+    return {
+      batchNumber: typed,
+      pollyhouse: selectedShed,
+      batchSource: "manual",
+      requiresPollyhouse: false,
+    }
   }
+
+  const selectedGroupKey = resolveBatchGroupKey(shedSource, rawBatchVal)
+  const groups = batchPickGroupsFromLines(shedSource)
+  const groupExists = groups.some((g) => g.groupKey === selectedGroupKey)
+  if (!selectedGroupKey || !groupExists) {
+    const matched = matchTypedBatchToStock(shedSource, rawBatchVal, selectedShed)
+    if (matched?.line) {
+      const batchSheds = shedsForBatchPickGroup(shedSource, matched.groupKey)
+      return payloadFromStockLine(order, matched.line, batchSheds, selectedShed)
+    }
+    if (banana) {
+      throw new Error(`Select batch for banana order #${orderNo}`)
+    }
+    if (rawBatchVal) {
+      return {
+        batchNumber: rawBatchVal,
+        pollyhouse: selectedShed,
+        batchSource: "manual",
+        requiresPollyhouse: false,
+      }
+    }
+    return emptyManualBatchPayload()
+  }
+  const batchSheds = shedsForBatchPickGroup(shedSource, selectedGroupKey)
+  const needsShedSelect = batchSheds.length > 1
   const resolvedShed =
     selectedShed ||
     (batchSheds[0]?.pollyhouse != null && batchSheds[0].pollyhouse !== "—"
       ? String(batchSheds[0].pollyhouse).trim()
       : "")
-  const selectedBatchRecord = pickBatchRecord(
-    stockLines,
-    selectedBatchNo,
-    needsShedSelect ? selectedShed : batchSheds[0]?.pollyhouse
+  const selectedBatchRecord = pickStockLineForGroupAndShed(
+    shedSource,
+    selectedGroupKey,
+    needsShedSelect ? resolvedShed : batchSheds[0]?.pollyhouse
   )
-  const hasStockIds =
-    selectedBatchRecord?.batchId || selectedBatchRecord?.secondaryInwardId
-  return {
-    batchNumber: selectedBatchNo,
-    batchId:
-      selectedBatchRecord?.batchId != null
-        ? String(selectedBatchRecord.batchId)
-        : undefined,
-    pollyhouse: resolvedShed || String(selectedBatchRecord?.pollyhouse ?? "").trim(),
-    secondaryInwardId:
-      selectedBatchRecord?.secondaryInwardId != null
-        ? String(selectedBatchRecord.secondaryInwardId)
-        : undefined,
-    batchSource: selectedBatchRecord?.fromVehicleLoad
-      ? "vehicle_load"
-      : hasStockIds
-        ? "shed_stock"
-        : "manual",
-    requiresPollyhouse: needsShedSelect,
+  if (!selectedBatchRecord) {
+    if (banana) {
+      throw new Error(`Select batch for banana order #${orderNo}`)
+    }
+    return emptyManualBatchPayload()
   }
+  return payloadFromStockLine(order, selectedBatchRecord, batchSheds, selectedShed)
 }
 
 const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
@@ -597,6 +670,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [batchShedByOrder, setBatchShedByOrder] = useState({})
   /** Per order: secondary lagwad-ready stock lines (live + vehicle-loaded). */
   const [batchStockByOrder, setBatchStockByOrder] = useState({})
+  /** pick_stock: user typed batch/shed instead of lagwad dropdown. */
+  const [batchManualEntryByOrder, setBatchManualEntryByOrder] = useState({})
   const [batchStockLoading, setBatchStockLoading] = useState(false)
   /** pick_vehicle: composite key per order row for shedLoadedBatches line */
   const [vehicleLoadPickByOrder, setVehicleLoadPickByOrder] = useState({})
@@ -716,9 +791,16 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         const bn = order.details?.batchNumber ?? order.batchNumber
         const fromOrder = bn != null && bn !== "" ? String(bn).trim() : ""
         const fromShedPrimary = primaryBatchFromShedLoaded(loadedBatches)
-        const initialBn = fromOrder || fromShedPrimary
-        initialBatch[k] = initialBn
-        initialBatchShed[k] = primaryShedFromShedLoaded(loadedBatches, initialBn)
+        const initialFull = fromOrder || fromShedPrimary
+        initialBatch[k] = initialFull
+          ? parseLagwadBatchLine({ batchNumber: initialFull }).groupKey
+          : ""
+        initialBatchShed[k] = initialFull
+          ? parseLagwadBatchLine({
+              batchNumber: initialFull,
+              pollyhouse: primaryShedFromShedLoaded(loadedBatches, initialFull),
+            }).shed
+          : ""
       }
       initialFreight[k] = freightDraftFromOrder(order)
       initialDiscount[k] = String(existingDiscountTotal(order) || "0")
@@ -733,6 +815,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setPaymentDraftByOrder(initialPay)
     setBatchNumbers(initialBatch)
     setBatchShedByOrder(initialBatchShed)
+    setBatchManualEntryByOrder({})
     setVehicleLoadPickByOrder(initialVehiclePick)
     setFreightByOrder(initialFreight)
     setInvoicePreviewOpen(false)
@@ -791,6 +874,36 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       }
       if (cancelled) return
       setBatchStockByOrder(next)
+      const manualFlags = {}
+      for (const order of localDispatch.orderIds) {
+        const k = rowKey(order)
+        if (!k) continue
+        if (getBatchUiMode(order, localDispatch) !== "pick_stock") continue
+        const savedBn = String(order.details?.batchNumber ?? order.batchNumber ?? "").trim()
+        if (!savedBn) continue
+        const shedSource = lagwadSourceLines(next[k])
+        const gk = parseLagwadBatchLine({ batchNumber: savedBn }).groupKey
+        const groups = batchPickGroupsFromLines(shedSource)
+        const listed = groups.some((g) => g.groupKey === gk)
+        if (!listed && savedBn) {
+          manualFlags[k] = true
+        } else if (groups.length === 0) {
+          manualFlags[k] = true
+        }
+      }
+      if (Object.keys(manualFlags).length > 0) {
+        setBatchManualEntryByOrder((prev) => ({ ...prev, ...manualFlags }))
+        setBatchNumbers((prev) => {
+          const patched = { ...prev }
+          for (const order of localDispatch.orderIds) {
+            const k = rowKey(order)
+            if (!manualFlags[k]) continue
+            const savedBn = String(order.details?.batchNumber ?? order.batchNumber ?? "").trim()
+            if (savedBn) patched[k] = savedBn
+          }
+          return patched
+        })
+      }
       setBatchShedByOrder((prev) => {
         const patched = { ...prev }
         for (const order of localDispatch.orderIds) {
@@ -799,17 +912,20 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           if (getBatchUiMode(order, localDispatch) !== "pick_stock") continue
           const loadedBatches = shedBatchesForOrder(localDispatch, order)
           const savedBn = String(order.details?.batchNumber ?? order.batchNumber ?? "").trim()
-          const bn = savedBn || primaryBatchFromShedLoaded(loadedBatches)
-          if (!bn) continue
-          const lagwad = lagwadReadyLines(next[k])
-          const shedSource = lagwad.length ? lagwad : next[k]
-          const sheds = shedsForBatchNumber(shedSource, bn)
+          const fullBn = savedBn || primaryBatchFromShedLoaded(loadedBatches)
+          const shedSource = lagwadSourceLines(next[k])
+          const gk = fullBn
+            ? parseLagwadBatchLine({ batchNumber: fullBn }).groupKey
+            : resolveBatchGroupKey(shedSource, patched[k])
+          if (!gk) continue
+          const sheds = shedsForBatchPickGroup(shedSource, gk)
           if (sheds.length === 1) {
             patched[k] = sheds[0].pollyhouse === "—" ? "" : sheds[0].pollyhouse
           } else if (sheds.length > 1) {
             const cur =
               String(patched[k] ?? "").trim() ||
-              primaryShedFromShedLoaded(loadedBatches, bn)
+              parseLagwadBatchLine({ batchNumber: fullBn }).shed ||
+              primaryShedFromShedLoaded(loadedBatches, fullBn)
             patched[k] = sheds.some((s) => s.pollyhouse === cur) ? cur : ""
           }
         }
@@ -821,10 +937,21 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           const k = rowKey(order)
           if (!k) continue
           if (getBatchUiMode(order, localDispatch) !== "pick_stock") continue
-          if (String(patched[k] ?? "").trim()) continue
-          const lagwad = lagwadReadyLines(next[k])
-          const opts = uniqueBatchNumbersFromStock(lagwad.length ? lagwad : next[k])
-          if (opts[0]) patched[k] = opts[0]
+          const loadedBatches = shedBatchesForOrder(localDispatch, order)
+          const savedBn = String(order.details?.batchNumber ?? order.batchNumber ?? "").trim()
+          const fullBn = savedBn || primaryBatchFromShedLoaded(loadedBatches)
+          const shedSource = lagwadSourceLines(next[k])
+          if (fullBn) {
+            patched[k] = parseLagwadBatchLine({ batchNumber: fullBn }).groupKey
+            continue
+          }
+          const cur = resolveBatchGroupKey(shedSource, patched[k])
+          if (cur) {
+            patched[k] = cur
+            continue
+          }
+          const groups = batchPickGroupsFromLines(shedSource)
+          if (groups[0]?.groupKey) patched[k] = groups[0].groupKey
         }
         return patched
       })
@@ -851,17 +978,49 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   }
 
   const handleBatchNumberChange = (k, value, stockLines) => {
-    const bn = String(value ?? "").trim()
-    setBatchNumbers((prev) => ({ ...prev, [k]: bn }))
+    const gk = String(value ?? "").trim()
+    if (gk === MANUAL_BATCH_PICK_KEY) {
+      setBatchManualEntryByOrder((prev) => ({ ...prev, [k]: true }))
+      setBatchNumbers((prev) => ({ ...prev, [k]: "" }))
+      setBatchShedByOrder((prev) => ({ ...prev, [k]: "" }))
+      return
+    }
+    setBatchManualEntryByOrder((prev) => ({ ...prev, [k]: false }))
+    setBatchNumbers((prev) => ({ ...prev, [k]: gk }))
     const lines = stockLines || batchStockByOrder[k] || []
-    const lagwad = lagwadReadyLines(lines)
-    const sheds = shedsForBatchNumber(lagwad.length ? lagwad : lines, bn)
+    const sheds = shedsForBatchPickGroup(lagwadSourceLines(lines), gk)
     if (sheds.length === 1) {
       const shed = sheds[0].pollyhouse === "—" ? "" : sheds[0].pollyhouse
       setBatchShedByOrder((prev) => ({ ...prev, [k]: shed }))
     } else {
       setBatchShedByOrder((prev) => ({ ...prev, [k]: "" }))
     }
+  }
+
+  const handleManualBatchTextChange = (k, value, stockLines) => {
+    setBatchManualEntryByOrder((prev) => ({ ...prev, [k]: true }))
+    setBatchNumbers((prev) => ({ ...prev, [k]: value }))
+    const lines = stockLines || batchStockByOrder[k] || []
+    const matched = matchTypedBatchToStock(lagwadSourceLines(lines), value, "")
+    if (matched?.line) {
+      const sheds = shedsForBatchPickGroup(lagwadSourceLines(lines), matched.groupKey)
+      if (sheds.length === 1) {
+        const shed = sheds[0].pollyhouse === "—" ? "" : sheds[0].pollyhouse
+        setBatchShedByOrder((prev) => ({ ...prev, [k]: shed }))
+      }
+    }
+  }
+
+  const handleManualShedTextChange = (k, value) => {
+    setBatchShedByOrder((prev) => ({ ...prev, [k]: value }))
+  }
+
+  const switchToLagwadBatchPick = (k, stockLines) => {
+    setBatchManualEntryByOrder((prev) => ({ ...prev, [k]: false }))
+    const lines = stockLines || batchStockByOrder[k] || []
+    const groups = batchPickGroupsFromLines(lagwadSourceLines(lines))
+    const first = groups[0]?.groupKey || ""
+    handleBatchNumberChange(k, first, lines)
   }
 
   const handleBatchShedChange = (k, value) => {
@@ -879,6 +1038,42 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       setBatchShedByOrder((prev) => ({
         ...prev,
         [k]: String(row.pollyhouse ?? "").trim(),
+      }))
+    }
+  }
+
+  const handleVehicleBatchChange = (k, groupKey, loadedRows) => {
+    const gk = String(groupKey ?? "").trim()
+    setBatchNumbers((prev) => ({ ...prev, [k]: gk }))
+    const sheds = vehicleShedRollupsForBatch(loadedRows, gk)
+    if (sheds.length === 1) {
+      const row = sheds[0].lines?.[0]
+      const shed = sheds[0].pollyhouse === "—" ? "" : sheds[0].pollyhouse
+      setBatchShedByOrder((prev) => ({ ...prev, [k]: shed }))
+      if (row) {
+        setVehicleLoadPickByOrder((prev) => ({
+          ...prev,
+          [k]: vehicleLoadLineKey(row),
+        }))
+      }
+    } else {
+      setBatchShedByOrder((prev) => ({ ...prev, [k]: "" }))
+      setVehicleLoadPickByOrder((prev) => ({ ...prev, [k]: "" }))
+    }
+  }
+
+  const handleVehicleShedChange = (k, shedValue, loadedRows, groupKey) => {
+    const shed = String(shedValue ?? "").trim()
+    setBatchShedByOrder((prev) => ({ ...prev, [k]: shed }))
+    const gk = String(groupKey ?? "").trim()
+    const line = pickStockLineForGroupAndShed(vehicleLinesFromLoads(loadedRows), gk, shed)
+    const match =
+      line ||
+      vehicleShedRollupsForBatch(loadedRows, gk).find((s) => s.pollyhouse === shed)?.lines?.[0]
+    if (match) {
+      setVehicleLoadPickByOrder((prev) => ({
+        ...prev,
+        [k]: vehicleLoadLineKey(match),
       }))
     }
   }
@@ -1187,7 +1382,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         batchNumbersByOrderKey,
         batchShedByOrderKey,
         batchStockByOrderKey,
-        vehicleLoadPickByOrderKey
+        vehicleLoadPickByOrderKey,
+        batchManualEntryByOrder
       )
 
       orderUpdates.push({
@@ -1492,14 +1688,14 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                 const stockLines = batchStockByOrder[k] || []
                 const lagwadLines = lagwadReadyLines(stockLines)
                 const stockForBatchPick = lagwadLines.length ? lagwadLines : stockLines
-                const batchOptionsBase = uniqueBatchNumbersFromStock(stockForBatchPick)
-                const selectedBatchNo = batchNumbers[k] != null ? String(batchNumbers[k]) : ""
-                const batchOptions =
-                  selectedBatchNo && !batchOptionsBase.includes(selectedBatchNo)
-                    ? [selectedBatchNo, ...batchOptionsBase]
-                    : batchOptionsBase
-                const batchSheds = shedsForBatchNumber(stockForBatchPick, selectedBatchNo)
-                const needsShedSelect = batchSheds.length > 1
+                const batchPickGroups = batchPickGroupsFromLines(stockForBatchPick)
+                const selectedGroupKey = resolveBatchGroupKey(
+                  stockForBatchPick,
+                  batchNumbers[k] != null ? String(batchNumbers[k]) : ""
+                )
+                const batchSheds = selectedGroupKey
+                  ? shedsForBatchPickGroup(stockForBatchPick, selectedGroupKey)
+                  : []
                 const selectedShed = batchShedByOrder[k] != null ? String(batchShedByOrder[k]) : ""
                 const resolvedShedUi =
                   selectedShed ||
@@ -1511,10 +1707,32 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                 const lagwadReadyInShed = shedLagwadRow
                   ? Number(shedLagwadRow.plants) || 0
                   : linePlantQty(
-                      pickBatchRecord(stockLines, selectedBatchNo, resolvedShedUi)
+                      pickStockLineForGroupAndShed(
+                        stockForBatchPick,
+                        selectedGroupKey,
+                        resolvedShedUi
+                      )
                     )
+                const batchManualMode = Boolean(batchManualEntryByOrder[k])
+                const bananaOrder = isBananaPlantOrder(order)
+                const selectedBatchNo = batchManualMode
+                  ? String(batchNumbers[k] ?? "").trim()
+                  : selectedGroupKey
+                const typedBatchMatch =
+                  batchManualMode && selectedBatchNo
+                    ? matchTypedBatchToStock(
+                        stockForBatchPick,
+                        selectedBatchNo,
+                        selectedShed
+                      )
+                    : null
+                const typedBatchFound = Boolean(typedBatchMatch?.line)
+                const typedMatchSheds = typedBatchFound
+                  ? shedsForBatchPickGroup(stockForBatchPick, typedBatchMatch.groupKey)
+                  : []
                 const lagwadAfterDispatch = Math.max(0, lagwadReadyInShed - totalPlants)
-                const lagwadOverDispatch = totalPlants > lagwadReadyInShed
+                const lagwadOverDispatch =
+                  !batchManualMode && totalPlants > lagwadReadyInShed
                 const batchUiMode = getBatchUiMode(order, localDispatch)
                 const shedStockLinked = vehicleLoadedBatches(localDispatch, order).length > 0
                 const vehicleLoads = vehicleLoadedBatches(localDispatch, order)
@@ -1753,6 +1971,14 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                                 <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900">
                                   Pick shed-app load
                                 </span>
+                              ) : bananaOrder ? (
+                                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+                                  Banana — batch required
+                                </span>
+                              ) : batchManualMode ? (
+                                <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-800">
+                                  Type or select
+                                </span>
                               ) : (
                                 <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
                                   Select batch / shed
@@ -1772,9 +1998,11 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                             </div>
                             {batchUiMode === "pick_stock" && !shedStockLinked ? (
                               <p className="mt-1 text-[10px] leading-snug text-amber-900/90">
-                                Shed app load not linked — pick lagwad below or use{" "}
-                                <span className="font-semibold">Link shed stock</span> to attach batch
-                                to this order before complete.
+                                {bananaOrder
+                                  ? "Banana needs an existing lagwad batch — pick below, type a batch we can find, or "
+                                  : "Pick from lagwad below, type a lot if needed, or "}
+                                <span className="font-semibold">Link shed stock</span>
+                                {bananaOrder ? " before complete." : "."}
                               </p>
                             ) : null}
                             {batchUiMode === "locked_vehicle" ? (
@@ -1804,74 +2032,253 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                                 ) : null}
                               </div>
                             ) : batchUiMode === "pick_vehicle" ? (
-                              <select
-                                className="mt-0.5 w-full rounded border border-emerald-300 bg-white px-2 py-1 text-xs"
-                                value={vehiclePickKey}
-                                onChange={(e) =>
-                                  handleVehicleLoadPickChange(k, e.target.value, vehicleLoads)
-                                }>
-                                {vehicleLoads.map((b) => {
-                                  const vk = vehicleLoadLineKey(b)
-                                  return (
-                                    <option key={vk} value={vk}>
-                                      {vehicleLoadOptionLabel(b)}
-                                    </option>
-                                  )
-                                })}
-                              </select>
-                            ) : batchOptions.length > 0 ? (
+                              (() => {
+                                const vehicleBatchOptions =
+                                  uniqueBatchNumbersFromVehicleLoads(vehicleLoads)
+                                const vehicleBatch =
+                                  resolveBatchGroupKey(
+                                    vehicleLinesFromLoads(vehicleLoads),
+                                    selectedBatchNo
+                                  ) ||
+                                  vehicleBatchOptions[0]?.groupKey ||
+                                  ""
+                                const vehicleSheds = vehicleShedRollupsForBatch(
+                                  vehicleLoads,
+                                  vehicleBatch
+                                )
+                                const vehicleShedValue =
+                                  selectedShed ||
+                                  (vehicleSheds.length === 1
+                                    ? vehicleSheds[0].pollyhouse
+                                    : "")
+                                return (
+                                  <div className="mt-1 space-y-1.5">
+                                    <div>
+                                      <label className="text-[10px] font-medium text-emerald-900/80">
+                                        Batch
+                                      </label>
+                                      <select
+                                        className="mt-0.5 w-full rounded border border-emerald-300 bg-white px-2 py-1 text-xs"
+                                        value={vehicleBatch}
+                                        onChange={(e) =>
+                                          handleVehicleBatchChange(k, e.target.value, vehicleLoads)
+                                        }>
+                                        {vehicleBatchOptions.map((g) => (
+                                          <option key={g.groupKey} value={g.groupKey}>
+                                            {batchPickGroupLabel(g, vehicleLinesFromLoads(vehicleLoads))}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    {vehicleBatch && vehicleSheds.length === 1 ? (
+                                      <p className="text-[11px] text-emerald-950">
+                                        Shed:{" "}
+                                        <span className="font-semibold">
+                                          {shedPickLabel(vehicleSheds[0])}
+                                        </span>
+                                      </p>
+                                    ) : vehicleBatch && vehicleSheds.length > 1 ? (
+                                      <div>
+                                        <label className="text-[10px] font-medium text-emerald-900/80">
+                                          Shed
+                                        </label>
+                                        <select
+                                          className="mt-0.5 w-full rounded border border-emerald-300 bg-white px-2 py-1 text-xs"
+                                          value={vehicleShedValue}
+                                          onChange={(e) =>
+                                            handleVehicleShedChange(
+                                              k,
+                                              e.target.value,
+                                              vehicleLoads,
+                                              vehicleBatch
+                                            )
+                                          }>
+                                          <option value="">Select shed</option>
+                                          {vehicleSheds.map((sh) => (
+                                            <option key={sh.pollyhouse} value={sh.pollyhouse}>
+                                              {shedPickLabel(sh)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                )
+                              })()
+                            ) : batchManualMode || batchPickGroups.length === 0 ? (
+                              <div className="mt-1 space-y-1.5">
+                                <div>
+                                  <label className="text-[10px] font-medium text-slate-700">
+                                    {bananaOrder ? "Batch (select or type — must exist)" : "Batch (select or type)"}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    className={`mt-0.5 w-full rounded border bg-white px-2 py-1 text-xs ${
+                                      selectedBatchNo && typedBatchFound
+                                        ? "border-emerald-400"
+                                        : selectedBatchNo && bananaOrder
+                                          ? "border-red-400"
+                                          : selectedBatchNo
+                                            ? "border-amber-300"
+                                            : "border-slate-300"
+                                    }`}
+                                    placeholder={
+                                      batchStockLoading
+                                        ? "Loading…"
+                                        : bananaOrder
+                                          ? "Type an existing lagwad batch"
+                                          : "e.g. SB-19 or lot number"
+                                    }
+                                    value={selectedBatchNo}
+                                    disabled={batchStockLoading}
+                                    onChange={(e) =>
+                                      handleManualBatchTextChange(k, e.target.value, stockLines)
+                                    }
+                                  />
+                                </div>
+                                {typedBatchFound && typedMatchSheds.length === 1 ? (
+                                  <p className="text-[11px] text-emerald-800">
+                                    Found in lagwad · shed{" "}
+                                    <span className="font-semibold">
+                                      {shedPickLabel(typedMatchSheds[0])}
+                                    </span>
+                                  </p>
+                                ) : typedBatchFound && typedMatchSheds.length > 1 ? (
+                                  <div>
+                                    <label className="text-[10px] font-medium text-emerald-900/80">
+                                      Shed
+                                    </label>
+                                    <select
+                                      className="mt-0.5 w-full rounded border border-emerald-300 bg-white px-2 py-1 text-xs"
+                                      value={selectedShed}
+                                      disabled={batchStockLoading}
+                                      onChange={(e) => handleBatchShedChange(k, e.target.value)}>
+                                      <option value="">Select shed</option>
+                                      {typedMatchSheds.map((sh) => (
+                                        <option key={sh.pollyhouse} value={sh.pollyhouse}>
+                                          {shedPickLabel(sh)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : selectedBatchNo ? (
+                                  <p
+                                    className={`text-[10px] leading-snug ${
+                                      bananaOrder ? "font-semibold text-red-800" : "text-amber-800"
+                                    }`}>
+                                    {bananaOrder
+                                      ? "Not in lagwad — banana must use an existing batch."
+                                      : "Not in lagwad list — will save as lot number (no stock deduction)."}
+                                  </p>
+                                ) : bananaOrder ? (
+                                  <p className="text-[10px] text-amber-900/85">
+                                    Banana batch is required. Type a number we can match, or pick from the list.
+                                  </p>
+                                ) : (
+                                  <p className="text-[10px] text-slate-600">
+                                    Optional. Type a lot if needed — we check whether it exists in lagwad.
+                                  </p>
+                                )}
+                                {!typedBatchFound ? (
+                                  <div>
+                                    <label className="text-[10px] font-medium text-slate-700">
+                                      Shed (optional)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                                      placeholder="Polyhouse / shed name"
+                                      value={selectedShed}
+                                      disabled={batchStockLoading}
+                                      onChange={(e) =>
+                                        handleManualShedTextChange(k, e.target.value)
+                                      }
+                                    />
+                                  </div>
+                                ) : null}
+                                {batchPickGroups.length > 0 ? (
+                                  <button
+                                    type="button"
+                                    disabled={isLoading || batchStockLoading}
+                                    onClick={() => switchToLagwadBatchPick(k, stockLines)}
+                                    className="w-full rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50">
+                                    Pick from lagwad list instead
+                                  </button>
+                                ) : !batchStockLoading ? (
+                                  <button
+                                    type="button"
+                                    disabled={isLoading}
+                                    onClick={() =>
+                                      setLinkShedStockOrder(
+                                        normalizeDispatchOrderPlantFields(order)
+                                      )
+                                    }
+                                    className="w-full rounded border border-amber-400 bg-amber-100/80 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-200/80 disabled:opacity-50">
+                                    Link shed stock from lagwad
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : (
                               <div className="mt-1 space-y-1.5">
                                 <div>
                                   <label className="text-[10px] font-medium text-amber-900/80">
-                                    Batch (lagwad)
+                                    Batch
                                   </label>
                                   <select
                                     className="mt-0.5 w-full rounded border border-amber-200 bg-amber-50/50 px-2 py-1 text-xs"
-                                    value={selectedBatchNo}
+                                    value={selectedGroupKey || ""}
                                     disabled={batchStockLoading}
                                     onChange={(e) =>
                                       handleBatchNumberChange(k, e.target.value, stockLines)
                                     }>
                                     <option value="">
-                                      {batchStockLoading ? "Loading…" : "Select batch"}
+                                      {batchStockLoading
+                                        ? "Loading…"
+                                        : bananaOrder
+                                          ? "Select batch (required)"
+                                          : "Select batch"}
                                     </option>
-                                    {batchOptions.map((bn) => (
-                                      <option key={bn} value={bn}>
-                                        {batchDropdownLabel(bn, stockLines)}
+                                    {batchPickGroups.map((g) => (
+                                      <option key={g.groupKey} value={g.groupKey}>
+                                        {batchPickGroupLabel(g, stockForBatchPick)}
                                       </option>
                                     ))}
+                                    <option value={MANUAL_BATCH_PICK_KEY}>
+                                      {bananaOrder
+                                        ? "Type batch to check…"
+                                        : "Enter batch manually…"}
+                                    </option>
                                   </select>
                                 </div>
-                                {selectedBatchNo && batchSheds.length > 0 ? (
+                                {selectedGroupKey && batchSheds.length === 1 ? (
+                                  <p className="text-[11px] text-amber-950">
+                                    Shed:{" "}
+                                    <span className="font-semibold">
+                                      {shedPickLabel(batchSheds[0])}
+                                    </span>
+                                  </p>
+                                ) : selectedGroupKey && batchSheds.length > 1 ? (
                                   <div>
                                     <label className="text-[10px] font-medium text-amber-900/80">
                                       Shed
                                     </label>
                                     <select
                                       className="mt-0.5 w-full rounded border border-amber-200 bg-white px-2 py-1 text-xs"
-                                      value={
-                                        selectedShed ||
-                                        (batchSheds.length === 1 ? batchSheds[0].pollyhouse : "")
-                                      }
-                                      disabled={batchStockLoading || batchSheds.length === 1}
+                                      value={selectedShed}
+                                      disabled={batchStockLoading}
                                       onChange={(e) =>
                                         handleBatchShedChange(k, e.target.value)
                                       }>
-                                      {batchSheds.length > 1 ? (
-                                        <option value="">Select shed</option>
-                                      ) : null}
+                                      <option value="">Select shed</option>
                                       {batchSheds.map((sh) => (
                                         <option key={sh.pollyhouse} value={sh.pollyhouse}>
-                                          {sh.pollyhouse === "—" ? "Default shed" : sh.pollyhouse}
-                                          {sh.plants
-                                            ? ` · ${Number(sh.plants).toLocaleString("en-IN")} lagwad`
-                                            : ""}
+                                          {shedPickLabel(sh)}
                                         </option>
                                       ))}
                                     </select>
                                   </div>
                                 ) : null}
-                                {selectedBatchNo && lagwadReadyInShed > 0 ? (
+                                {selectedGroupKey && lagwadReadyInShed > 0 ? (
                                   <p
                                     className={`text-[10px] leading-snug ${
                                       lagwadOverDispatch ? "font-semibold text-red-800" : "text-amber-900/85"
@@ -1884,37 +2291,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                                       ? " (order exceeds lagwad in this shed)"
                                       : ""}
                                   </p>
-                                ) : selectedBatchNo ? (
+                                ) : selectedGroupKey ? (
                                   <p className="text-[10px] text-amber-800/80">
                                     No lagwad qty listed for this batch/shed — confirm manually.
                                   </p>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <div className="mt-1 space-y-1.5">
-                                <input
-                                  type="text"
-                                  className="w-full rounded border border-amber-200 bg-amber-50/50 px-2 py-1 text-xs"
-                                  placeholder={
-                                    batchStockLoading
-                                      ? "Loading shed lots…"
-                                      : "Lot / batch (no lagwad lines listed)"
-                                  }
-                                  value={selectedBatchNo}
-                                  onChange={(e) =>
-                                    handleBatchNumberChange(k, e.target.value, stockLines)
-                                  }
-                                />
-                                {!batchStockLoading ? (
-                                  <button
-                                    type="button"
-                                    disabled={isLoading}
-                                    onClick={() =>
-                                    setLinkShedStockOrder(normalizeDispatchOrderPlantFields(order))
-                                  }
-                                    className="w-full rounded border border-amber-400 bg-amber-100/80 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-200/80 disabled:opacity-50">
-                                    Link shed stock from lagwad
-                                  </button>
                                 ) : null}
                               </div>
                             )}

@@ -7,15 +7,15 @@ import {
   orderPlantDisplayLabel,
   orderPlantIds,
 } from "utils/orderPlantResolve"
-
-function lineKey(ln) {
-  return [
-    String(ln?.batchId ?? ""),
-    String(ln?.secondaryInwardId ?? ""),
-    String(ln?.batchNumber ?? "").trim(),
-    String(ln?.pollyhouse ?? "").trim(),
-  ].join("|")
-}
+import {
+  batchPickGroupLabel,
+  batchPickGroupsFromLines,
+  linePlantQty,
+  pickStockLineForGroupAndShed,
+  resolveBatchGroupKey,
+  shedPickLabel,
+  shedsForBatchPickGroup,
+} from "utils/lagwadBatchPickUtils"
 
 function dispatchQtyForOrder(dispatch, orderId) {
   const oid = String(orderId ?? "").trim()
@@ -41,7 +41,8 @@ const LinkShedStockDialog = ({
   const [submitting, setSubmitting] = useState(false)
   const [allSuggestions, setAllSuggestions] = useState([])
   const [showNotReady, setShowNotReady] = useState(false)
-  const [selectedKey, setSelectedKey] = useState("")
+  const [linkBatch, setLinkBatch] = useState("")
+  const [linkShed, setLinkShed] = useState("")
   const [plants, setPlants] = useState("")
 
   const suggestions = useMemo(() => {
@@ -58,17 +59,26 @@ const LinkShedStockDialog = ({
   const orderMongoId = String(normalizedOrder?._id ?? normalizedOrder?.id ?? "").trim()
   const plantLabel = normalizedOrder ? orderPlantDisplayLabel(normalizedOrder) : "Order"
 
-  const selectedLine = useMemo(
-    () => suggestions.find((ln) => lineKey(ln) === selectedKey) || null,
-    [suggestions, selectedKey]
+  const batchPickGroups = useMemo(
+    () => batchPickGroupsFromLines(suggestions),
+    [suggestions]
+  )
+  const selectedGroupKey = resolveBatchGroupKey(suggestions, linkBatch)
+  const shedsForBatch = useMemo(
+    () =>
+      selectedGroupKey ? shedsForBatchPickGroup(suggestions, selectedGroupKey) : [],
+    [suggestions, selectedGroupKey]
   )
 
-  const avail = selectedLine
-    ? Math.max(
-        0,
-        Number(selectedLine.remainingPlants ?? selectedLine.availableQuantity) || 0
-      )
-    : 0
+  const selectedLine = useMemo(
+    () =>
+      selectedGroupKey
+        ? pickStockLineForGroupAndShed(suggestions, selectedGroupKey, linkShed)
+        : null,
+    [suggestions, selectedGroupKey, linkShed]
+  )
+
+  const avail = selectedLine ? linePlantQty(selectedLine) : 0
 
   const loadSuggestions = useCallback(async () => {
     const o = order ? normalizeDispatchOrderPlantFields(order) : null
@@ -101,7 +111,8 @@ const LinkShedStockDialog = ({
 
   useEffect(() => {
     if (!open) return
-    setSelectedKey("")
+    setLinkBatch("")
+    setLinkShed("")
     const dq =
       defaultPlants != null && defaultPlants !== ""
         ? Number(defaultPlants)
@@ -111,10 +122,21 @@ const LinkShedStockDialog = ({
   }, [open, loadSuggestions, defaultPlants, dispatchSnapshot, orderMongoId])
 
   useEffect(() => {
-    if (!open || selectedKey || !suggestions.length) return
-    const ready = suggestions.find((ln) => ln?.dispatchEligible) || suggestions[0]
-    if (ready) setSelectedKey(lineKey(ready))
-  }, [open, suggestions, selectedKey])
+    if (!open || !suggestions.length) return
+    if (linkBatch) return
+    const groups = batchPickGroupsFromLines(suggestions)
+    if (groups[0]?.groupKey) setLinkBatch(groups[0].groupKey)
+  }, [open, suggestions, linkBatch])
+
+  useEffect(() => {
+    if (!selectedGroupKey || !suggestions.length) return
+    const sheds = shedsForBatchPickGroup(suggestions, selectedGroupKey)
+    if (sheds.length === 1) {
+      setLinkShed(sheds[0].pollyhouse === "—" ? "" : sheds[0].pollyhouse)
+    } else if (sheds.length > 1 && linkShed && !sheds.some((s) => s.pollyhouse === linkShed)) {
+      setLinkShed("")
+    }
+  }, [selectedGroupKey, suggestions, linkShed])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -123,7 +145,7 @@ const LinkShedStockDialog = ({
       return
     }
     if (!selectedLine?.secondaryInwardId) {
-      Toast.error("Select a shed inward line to link")
+      Toast.error("Select batch and shed to link")
       return
     }
     const n = Math.max(0, Math.floor(Number(plants) || 0))
@@ -186,9 +208,7 @@ const LinkShedStockDialog = ({
             {normalizedOrder?.order ?? normalizedOrder?.orderId ?? "—"}
           </p>
           <p className="mt-1.5 text-[11px] leading-snug text-amber-950/90">
-            Lists shed lots for this order&apos;s <strong>plant + subtype</strong> (same API as batch
-            dropdown) — any lagwad batch with stock can appear (e.g. &quot;Bana G9&quot; is a lot
-            name, not order #3562). Pick the lot/shed you actually loaded for this farmer.
+            Pick batch (e.g. SB-19), then shed if stock is in more than one polyhouse.
           </p>
         </div>
 
@@ -213,7 +233,8 @@ const LinkShedStockDialog = ({
                     checked={showNotReady}
                     onChange={(e) => {
                       setShowNotReady(e.target.checked)
-                      setSelectedKey("")
+                      setLinkBatch("")
+                      setLinkShed("")
                     }}
                   />
                   Show lines not lagwad-ready yet (
@@ -221,32 +242,43 @@ const LinkShedStockDialog = ({
                   default)
                 </label>
                 <div>
-                  <label className="text-[11px] font-medium text-gray-600">Batch / shed line</label>
+                  <label className="text-[11px] font-medium text-gray-600">Batch</label>
                   <select
                     className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
-                    value={selectedKey}
-                    onChange={(e) => setSelectedKey(e.target.value)}>
-                    <option value="">Select line</option>
-                    {suggestions.map((ln) => {
-                      const k = lineKey(ln)
-                      const q = Math.max(
-                        0,
-                        Number(ln.remainingPlants ?? ln.availableQuantity) || 0
-                      )
-                      const bn = String(ln.batchNumber ?? "—").trim()
-                      const shed = String(ln.pollyhouse ?? "").trim() || "—"
-                      const lag = ln.dispatchEligible ? "lagwad ready" : "not ready"
-                      const linePlant = [ln.plantLabel, ln.subtypeLabel].filter(Boolean).join(" · ")
-                      return (
-                        <option key={k} value={k}>
-                          Lot {bn}
-                          {linePlant ? ` (${linePlant})` : ""} · {shed} ·{" "}
-                          {q.toLocaleString("en-IN")} pl · {lag}
-                        </option>
-                      )
-                    })}
+                    value={selectedGroupKey}
+                    onChange={(e) => {
+                      setLinkBatch(e.target.value)
+                      setLinkShed("")
+                    }}>
+                    <option value="">Select batch</option>
+                    {batchPickGroups.map((g) => (
+                      <option key={g.groupKey} value={g.groupKey}>
+                        {batchPickGroupLabel(g, suggestions)}
+                      </option>
+                    ))}
                   </select>
                 </div>
+                {selectedGroupKey && shedsForBatch.length === 1 ? (
+                  <p className="text-[11px] text-gray-800">
+                    Shed:{" "}
+                    <span className="font-semibold">{shedPickLabel(shedsForBatch[0])}</span>
+                  </p>
+                ) : selectedGroupKey && shedsForBatch.length > 1 ? (
+                  <div>
+                    <label className="text-[11px] font-medium text-gray-600">Shed</label>
+                    <select
+                      className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
+                      value={linkShed}
+                      onChange={(e) => setLinkShed(e.target.value)}>
+                      <option value="">Select shed</option>
+                      {shedsForBatch.map((sh) => (
+                        <option key={sh.pollyhouse} value={sh.pollyhouse}>
+                          {shedPickLabel(sh)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
                 <div>
                   <label className="text-[11px] font-medium text-gray-600">Plants to link</label>
                   <input
@@ -277,7 +309,7 @@ const LinkShedStockDialog = ({
             </button>
             <button
               type="submit"
-              disabled={submitting || loading || !suggestions.length || !selectedKey}
+              disabled={submitting || loading || !suggestions.length || !selectedLine}
               className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Link to order
