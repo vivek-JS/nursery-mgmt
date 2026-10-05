@@ -32,6 +32,7 @@ import { NetworkManager, API } from "network/core"
 import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
 import SowingCapacityAsk from "./components/SowingCapacityAsk"
 import SowingShedStockTab from "./components/SowingShedStockTab"
+import { downloadSheetsXlsx } from "utils/exportExcel"
 import {
   fmt,
   formatShortRange,
@@ -342,49 +343,17 @@ function SlotTable({ slots, onOpen }) {
   )
 }
 
-function csvEscape(value) {
-  const text = String(value ?? "")
-  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`
-  return text
-}
-
-function downloadCsv(rows, from, to) {
-  const header = [
-    "Plant",
-    "Subtype",
-    "Delivery from",
-    "Delivery to",
-    "Can book",
-    "Gap",
-    "Booked",
-    "Sowed",
-    "Status",
-  ]
-  const lines = [header.join(",")]
-  rows.forEach((row) => {
-    const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
-    lines.push(
-      [
-        row.plantName,
-        row.subtypeName,
-        row.deliveryFrom,
-        row.deliveryTo,
-        row.canBook,
-        row.gap,
-        row.booked,
-        row.sowed,
-        meta.label,
-      ]
-        .map(csvEscape)
-        .join(",")
-    )
-  })
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" })
-  const link = document.createElement("a")
-  link.href = URL.createObjectURL(blob)
-  link.download = `sowing-capacity-${from}-to-${to}.csv`
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+function downloadExcel(rows, from, to) {
+  downloadSheetsXlsx(`sowing-capacity-${from}-to-${to}`, [
+    {
+      title: "Sowing capacity",
+      headers: ["Plant", "Subtype", "Delivery from", "Delivery to", "Can book", "Gap", "Booked", "Sowed", "Status"],
+      rows: rows.map((row) => {
+        const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
+        return [row.plantName, row.subtypeName, row.deliveryFrom, row.deliveryTo, row.canBook, row.gap, row.booked, row.sowed, meta.label]
+      }),
+    },
+  ], { stamp: false })
 }
 
 const MAIN_TABS = ["capacity", "shed"]
@@ -543,7 +512,7 @@ export default function SowingCapacitySheet() {
             <Button
               variant="outlined"
               startIcon={<FileDownloadOutlinedIcon />}
-              onClick={() => downloadCsv(rows, applied.from || "all", applied.to || "all")}
+              onClick={() => downloadExcel(rows, applied.from || "all", applied.to || "all")}
               disabled={!rows.length}
               sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
             >

@@ -1,4 +1,5 @@
 import moment from "moment"
+import { downloadCsvTextAsXlsx } from "utils/exportExcel"
 
 /** Slot dates from API are typically DD-MM-YYYY (IST). */
 const SLOT_DATE_INPUT_FORMATS = ["DD-MM-YYYY", "D-M-YYYY", "DD/MM/YYYY", "YYYY-MM-DD"]
@@ -618,13 +619,7 @@ export function stockRowsToCsv(rows) {
 }
 
 export function downloadStockCsv(rows, year) {
-  const blob = new Blob([stockRowsToCsv(rows)], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = `available-stock-${year}-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  downloadCsvTextAsXlsx(`available-stock-${year}`, stockRowsToCsv(rows))
 }
 
 export const DASHBOARD_TAB_KEY = "dashboardMainTab"

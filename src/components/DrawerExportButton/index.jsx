@@ -2,13 +2,14 @@ import React, { useState } from "react"
 import { Button, CircularProgress } from "@mui/material"
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined"
 import { Toast } from "helpers/toasts/toastHelper"
-import { downloadSheets, hasExportRows } from "utils/exportCsv"
+import { downloadSheetsXlsx, hasExportRows } from "utils/exportExcel"
 
 /**
- * One-click CSV export for a side drawer.
+ * One-click Excel (.xlsx) export for a side drawer.
  *
  * `getSheets` returns `[{ title?, headers, rows }]` (sync or async — async lets a drawer fetch
- * every page before exporting). `fileName` is the base name; the date and `.csv` are added.
+ * every page before exporting). Each sheet becomes its own tab. `fileName` is the base name;
+ * the date and `.xlsx` are added.
  */
 export default function DrawerExportButton({
   getSheets,
@@ -28,7 +29,7 @@ export default function DrawerExportButton({
         Toast.error("Nothing to export here yet")
         return
       }
-      downloadSheets(fileName, sheets)
+      downloadSheetsXlsx(fileName, sheets)
     } catch (err) {
       Toast.error(err?.response?.data?.message || err?.message || "Export failed")
     } finally {

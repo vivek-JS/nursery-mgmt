@@ -1,5 +1,7 @@
 import React from "react"
+import { keyframes } from "@mui/system"
 import {
+  Box,
   Button,
   CircularProgress,
   Dialog,
@@ -8,6 +10,117 @@ import {
   DialogTitle,
   Typography,
 } from "@mui/material"
+
+
+const popIn = keyframes`
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+`
+const ripple = keyframes`
+  0% { transform: scale(0.6); opacity: 0.55; }
+  100% { transform: scale(2.1); opacity: 0; }
+`
+const drawCheck = keyframes`
+  to { stroke-dashoffset: 0; }
+`
+const confettiFall = keyframes`
+  0% { transform: translate3d(0, -20px, 0) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate3d(var(--dx), 150px, 0) rotate(var(--rot)); opacity: 0; }
+`
+
+const CONFETTI_COLORS = ["#2e7d32", "#fbc02d", "#e91e63", "#29b6f6", "#ff7043", "#8e24aa", "#66bb6a"]
+const CONFETTI = Array.from({ length: 28 }, (_, i) => ({
+  left: `${(i * 37) % 100}%`,
+  dx: `${((i * 53) % 90) - 45}px`,
+  rot: `${360 + ((i * 97) % 540)}deg`,
+  delay: `${((i * 61) % 50) / 100}s`,
+  dur: `${1.5 + ((i * 29) % 12) / 10}s`,
+  color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+  round: i % 3 === 0,
+}))
+
+/** Green tick that pops in, ripples and rains confetti. Pure CSS, no extra packages. */
+function PaymentSuccessCelebration() {
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        position: "relative",
+        height: 132,
+        mb: 1,
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        "@media (prefers-reduced-motion: reduce)": {
+          "& *": { animation: "none !important" },
+        },
+      }}
+    >
+      {CONFETTI.map((c, i) => (
+        <Box
+          key={i}
+          sx={{
+            position: "absolute",
+            top: 0,
+            left: c.left,
+            width: 8,
+            height: c.round ? 8 : 12,
+            borderRadius: c.round ? "50%" : "2px",
+            bgcolor: c.color,
+            opacity: 0,
+            "--dx": c.dx,
+            "--rot": c.rot,
+            animation: `${confettiFall} ${c.dur} ease-out ${c.delay} 1 forwards`,
+          }}
+        />
+      ))}
+      <Box sx={{ position: "relative", width: 76, height: 76 }}>
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            bgcolor: "success.main",
+            opacity: 0,
+            animation: `${ripple} 1.2s ease-out 0.25s 2`,
+          }}
+        />
+        <Box
+          sx={{
+            position: "relative",
+            width: 76,
+            height: 76,
+            borderRadius: "50%",
+            bgcolor: "success.main",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 6px 18px rgba(46,125,50,0.4)",
+            animation: `${popIn} 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both`,
+          }}
+        >
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M5 12.5l4.5 4.5L19 7.5"
+              stroke="#fff"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                strokeDasharray: 24,
+                strokeDashoffset: 24,
+                animation: `${drawCheck} 0.45s ease-out 0.4s forwards`,
+              }}
+            />
+          </svg>
+        </Box>
+      </Box>
+    </Box>
+  )
+}
 
 const fmtAmount = (n) =>
   n == null || n === "" ? "—" : `₹${Number(n).toLocaleString("en-IN")}`
@@ -80,11 +193,17 @@ export default function PaymentCompleteDialog({
 }) {
   const rows = Array.isArray(payments) ? payments : []
   const { title, body } = dialogCopy({ checking, payments: rows, skipReason, orderPaidOff })
+  const celebrate = !checking && !skipReason && rows.length > 0 && rows.every((p) => p.result === "VERIFIED")
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 16, fontWeight: 700, pb: 1 }}>{title}</DialogTitle>
+      <DialogTitle
+        sx={{ fontSize: 16, fontWeight: 700, pb: 1, ...(celebrate && { textAlign: "center", color: "success.main" }) }}
+      >
+        {celebrate ? "🎉 Payment received!" : title}
+      </DialogTitle>
       <DialogContent>
+        {celebrate && <PaymentSuccessCelebration />}
         {checking && (
           <Typography
             variant="body2"
@@ -95,7 +214,10 @@ export default function PaymentCompleteDialog({
           </Typography>
         )}
         {!checking && (
-          <Typography variant="body2" sx={{ mb: rows.length ? 1.5 : 0, fontSize: 13 }}>
+          <Typography
+            variant="body2"
+            sx={{ mb: rows.length ? 1.5 : 0, fontSize: 13, ...(celebrate && { textAlign: "center" }) }}
+          >
             {body}
           </Typography>
         )}

@@ -91,7 +91,7 @@ export default function SowingLinkedOrdersDrawer({
 
   const getExportSheets = () => [
     {
-      title: `${pureExcess ? "Excess sowing" : "Covered orders"} - ${card?.plantName || ""} ${card?.subtypeName || ""} - ${req?.requestNumber || ""}`.trim(),
+      title: "Summary",
       headers: ["Request", "Status", "Packets"],
       rows: [[req?.requestNumber || "", req?.status || "", pkts]],
     },

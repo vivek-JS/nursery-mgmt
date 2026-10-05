@@ -268,7 +268,7 @@ export default function OrderWiseDrawer({
 
   const getExportSheets = () => [
     {
-      title: `${raisingOnly ? "Farmer seed orders" : "Orders to sow"} - ${card?.plantName || ""} ${card?.subtypeName || ""}`.trim(),
+      title: raisingOnly ? "Farmer seed orders" : "Orders to sow",
       headers: ["Order", "Farmer", "Plants", "Suggested packets", "Booking date", "Delivery date", "Sow by", "Days until sow", "Seed source", "Raising status", "Already requested", "Customer seed in hand (pkt)"],
       rows: rows.map((o) => [
         o.orderNumber,

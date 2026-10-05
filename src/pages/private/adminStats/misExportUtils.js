@@ -1,4 +1,5 @@
 import { DELIVERY_BUCKETS, asDisplayLabel } from "./misConstants"
+import { downloadCsvLinesAsXlsx } from "utils/exportExcel"
 
 export function breakdownRowsToCsv(sectionTitle, rows) {
   const lines = []
@@ -59,9 +60,6 @@ export function salesSheetRowsToCsv(columns, rows, totalsRow) {
 }
 
 export function downloadCsv(filename, lineArrays) {
-  const blob = new Blob([lineArrays.flat().join("\n")], { type: "text/csv;charset=utf-8;" })
-  const a = document.createElement("a")
-  a.href = URL.createObjectURL(blob)
-  a.download = filename
-  a.click()
+  // Name kept for existing callers; the file is now a real Excel workbook.
+  downloadCsvLinesAsXlsx(String(filename).replace(/\.csv$/i, ""), lineArrays, { stamp: false })
 }

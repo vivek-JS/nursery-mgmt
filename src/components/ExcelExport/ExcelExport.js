@@ -20,6 +20,7 @@ import { Toast } from "../../helpers/toasts/toastHelper"
 import { CookieKeys } from "../../constants/cookieKeys"
 import axios from "axios"
 import { sumOrderAdvancePayments } from "../../utils/orderPaymentAdvance"
+import { downloadSheetsXlsx, downloadCsvTextAsXlsx } from "../../utils/exportExcel"
 
 function escapeCsvCell(val) {
   const s = val === undefined || val === null ? "" : String(val)
@@ -251,16 +252,8 @@ const ExcelExport = ({
         Toast.error("No orders to export for the current filters")
         return
       }
-      const csv = ordersListRowsToCsv(rows)
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = `farmer_orders_export_${new Date().toISOString().slice(0, 10)}.csv`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
+      const { headers, rows: table } = ordersListToTable(rows)
+      downloadSheetsXlsx("farmer_orders_export", [{ title: "Orders", headers, rows: table }])
       if (onExportComplete) onExportComplete()
     } catch (error) {
       console.error("Export error:", error)
@@ -313,20 +306,11 @@ const ExcelExport = ({
       })
 
       if (response.status === 200 && response.data) {
-        const blob = new Blob([response.data], { type: "text/csv" })
-        const url = window.URL.createObjectURL(blob)
-        const link = document.createElement("a")
-        link.href = url
-
-        const filename = `orders_export_${exportFilters.startDate || "all"}_${
-          exportFilters.endDate || "data"
-        }.csv`
-        link.download = filename
-
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.URL.revokeObjectURL(url)
+        downloadCsvTextAsXlsx(
+          `orders_export_${exportFilters.startDate || "all"}_${exportFilters.endDate || "data"}`,
+          response.data,
+          { stamp: false }
+        )
 
         Toast.success("Export completed successfully!")
         setOpen(false)

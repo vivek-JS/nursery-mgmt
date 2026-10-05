@@ -725,7 +725,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                   fileName={`sowing-entry-${detail.requestNumber || ""}`}
                   getSheets={() => [
                     {
-                      title: `Sowing entry ${detail.requestNumber || ""}`,
+                      title: "Sowing entry",
                       headers: ["Request", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Labour ladies", "Labour gents", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
                       rows: [[
                         detail.requestNumber,

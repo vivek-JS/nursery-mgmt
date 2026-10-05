@@ -113,7 +113,7 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
 
   const getExportSheets = () => [
     {
-      title: `${slot?.plantName || ""} ${slot?.subtypeName || ""} - ${title}`.trim(),
+      title: "Summary",
       headers: ["Slots", "Can book", "Gap", "Booked", "Sowed"],
       rows: [
         [
@@ -126,7 +126,7 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
       ],
     },
     {
-      title: "Orders on this booking slot",
+      title: "Orders",
       headers: ["Order", "Farmer", "Mobile", "Plants", "Booking date", "Delivery date", "Seed plan", "Sowing", "Slot"],
       rows: shownOrders.map((order) => [
         order.orderNumber,

@@ -10,6 +10,7 @@ import { canDirectRamAgriStockUpdate } from "workspace/agriAccess";
 import { useUserData } from "utils/roleUtils";
 import RamAgriStockView from "./components/RamAgriStockView";
 import BiotechSeedStockView from "./components/BiotechSeedStockView";
+import { downloadCsvTextAsXlsx } from "utils/exportExcel";
 import RamAgriVarietyStockLedgerModal from "./components/RamAgriVarietyStockLedgerModal";
 import SimpleDirectStockUpdateModal from "./components/SimpleDirectStockUpdateModal";
 
@@ -159,13 +160,7 @@ export default function RamAgriStockPage() {
             .join(",")
         )
         .join("\n");
-      const blob = new Blob([header + body], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ram-agri-stock-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadCsvTextAsXlsx("ram-agri-stock", header + body);
     } catch {
       Toast.error("Export failed");
     } finally {

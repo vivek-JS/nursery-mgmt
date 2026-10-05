@@ -29,6 +29,7 @@ import { isApiErrorResponse } from '../../../network/core/responseParser';
 import { Toast } from "helpers/toasts/toastHelper";
 import { useUserData, useCanViewAgriOutstandingBySales } from "utils/roleUtils";
 import { normalizeRamAgriProductType } from "utils/ramAgriProductType";
+import { downloadCsvTextAsXlsx } from "utils/exportExcel";
 import {
   BarChart,
   Bar,
@@ -646,15 +647,7 @@ const RamAgriSalesDashboard = () => {
       ].join('\n');
 
       // Download file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `ram-agri-stock-${type}-${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      downloadCsvTextAsXlsx(`ram-agri-stock-${type}`, csvContent);
       
       Toast.success('Stock data exported successfully');
     } catch (error) {

@@ -447,7 +447,7 @@ export default function MisOrderDrawer({ open, onClose, filter, onSelectDate }) 
     if (isSummary) {
       return [
         {
-          title: title || "Summary",
+          title: "Summary",
           headers: ["Date", "Orders", "Plants"],
           rows: [
             ...summary.rows.map((row) => [summaryDateLabel(row), row.orders, row.plants]),
@@ -475,7 +475,7 @@ export default function MisOrderDrawer({ open, onClose, filter, onSelectDate }) 
     const unique = mergeOrderPages([], all, false)
     return [
       {
-        title: title || "Orders",
+        title: "Orders",
         headers: ["Order", "Farmer", "Village", "Taluka", "District", "Plant", "Plants", "Status", "Booked", "Delivery", "Dispatched", "Completed", "Vehicle / DC", "Sales person"],
         rows: unique.map((order) => [
           order.orderId,

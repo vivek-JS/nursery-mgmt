@@ -53,7 +53,7 @@ export default function GapDaysDrawer({ open, onClose, card }) {
     ]
     return [
       {
-        title: `${card?.plantName || "Plant"} - ${card?.subtypeName || "Subtype"} gap by sow window`,
+        title: "Summary",
         headers: ["Total gap", "Overdue", "Today", "Upcoming", "Orders", "Buffer %"],
         rows: [[total, dueGap, todayGap, upcomingGap, card?.orderCount || 0, card?.sowingBuffer || 0]],
       },
