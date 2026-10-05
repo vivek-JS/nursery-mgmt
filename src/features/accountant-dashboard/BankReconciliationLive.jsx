@@ -122,6 +122,8 @@ export function BankReconciliationLive({
 
   const [statementRows, setStatementRows] = useState([])
   const [statementTotal, setStatementTotal] = useState(0)
+  const [statementFilter, setStatementFilter] = useState("all")
+  const [statementCounts, setStatementCounts] = useState(null)
   const [statementHasMore, setStatementHasMore] = useState(false)
   const [loadingStatement, setLoadingStatement] = useState(false)
   const [loadingMoreStatement, setLoadingMoreStatement] = useState(false)
@@ -231,12 +233,14 @@ export function BankReconciliationLive({
             dateTo: reconcileDateTo,
             limit: STATEMENT_PAGE_SIZE,
             skip,
+            status: statementFilter,
             ...(accountNumber ? { accountNumber } : {}),
           }
         )
         if (reqId !== statementReqIdRef.current) return
 
         const body = res?.data ?? {}
+        if (body.counts) setStatementCounts(body.counts)
         const page = Array.isArray(body.data) ? body.data : []
         const total = Number(body.total ?? 0)
         setStatementTotal(total)
@@ -266,7 +270,7 @@ export function BankReconciliationLive({
         }
       }
     },
-    [reconcileDateFrom, reconcileDateTo, accountNumber]
+    [reconcileDateFrom, reconcileDateTo, accountNumber, statementFilter]
   )
 
   const loadMoreStatement = useCallback(() => {
@@ -722,6 +726,9 @@ export function BankReconciliationLive({
           <StatementTable
             rows={statementRows}
             total={statementTotal}
+            filter={statementFilter}
+            counts={statementCounts}
+            onFilterChange={setStatementFilter}
             pageSize={STATEMENT_PAGE_SIZE}
             hasMore={statementHasMore}
             loading={loadingStatement}
@@ -1440,9 +1447,27 @@ function ListScrollSentinel({
   )
 }
 
+const STATEMENT_FILTERS = [
+  { key: "all", label: "All" },
+  { key: "verified", label: "Verified by bank" },
+  { key: "unverified", label: "Not verified" },
+  { key: "matched", label: "Matched to payment" },
+  { key: "suspense", label: "Suspense" },
+]
+
+function StatementStatusPill({ row }) {
+  if (row.reconciliationStatus === "MATCHED") return <Pill tone="ok">✓ Verified · matched to payment</Pill>
+  if (row.statementVerified) return <Pill tone="ok">✓ Verified</Pill>
+  if (row.reconciliationStatus === "SUSPENSE") return <Pill tone="warn">Suspense</Pill>
+  return <Pill tone="muted">{row.reconciliationStatus || "New"}</Pill>
+}
+
 function StatementTable({
   rows,
   total = 0,
+  filter = "all",
+  counts = null,
+  onFilterChange = () => {},
   pageSize = STATEMENT_PAGE_SIZE,
   hasMore = false,
   loading,
@@ -1473,6 +1498,29 @@ function StatementTable({
         summary={importSummary}
         onImport={onImport}
       />
+      <div className="flex flex-wrap items-center gap-1.5 mb-2" role="tablist" aria-label="Statement filter">
+        {STATEMENT_FILTERS.map((f) => {
+          const active = filter === f.key
+          const n = counts?.[f.key]
+          return (
+            <button
+              key={f.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onFilterChange(f.key)}
+              className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                active
+                  ? "border-emerald-600 bg-emerald-600 text-white"
+                  : "border-border text-muted-foreground hover:bg-muted/60"
+              }`}
+            >
+              {f.label}
+              {n != null ? ` · ${Number(n).toLocaleString("en-IN")}` : ""}
+            </button>
+          )
+        })}
+      </div>
       <RefreshBar onRefresh={onRefresh} loading={loading}>
         {shown > 0 && (
           <span className="text-[11px] text-muted-foreground">
@@ -1500,7 +1548,9 @@ function StatementTable({
             <tbody>
               {rows.length === 0 ? (
                 <EmptyRow colSpan={7}>
-                  No statement lines for this range — import a statement or sync from the bank
+                  {filter === "all"
+                    ? "No statement lines for this range — import a statement or sync from the bank"
+                    : "No statement lines match this filter for the selected range"}
                 </EmptyRow>
               ) : (
                 rows.map((r) => {
@@ -1508,7 +1558,11 @@ function StatementTable({
                   return (
                     <tr
                       key={String(r._id)}
-                      className={r.statementVerified ? "text-muted-foreground" : undefined}
+                      className={
+                        r.statementVerified || r.reconciliationStatus === "MATCHED"
+                          ? "text-muted-foreground"
+                          : undefined
+                      }
                     >
                       <td>{fmtDate(r.txnDate)}</td>
                       <td className="max-w-[24rem] truncate" title={r.narration}>
@@ -1518,14 +1572,10 @@ function StatementTable({
                       <td className="tabular">{credit ? "—" : fmtAmount(Math.abs(r.amount))}</td>
                       <td className="tabular">{credit ? fmtAmount(r.amount) : "—"}</td>
                       <td>
-                        {r.statementVerified ? (
-                          <Pill tone="ok">Verified</Pill>
-                        ) : (
-                          <Pill tone="muted">{r.reconciliationStatus || "New"}</Pill>
-                        )}
+                        <StatementStatusPill row={r} />
                       </td>
                       <td>
-                        {r.statementVerified ? (
+                        {r.statementVerified || r.reconciliationStatus === "MATCHED" ? (
                           <span className="text-[11px] text-muted-foreground">—</span>
                         ) : (
                           <button
