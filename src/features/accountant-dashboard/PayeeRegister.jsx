@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react"
-import { Ban, Building2, Plus, RefreshCw, Search, Send, ShieldCheck, UserPlus } from "lucide-react"
+import { Ban, Building2, FileSpreadsheet, Plus, RefreshCw, Search, Send, ShieldCheck, UserPlus } from "lucide-react"
+import { BulkActionBar, BulkDecisionDialog, ExcelUploadPanel } from "./PayoutBulk"
 import { Toast } from "helpers/toasts/toastHelper"
 import {
   approveBeneficiary,
@@ -322,11 +323,34 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
   const [approveTarget, setApproveTarget] = useState(null)
   const [rejectTarget, setRejectTarget] = useState(null)
   const [disableTarget, setDisableTarget] = useState(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [selected, setSelected] = useState({})
+  const [bulkAction, setBulkAction] = useState(null)
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300)
     return () => clearTimeout(t)
   }, [search])
+
+  useEffect(() => {
+    setSelected({})
+  }, [filter, debounced])
+
+  const canDecide = (b) =>
+    b.status === "PENDING_APPROVAL" &&
+    Boolean(config?.canApprove && (String(b.makerId) !== String(myId) || config?.canSelfApprove))
+  const selectable = rows.filter(canDecide)
+  const selectedRows = Object.values(selected)
+  const allSelected = selectable.length > 0 && selectable.every((b) => selected[b._id])
+  const toggleRow = (b) =>
+    setSelected((s) => {
+      const next = { ...s }
+      if (next[b._id]) delete next[b._id]
+      else next[b._id] = b
+      return next
+    })
+  const toggleAll = () =>
+    setSelected(allSelected ? {} : Object.fromEntries(selectable.map((b) => [b._id, b])))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -365,9 +389,18 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
             {config?.requireBeneficiary ? " Only approved payees can be paid." : ""}
           </p>
         </div>
-        <button type="button" className="btn-primary text-xs inline-flex items-center gap-1.5" onClick={() => setAdding(true)}>
-          <Plus className="w-3.5 h-3.5" /> Add payee
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="px-3 py-1.5 text-xs font-semibold rounded-md border border-border hover:bg-muted/50 inline-flex items-center gap-1.5"
+            onClick={() => setUploadOpen(true)}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" /> Upload Excel
+          </button>
+          <button type="button" className="btn-primary text-xs inline-flex items-center gap-1.5" onClick={() => setAdding(true)}>
+            <Plus className="w-3.5 h-3.5" /> Add payee
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -415,6 +448,16 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
         <table className="data-table">
           <thead>
             <tr>
+              {selectable.length > 0 && (
+                <th className="w-8">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Select all that I can approve"
+                  />
+                </th>
+              )}
               <th>Payee</th>
               <th>Bank</th>
               <th>Account</th>
@@ -427,7 +470,7 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center text-muted-foreground py-10">
+                <td colSpan={8} className="text-center text-muted-foreground py-10">
                   {loading ? "Loading…" : filter === "ACTIVE" ? "No approved payees yet — add one" : "Nothing here"}
                 </td>
               </tr>
@@ -437,7 +480,19 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
                 const mayApprove = Boolean(config?.canApprove && (!isMaker || config?.canSelfApprove))
                 const s = PAYEE_STATUS[b.status] || { text: b.status, tone: "muted" }
                 return (
-                  <tr key={b._id}>
+                  <tr key={b._id} className={selected[b._id] ? "bg-primary/5" : ""}>
+                    {selectable.length > 0 && (
+                      <td>
+                        {canDecide(b) && (
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selected[b._id])}
+                            onChange={() => toggleRow(b)}
+                            aria-label={`Select ${b.name}`}
+                          />
+                        )}
+                      </td>
+                    )}
                     <td>
                       <span className="block font-semibold text-foreground">{b.name}</span>
                       {b.nickname && <span className="block text-[10px] text-muted-foreground">{b.nickname}</span>}
@@ -517,6 +572,41 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
           </tbody>
         </table>
       </div>
+      <BulkActionBar
+        count={selectedRows.length}
+        noun="payee"
+        onClear={() => setSelected({})}
+        onApprove={() => setBulkAction("approve")}
+        onReject={() => setBulkAction("reject")}
+      />
+
+      {uploadOpen && (
+        <ExcelUploadPanel
+          kind="payee"
+          onClose={() => setUploadOpen(false)}
+          onCreated={() => {
+            setSearch("")
+            setFilter("PENDING_APPROVAL")
+            load()
+          }}
+        />
+      )}
+      {bulkAction && (
+        <BulkDecisionDialog
+          kind="payee"
+          action={bulkAction}
+          items={selectedRows.map((b) => ({
+            id: b._id,
+            label: `${b.name} · ${maskAcc(b.accountNumber)} ${b.ifsc}`,
+            isSelf: String(b.makerId) === String(myId)
+          }))}
+          onClose={() => setBulkAction(null)}
+          onFinished={() => {
+            setSelected({})
+            load()
+          }}
+        />
+      )}
 
       {adding && (
         <AddPayeePanel

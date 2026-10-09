@@ -25,9 +25,10 @@ export async function fetchPayoutSummary() {
   return (await call(API.BANKING.GET_PAYOUT_SUMMARY)).data
 }
 
-export async function fetchPayouts({ view = "approval", search = "", limit = 50, skip = 0 } = {}) {
+export async function fetchPayouts({ view = "approval", search = "", batchId = "", limit = 50, skip = 0 } = {}) {
   const params = { view, limit, skip }
   if (search) params.search = search
+  if (batchId) params.batchId = batchId
   const body = await call(API.BANKING.GET_PAYOUTS, {}, params, { silent: false })
   return { items: body.data || [], total: body.total || 0, hasMore: Boolean(body.hasMore) }
 }
@@ -84,4 +85,30 @@ export async function rejectBeneficiary(id, reason) {
 
 export async function disableBeneficiary(id, reason) {
   return (await call(API.BANKING.POST_DISABLE_BENEFICIARY, { reason }, byId(id))).data
+}
+
+/** Excel rows → { summary, rows[] } (dryRun) or the created batch. */
+export async function bulkCreatePayouts(rows, { dryRun = true, confirmDuplicates = false, batchName } = {}) {
+  return (await call(API.BANKING.POST_BULK_PAYOUTS, { rows, dryRun, confirmDuplicates, batchName })).data
+}
+
+export async function bulkCreateBeneficiaries(rows, { dryRun = true } = {}) {
+  return (await call(API.BANKING.POST_BULK_BENEFICIARIES, { rows, dryRun })).data
+}
+
+/** Each returns { items: [{ id, ok, status?, error? }], done, failed }. */
+export async function bulkApprovePayouts(ids, note) {
+  return (await call(API.BANKING.POST_BULK_APPROVE_PAYOUTS, { ids, note })).data
+}
+
+export async function bulkRejectPayouts(ids, reason) {
+  return (await call(API.BANKING.POST_BULK_REJECT_PAYOUTS, { ids, reason })).data
+}
+
+export async function bulkApproveBeneficiaries(ids, note) {
+  return (await call(API.BANKING.POST_BULK_APPROVE_BENEFICIARIES, { ids, note })).data
+}
+
+export async function bulkRejectBeneficiaries(ids, reason) {
+  return (await call(API.BANKING.POST_BULK_REJECT_BENEFICIARIES, { ids, reason })).data
 }

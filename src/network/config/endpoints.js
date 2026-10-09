@@ -144,6 +144,32 @@ export const API = {
       "/api/banking/payouts/:id/resend",
       HTTP_METHODS.POST
     ),
+    POST_BULK_PAYOUTS: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/payouts/bulk", HTTP_METHODS.POST),
+    POST_BULK_APPROVE_PAYOUTS: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/bulk-approve",
+      HTTP_METHODS.POST
+    ),
+    POST_BULK_REJECT_PAYOUTS: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/bulk-reject",
+      HTTP_METHODS.POST
+    ),
+    POST_BULK_BENEFICIARIES: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries/bulk",
+      HTTP_METHODS.POST
+    ),
+    POST_BULK_APPROVE_BENEFICIARIES: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries/bulk-approve",
+      HTTP_METHODS.POST
+    ),
+    POST_BULK_REJECT_BENEFICIARIES: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries/bulk-reject",
+      HTTP_METHODS.POST
+    ),
     GET_BENEFICIARIES: new APICustomRouter(
       PAYMENTS_API_HOST,
       "/api/banking/beneficiaries",

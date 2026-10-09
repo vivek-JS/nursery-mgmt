@@ -4,7 +4,10 @@ import {
   Check,
   ChevronRight,
   Clock,
+  Download,
+  FileSpreadsheet,
   IndianRupee,
+  Layers,
   Landmark,
   PenLine,
   Plus,
@@ -50,6 +53,10 @@ import {
   SelfApprovalWarning,
 } from "./payoutsUi"
 import { BankKindPill, PayeeRegister } from "./PayeeRegister"
+import { BulkActionBar, BulkDecisionDialog, ExcelUploadPanel } from "./PayoutBulk"
+import { downloadSheetsXlsx } from "utils/exportExcel"
+
+const EXPORT_MAX = 5000
 
 const VIEWS = [
   { id: "approval", label: "To approve" },
@@ -923,6 +930,11 @@ function DetailPanel({ id, config, myId, onClose, onChanged, onApprove, onReject
           <DetailRow label="Debit account" mono>
             {maskAcc(payout.debitAccount)}
           </DetailRow>
+          {payout.batchId && (
+            <DetailRow label="Excel batch">
+              {payout.batchName} <span className="font-mono text-muted-foreground">({payout.batchId})</span>
+            </DetailRow>
+          )}
           <DetailRow label="Created by">
             {payout.makerName} · {fmtDateTime(payout.createdAt)}
           </DetailRow>
@@ -1061,11 +1073,28 @@ export function PayoutsMakerChecker() {
   const [rejectTarget, setRejectTarget] = useState(null)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [detailKey, setDetailKey] = useState(0)
+  const [batch, setBatch] = useState(null)
+  const [selected, setSelected] = useState({})
+  const [bulkAction, setBulkAction] = useState(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 350)
     return () => clearTimeout(t)
   }, [search])
+
+  useEffect(() => {
+    setSelected({})
+  }, [view, debounced, batch])
+
+  useEffect(() => {
+    const pending = new Set(rows.filter((p) => p.status === "PENDING_APPROVAL").map((p) => p._id))
+    setSelected((s) => {
+      const keep = Object.entries(s).filter(([id]) => pending.has(id))
+      return keep.length === Object.keys(s).length ? s : Object.fromEntries(keep)
+    })
+  }, [rows])
 
   useEffect(() => {
     fetchPayoutConfig()
@@ -1092,7 +1121,12 @@ export function PayoutsMakerChecker() {
     async (append = false) => {
       setLoading(true)
       try {
-        const page = await fetchPayouts({ view, search: debounced, skip: append ? rowCount.current : 0 })
+        const page = await fetchPayouts({
+          view,
+          search: debounced,
+          batchId: batch?.id,
+          skip: append ? rowCount.current : 0
+        })
         setRows((prev) => {
           const next = append ? [...prev, ...page.items] : page.items
           rowCount.current = next.length
@@ -1106,7 +1140,7 @@ export function PayoutsMakerChecker() {
         setLoading(false)
       }
     },
-    [view, debounced]
+    [view, debounced, batch]
   )
 
   const reloadAll = useCallback(async () => {
@@ -1156,6 +1190,76 @@ export function PayoutsMakerChecker() {
     bank: summary?.withBank?.count ?? 0
   }
 
+  const canDecide = (p) =>
+    p.status === "PENDING_APPROVAL" &&
+    Boolean(config?.canApprove && (String(p.makerId) !== String(myId) || config?.canSelfApprove))
+  const selectable = rows.filter(canDecide)
+  const selectedRows = Object.values(selected)
+  const allSelected = selectable.length > 0 && selectable.every((p) => selected[p._id])
+  const toggleRow = (p) =>
+    setSelected((s) => {
+      const next = { ...s }
+      if (next[p._id]) delete next[p._id]
+      else next[p._id] = p
+      return next
+    })
+  const toggleAll = () =>
+    setSelected(allSelected ? {} : Object.fromEntries(selectable.map((p) => [p._id, p])))
+
+  const exportRows = async () => {
+    setExporting(true)
+    try {
+      const all = []
+      for (;;) {
+        const page = await fetchPayouts({ view, search: debounced, batchId: batch?.id, limit: 500, skip: all.length })
+        all.push(...page.items)
+        if (!page.hasMore || !page.items.length || all.length >= EXPORT_MAX) break
+      }
+      if (!all.length) {
+        Toast.error("Nothing to export")
+        return
+      }
+      downloadSheetsXlsx(`payouts-${batch ? batch.name : VIEWS.find((v) => v.id === view)?.label || view}`, [
+        {
+          title: "Payouts",
+          headers: [
+            "Created", "Reference", "Payee", "Payee type", "Account number", "IFSC", "Bank", "Mode", "Amount",
+            "Purpose", "Bill / reference", "Remarks", "Status", "UTR", "Bank message", "Maker", "Checker",
+            "Checked at", "Self-approved", "Approved payee", "Batch"
+          ],
+          rows: all.map((p) => [
+            fmtDateTime(p.createdAt),
+            p.uniqueId,
+            p.payee?.name,
+            PAYEE_TYPE_LABEL[p.payee?.type] || p.payee?.type,
+            p.payee?.accountNumber,
+            p.payee?.ifsc,
+            p.payee?.bankName,
+            MODE_LABEL[p.txnType] || p.txnType,
+            Number(p.amount),
+            PURPOSE_LABEL[p.purpose] || p.purpose,
+            p.referenceNo,
+            p.remarks,
+            STATUS[p.status]?.text || p.status,
+            p.bank?.utr,
+            p.bank?.message,
+            p.makerName,
+            p.checkerName,
+            p.checkedAt ? fmtDateTime(p.checkedAt) : "",
+            p.selfApproved ? "Yes" : "",
+            p.beneficiaryId ? "Yes" : "No",
+            p.batchName ? `${p.batchName} (${p.batchId})` : ""
+          ])
+        }
+      ])
+      if (all.length >= EXPORT_MAX) Toast.error(`Exported the first ${EXPORT_MAX} — narrow the search for the rest`)
+    } catch (e) {
+      Toast.error(e.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="erp-card p-4">
@@ -1174,15 +1278,25 @@ export function PayoutsMakerChecker() {
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <button
-              type="button"
-              className="btn-primary text-xs inline-flex items-center gap-1.5"
-              onClick={() => openNewPayment()}
-              disabled={!config?.debitConfigured}
-              title={config?.debitConfigured ? "" : "ICICI debit account is not configured"}
-            >
-              <Plus className="w-3.5 h-3.5" /> New payment
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="px-3 py-1.5 text-xs font-semibold rounded-md border border-border hover:bg-muted/50 inline-flex items-center gap-1.5 disabled:opacity-50"
+                onClick={() => setUploadOpen(true)}
+                disabled={!config?.debitConfigured}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" /> Upload Excel
+              </button>
+              <button
+                type="button"
+                className="btn-primary text-xs inline-flex items-center gap-1.5"
+                onClick={() => openNewPayment()}
+                disabled={!config?.debitConfigured}
+                title={config?.debitConfigured ? "" : "ICICI debit account is not configured"}
+              >
+                <Plus className="w-3.5 h-3.5" /> New payment
+              </button>
+            </div>
             <span className="text-[11px] text-muted-foreground">
               Debit account {config?.debitAccount || "—"} ·{" "}
               {config?.canApprove ? "You can approve" : "You can create; an approver must approve"}
@@ -1310,13 +1424,49 @@ export function PayoutsMakerChecker() {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
+            <button
+              type="button"
+              className="px-2.5 py-1.5 rounded-md border border-border hover:bg-muted/50 text-xs font-semibold text-muted-foreground inline-flex items-center gap-1 disabled:opacity-50"
+              onClick={exportRows}
+              disabled={exporting || !rows.length}
+              title="Download this list as Excel"
+            >
+              <Download className="w-3.5 h-3.5" /> {exporting ? "…" : "Export"}
+            </button>
           </div>
         </div>
+
+        {batch && (
+          <div className="mb-3 flex items-center gap-2 text-xs">
+            <Pill tone="info">
+              <Layers className="w-3 h-3" /> Batch: {batch.name}
+            </Pill>
+            <span className="font-mono text-[11px] text-muted-foreground">{batch.id}</span>
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-primary hover:underline"
+              onClick={() => setBatch(null)}
+            >
+              Show all payments
+            </button>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
+                {selectable.length > 0 && (
+                  <th className="w-8">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      aria-label="Select all that I can approve"
+                      title="Select all that you can approve"
+                    />
+                  </th>
+                )}
                 <th>Created</th>
                 <th>Payee</th>
                 <th>Mode</th>
@@ -1330,7 +1480,7 @@ export function PayoutsMakerChecker() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center text-muted-foreground py-10">
+                  <td colSpan={9} className="text-center text-muted-foreground py-10">
                     {loading
                       ? "Loading…"
                       : view === "approval"
@@ -1347,9 +1497,21 @@ export function PayoutsMakerChecker() {
                   return (
                     <tr
                       key={p._id}
-                      className="cursor-pointer hover:bg-muted/30"
+                      className={`cursor-pointer hover:bg-muted/30 ${selected[p._id] ? "bg-primary/5" : ""}`}
                       onClick={() => setDetailId(p._id)}
                     >
+                      {selectable.length > 0 && (
+                        <td onClick={(e) => e.stopPropagation()}>
+                          {canDecide(p) && (
+                            <input
+                              type="checkbox"
+                              checked={Boolean(selected[p._id])}
+                              onChange={() => toggleRow(p)}
+                              aria-label={`Select ${p.uniqueId}`}
+                            />
+                          )}
+                        </td>
+                      )}
                       <td className="whitespace-nowrap">
                         <span className="block">{fmtDate(p.createdAt)}</span>
                         <span className="block text-[10px] font-mono text-muted-foreground">{p.uniqueId}</span>
@@ -1367,6 +1529,19 @@ export function PayoutsMakerChecker() {
                         <span className="block text-[10px] font-mono text-muted-foreground">
                           {maskAcc(p.payee?.accountNumber)} · {p.payee?.ifsc}
                         </span>
+                        {p.batchId && !batch && (
+                          <button
+                            type="button"
+                            className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-sky-800 hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setBatch({ id: p.batchId, name: p.batchName })
+                            }}
+                            title="Show this Excel batch"
+                          >
+                            <Layers className="w-3 h-3" /> {p.batchName}
+                          </button>
+                        )}
                       </td>
                       <td>{MODE_LABEL[p.txnType] || p.txnType}</td>
                       <td>
@@ -1459,8 +1634,48 @@ export function PayoutsMakerChecker() {
             </button>
           )}
         </div>
+        <BulkActionBar
+          count={selectedRows.length}
+          amount={selectedRows.reduce((s, p) => s + (Number(p.amount) || 0), 0)}
+          noun="payment"
+          onClear={() => setSelected({})}
+          onApprove={() => setBulkAction("approve")}
+          onReject={() => setBulkAction("reject")}
+        />
       </div>
       </>
+      )}
+
+      {uploadOpen && (
+        <ExcelUploadPanel
+          kind="payment"
+          onClose={() => setUploadOpen(false)}
+          onCreated={(res) => {
+            setSection("payments")
+            setView("approval")
+            setSearch("")
+            if (res.batch) setBatch(res.batch)
+            loadSummary()
+          }}
+        />
+      )}
+
+      {bulkAction && (
+        <BulkDecisionDialog
+          kind="payment"
+          action={bulkAction}
+          items={selectedRows.map((p) => ({
+            id: p._id,
+            label: `${p.payee?.name} · ${p.uniqueId}`,
+            amount: p.amount,
+            isSelf: String(p.makerId) === String(myId)
+          }))}
+          onClose={() => setBulkAction(null)}
+          onFinished={async () => {
+            setSelected({})
+            await reloadAll()
+          }}
+        />
       )}
 
       {createOpen && (
