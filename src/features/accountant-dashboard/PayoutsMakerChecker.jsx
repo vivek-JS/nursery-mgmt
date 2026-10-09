@@ -47,6 +47,7 @@ import {
   Pill,
   ReasonDialog,
   REMARKS_RE,
+  SelfApprovalWarning,
 } from "./payoutsUi"
 import { BankKindPill, PayeeRegister } from "./PayeeRegister"
 
@@ -719,7 +720,7 @@ function PayeeSourcePill({ payout }) {
   )
 }
 
-function ApproveDialog({ payout, onClose, onDone }) {
+function ApproveDialog({ payout, isSelf, onClose, onDone }) {
   const [checked, setChecked] = useState(false)
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
@@ -765,6 +766,7 @@ function ApproveDialog({ payout, onClose, onDone }) {
           </DetailRow>
           <DetailRow label="Created by">{payout.makerName}</DetailRow>
         </div>
+        {isSelf && <SelfApprovalWarning what="payment" />}
         <div className="rounded-md bg-sky-500/10 border border-sky-600/30 px-3 py-2 text-[11px] text-sky-950">
           After you approve, ICICI holds this payment until your authoriser approves it in ICICI net banking
           (CIB). No money moves before that.
@@ -860,6 +862,7 @@ function DetailPanel({ id, config, myId, onClose, onChanged, onApprove, onReject
   }
 
   const isMaker = String(payout.makerId) === String(myId)
+  const mayApprove = Boolean(config?.canApprove && (!isMaker || config?.canSelfApprove))
   const pending = payout.status === "PENDING_APPROVAL"
   const withBank = ["AWAITING_BANK_APPROVAL", "PROCESSING", "UNKNOWN"].includes(payout.status)
 
@@ -926,6 +929,11 @@ function DetailPanel({ id, config, myId, onClose, onChanged, onApprove, onReject
           {payout.checkerName && (
             <DetailRow label={payout.status === "REJECTED" ? "Rejected by" : "Approved by"}>
               {payout.checkerName} · {fmtDateTime(payout.checkedAt)}
+              {payout.selfApproved ? (
+                <span className="ml-1.5">
+                  <Pill tone="warn">Self-approved</Pill>
+                </span>
+              ) : null}
             </DetailRow>
           )}
         </section>
@@ -980,7 +988,7 @@ function DetailPanel({ id, config, myId, onClose, onChanged, onApprove, onReject
               Cancel payment
             </button>
           )}
-          {pending && config?.canApprove && !isMaker && (
+          {pending && mayApprove && (
             <>
               <button
                 type="button"
@@ -1333,6 +1341,7 @@ export function PayoutsMakerChecker() {
               ) : (
                 rows.map((p) => {
                   const isMaker = String(p.makerId) === String(myId)
+                  const mayApprove = Boolean(config?.canApprove && (!isMaker || config?.canSelfApprove))
                   const pending = p.status === "PENDING_APPROVAL"
                   const withBank = ["AWAITING_BANK_APPROVAL", "PROCESSING", "UNKNOWN"].includes(p.status)
                   return (
@@ -1383,13 +1392,13 @@ export function PayoutsMakerChecker() {
                         {p.checkerName && (
                           <span className="block text-muted-foreground">
                             <ShieldCheck className="inline w-3 h-3 mr-1" />
-                            {p.checkerName}
+                            {p.selfApproved ? "Self-approved" : p.checkerName}
                           </span>
                         )}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-1">
-                          {pending && config?.canApprove && !isMaker && (
+                          {pending && mayApprove && (
                             <>
                               <button
                                 type="button"
@@ -1407,7 +1416,7 @@ export function PayoutsMakerChecker() {
                               </button>
                             </>
                           )}
-                          {pending && isMaker && (
+                          {pending && isMaker && !mayApprove && (
                             <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
                               <Clock className="w-3 h-3" /> Waiting for approver
                             </span>
@@ -1485,6 +1494,7 @@ export function PayoutsMakerChecker() {
       {approveTarget && (
         <ApproveDialog
           payout={approveTarget}
+          isSelf={String(approveTarget.makerId) === String(myId)}
           onClose={() => setApproveTarget(null)}
           onDone={async () => {
             setApproveTarget(null)

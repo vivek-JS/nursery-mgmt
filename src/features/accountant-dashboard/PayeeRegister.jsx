@@ -20,7 +20,8 @@ import {
   PanelHeader,
   PAYEE_TYPE_LABEL,
   Pill,
-  ReasonDialog
+  ReasonDialog,
+  SelfApprovalWarning
 } from "./payoutsUi"
 
 const FILTERS = [
@@ -248,7 +249,7 @@ function AddPayeePanel({ onClose, onCreated }) {
   )
 }
 
-function ApprovePayeeDialog({ payee, onClose, onDone }) {
+function ApprovePayeeDialog({ payee, isSelf, onClose, onDone }) {
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
   const approve = async () => {
@@ -281,6 +282,7 @@ function ApprovePayeeDialog({ payee, onClose, onDone }) {
           <DetailRow label="Type">{PAYEE_TYPE_LABEL[payee.type]}</DetailRow>
           {payee.mobile && <DetailRow label="Mobile">{payee.mobile}</DetailRow>}
         </div>
+        {isSelf && <SelfApprovalWarning what="payee" />}
         <label className="flex items-start gap-2 text-xs">
           <input type="checkbox" className="mt-0.5" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
           I have checked the account number and IFSC against a cancelled cheque or bank letter.
@@ -432,6 +434,7 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
             ) : (
               rows.map((b) => {
                 const isMaker = String(b.makerId) === String(myId)
+                const mayApprove = Boolean(config?.canApprove && (!isMaker || config?.canSelfApprove))
                 const s = PAYEE_STATUS[b.status] || { text: b.status, tone: "muted" }
                 return (
                   <tr key={b._id}>
@@ -458,7 +461,11 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
                       <span className="block">
                         {b.makerName} · {fmtDate(b.createdAt)}
                       </span>
-                      {b.checkerName && <span className="block text-muted-foreground">{b.checkerName}</span>}
+                      {b.checkerName && (
+                        <span className="block text-muted-foreground">
+                          {b.selfApproved ? "Self-approved" : b.checkerName}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <div className="flex gap-1 flex-wrap">
@@ -471,7 +478,7 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
                             <Send className="w-3 h-3" /> Pay
                           </button>
                         )}
-                        {b.status === "PENDING_APPROVAL" && config?.canApprove && !isMaker && (
+                        {b.status === "PENDING_APPROVAL" && mayApprove && (
                           <>
                             <button
                               type="button"
@@ -489,7 +496,7 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
                             </button>
                           </>
                         )}
-                        {b.status === "PENDING_APPROVAL" && (isMaker || !config?.canApprove) && (
+                        {b.status === "PENDING_APPROVAL" && !mayApprove && (
                           <span className="text-[11px] text-muted-foreground">Waiting for approver</span>
                         )}
                         {b.status === "ACTIVE" && config?.canApprove && (
@@ -524,6 +531,7 @@ export function PayeeRegister({ config, myId, onPay, onCountsChange }) {
       {approveTarget && (
         <ApprovePayeeDialog
           payee={approveTarget}
+          isSelf={String(approveTarget.makerId) === String(myId)}
           onClose={() => setApproveTarget(null)}
           onDone={() => {
             setApproveTarget(null)

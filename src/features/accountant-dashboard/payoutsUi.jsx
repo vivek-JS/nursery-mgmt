@@ -103,6 +103,15 @@ export function Field({ label, error, hint, children }) {
   )
 }
 
+export function SelfApprovalWarning({ what }) {
+  return (
+    <div className="rounded-md bg-amber-500/10 border border-amber-500/40 px-3 py-2 text-[11px] text-amber-950">
+      You created this {what}. As super admin you can approve it yourself; it will be recorded as
+      self-approved{what === "payment" ? ", and ICICI net-banking approval is the only other check" : ""}.
+    </div>
+  )
+}
+
 export function DetailRow({ label, children, mono }) {
   return (
     <div className="flex justify-between gap-4 py-1.5 border-b border-border/60 last:border-0">
