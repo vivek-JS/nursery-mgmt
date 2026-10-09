@@ -441,8 +441,26 @@ export function BankReconciliationLive({
       )
       Toast.success("Suspense entry written off")
       await fetchSuspense()
+      if (entry.paymentId) await fetchPending()
     } catch (e) {
       Toast.error(apiError(e, "Write-off failed"))
+    } finally {
+      setBusySuspenseId(null)
+    }
+  }
+
+  const handleReturnToPending = async (entry) => {
+    setBusySuspenseId(String(entry._id))
+    try {
+      await NetworkManager(API.BANKING.POST_RESOLVE_SUSPENSE).request(
+        { action: "RESOLVE", resolutionNotes: "Returned to pending from banking tab" },
+        { pathParams: [String(entry._id)] }
+      )
+      Toast.success("Payment returned to Pending")
+      await fetchSuspense()
+      await fetchPending()
+    } catch (e) {
+      Toast.error(apiError(e, "Could not return payment to pending"))
     } finally {
       setBusySuspenseId(null)
     }
@@ -567,7 +585,9 @@ export function BankReconciliationLive({
   const suspenseByAccount = useMemo(() => {
     const groups = new Map()
     for (const entry of suspenseList) {
-      const key = entry.accountNumber || "Unknown account"
+      const key = entry.bankTransactionId
+        ? entry.accountNumber || "Unknown account"
+        : "ERP payments not found in bank"
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key).push(entry)
     }
@@ -704,6 +724,7 @@ export function BankReconciliationLive({
             onRefresh={fetchSuspense}
             onOpenLink={setLinkTarget}
             onWriteOff={handleWriteOff}
+            onReturnToPending={handleReturnToPending}
           />
         )}
 
@@ -971,11 +992,20 @@ function VerifiedTable({ rows, loading, updatingPaymentId, onRefresh, onApproveO
   )
 }
 
-function SuspenseTables({ groups, loading, busyId, onRefresh, onOpenLink, onWriteOff }) {
+function SuspenseTables({
+  groups,
+  loading,
+  busyId,
+  onRefresh,
+  onOpenLink,
+  onWriteOff,
+  onReturnToPending,
+}) {
   return (
     <>
       <p className="text-xs text-muted-foreground mb-2">
-        Bank credits with no order, a different amount, or more than one possible match.
+        Bank credits with no order, a different amount, or more than one possible match, and ERP
+        payments with no bank credit two days after the payment date.
       </p>
       <RefreshBar onRefresh={onRefresh} loading={loading} />
       {loading ? (
@@ -1006,8 +1036,11 @@ function SuspenseTables({ groups, loading, busyId, onRefresh, onOpenLink, onWrit
                       <td>{fmtDate(entry.txnDate)}</td>
                       <td>{entry.utr || "—"}</td>
                       <td className="tabular">{fmtAmount(entry.amount)}</td>
-                      <td className="max-w-[20rem] truncate" title={entry.narration}>
-                        {entry.narration || "—"}
+                      <td
+                        className="max-w-[20rem] truncate"
+                        title={entry.narration || (entry.orderId ? `Order ${entry.orderId}` : "")}
+                      >
+                        {entry.narration || (entry.orderId ? `Order ${entry.orderId}` : "—")}
                       </td>
                       <td>
                         <Pill tone="bad">
@@ -1016,22 +1049,36 @@ function SuspenseTables({ groups, loading, busyId, onRefresh, onOpenLink, onWrit
                       </td>
                       <td>
                         <div className="flex gap-1">
-                          <button
-                            type="button"
-                            className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
-                            disabled={busyId === String(entry._id)}
-                            onClick={() => onOpenLink(entry)}
-                          >
-                            Link payment
-                          </button>
-                          <button
-                            type="button"
-                            className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-border text-muted-foreground hover:bg-muted/50 disabled:opacity-50"
-                            disabled={busyId === String(entry._id)}
-                            onClick={() => onWriteOff(entry)}
-                          >
-                            Write off
-                          </button>
+                          {entry.bankTransactionId ? (
+                            <>
+                              <button
+                                type="button"
+                                className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                                disabled={busyId === String(entry._id)}
+                                onClick={() => onOpenLink(entry)}
+                              >
+                                Link payment
+                              </button>
+                              <button
+                                type="button"
+                                className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-border text-muted-foreground hover:bg-muted/50 disabled:opacity-50"
+                                disabled={busyId === String(entry._id)}
+                                onClick={() => onWriteOff(entry)}
+                              >
+                                Write off
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-border text-muted-foreground hover:bg-muted/50 disabled:opacity-50"
+                              disabled={busyId === String(entry._id)}
+                              onClick={() => onReturnToPending(entry)}
+                              title="Close this row and send the payment back to the Pending tab"
+                            >
+                              Return to pending
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

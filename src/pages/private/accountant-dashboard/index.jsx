@@ -18,6 +18,7 @@ import { KpiCards } from "features/accountant-dashboard/KpiCards"
 import { UnifiedPaymentsTable } from "features/accountant-dashboard/UnifiedPaymentsTable"
 import { BankReconciliationLive } from "features/accountant-dashboard/BankReconciliationLive"
 import { LedgerPanel } from "features/accountant-dashboard/LedgerPanel"
+import { PayoutsMakerChecker } from "features/accountant-dashboard/PayoutsMakerChecker"
 import {
   mapRamAgriCustomerLedgerApiToFullPanel,
   mapCentralPartyStatementToPanel
@@ -868,6 +869,7 @@ const AccountantDashboard = () => {
         onSearchChange={setSearchTerm}
         userInitials={initials}
         agriOnly={agriOnly}
+        showPayouts={hasPaymentAccessPlant}
       />
 
       <main className="px-5 py-4 space-y-4 max-w-[1600px] mx-auto w-full min-w-0 box-border">
@@ -1036,6 +1038,8 @@ const AccountantDashboard = () => {
             canAdjust={hasPaymentAccess}
           />
         )}
+
+        {activeTab === "payouts" && hasPaymentAccessPlant && <PayoutsMakerChecker />}
 
         {activeTab === "bank" && (
           <BankReconciliationLive

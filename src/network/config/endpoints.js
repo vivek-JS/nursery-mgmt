@@ -105,6 +105,70 @@ export const API = {
       "/api/banking/cash-deposit/:id/verify",
       HTTP_METHODS.POST
     ),
+    /** Maker–checker payouts through ICICI CIB (final approval in ICICI net banking). */
+    GET_PAYOUT_CONFIG: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/config",
+      HTTP_METHODS.GET
+    ),
+    GET_PAYOUT_SUMMARY: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/summary",
+      HTTP_METHODS.GET
+    ),
+    GET_PAYOUTS: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/payouts", HTTP_METHODS.GET),
+    GET_PAYOUT: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/payouts/:id", HTTP_METHODS.GET),
+    POST_PAYOUT: new APICustomRouter(PAYMENTS_API_HOST, "/api/banking/payouts", HTTP_METHODS.POST),
+    POST_APPROVE_PAYOUT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/:id/approve",
+      HTTP_METHODS.POST
+    ),
+    POST_REJECT_PAYOUT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/:id/reject",
+      HTTP_METHODS.POST
+    ),
+    POST_CANCEL_PAYOUT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/:id/cancel",
+      HTTP_METHODS.POST
+    ),
+    POST_REFRESH_PAYOUT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/:id/refresh",
+      HTTP_METHODS.POST
+    ),
+    POST_RESEND_PAYOUT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/payouts/:id/resend",
+      HTTP_METHODS.POST
+    ),
+    GET_BENEFICIARIES: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries",
+      HTTP_METHODS.GET
+    ),
+    POST_BENEFICIARY: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries",
+      HTTP_METHODS.POST
+    ),
+    POST_APPROVE_BENEFICIARY: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries/:id/approve",
+      HTTP_METHODS.POST
+    ),
+    POST_REJECT_BENEFICIARY: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries/:id/reject",
+      HTTP_METHODS.POST
+    ),
+    POST_DISABLE_BENEFICIARY: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/beneficiaries/:id/disable",
+      HTTP_METHODS.POST
+    ),
   },
   AUTH: {
     // if you want to return offline json if api fails

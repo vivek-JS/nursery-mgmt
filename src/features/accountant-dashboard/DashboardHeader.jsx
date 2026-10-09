@@ -9,6 +9,7 @@ const TABS = [
   { id: "ledger-parties", label: "All farmers", icon: "👥" },
   { id: "central-ledger", label: "Central ledger", icon: "📒" },
   { id: "money-ledger", label: "Money Ledger", icon: "💰" },
+  { id: "payouts", label: "Payouts", icon: "💸", requiresPaymentAccess: true },
 ]
 
 export function DashboardHeader({
@@ -22,7 +23,9 @@ export function DashboardHeader({
   onSearchChange,
   userInitials,
   agriOnly = false,
+  showPayouts = false,
 }) {
+  const tabs = TABS.filter((t) => !t.requiresPaymentAccess || showPayouts)
   return (
     <header className="bg-card border-b border-border sticky top-0 z-30 shadow-erp-sm w-full min-w-0 max-w-full">
       <div className="px-5 py-2.5 flex items-center justify-between gap-4 min-w-0">
@@ -66,7 +69,7 @@ export function DashboardHeader({
       </div>
 
       <div className="px-5 flex items-end gap-0 border-t border-border/50 overflow-x-auto scrollbar-hide min-w-0 max-w-full">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
