@@ -22,6 +22,7 @@ const SUSPENSE_REASON_LABEL = {
   DATE_MISMATCH: "Date mismatch",
   ORPHAN_CREDIT: "Orphan credit",
   MANUAL_REVIEW: "Needs review",
+  CASH_MATCH: "Bank match found (cash)",
 }
 
 const CHECK_LABEL = {
@@ -419,6 +420,29 @@ export function BankReconciliationLive({
     }
   }
 
+  const handleConfirmCashMatch = (entry) =>
+    handleLinkSuspense(entry, {
+      source: entry.source,
+      orderMongoId: entry.orderMongoId,
+      paymentId: entry.paymentId,
+    })
+
+  const handleRejectCashMatch = async (entry) => {
+    setBusySuspenseId(String(entry._id))
+    try {
+      await NetworkManager(API.BANKING.POST_RESOLVE_SUSPENSE).request(
+        { action: "RESOLVE", resolutionNotes: "Not this cash credit" },
+        { pathParams: [String(entry._id)] }
+      )
+      Toast.success("Match dismissed. The payment stays with the employee's cash in hand.")
+      await fetchSuspense()
+    } catch (e) {
+      Toast.error(apiError(e, "Could not dismiss the match"))
+    } finally {
+      setBusySuspenseId(null)
+    }
+  }
+
   const handleReturnToPending = async (entry) => {
     setBusySuspenseId(String(entry._id))
     try {
@@ -640,6 +664,8 @@ export function BankReconciliationLive({
             busyId={busySuspenseId}
             onRefresh={fetchSuspense}
             onOpenLink={setLinkTarget}
+            onConfirmMatch={handleConfirmCashMatch}
+            onRejectMatch={handleRejectCashMatch}
             onWriteOff={handleWriteOff}
             onReturnToPending={handleReturnToPending}
           />
@@ -908,14 +934,17 @@ function SuspenseTables({
   busyId,
   onRefresh,
   onOpenLink,
+  onConfirmMatch,
+  onRejectMatch,
   onWriteOff,
   onReturnToPending,
 }) {
   return (
     <>
       <p className="text-xs text-muted-foreground mb-2">
-        Bank credits with no order, a different amount, or more than one possible match, and ERP
-        payments with no bank credit two days after the payment date.
+        Bank credits with no order, a different amount, or more than one possible match, ERP
+        payments with no bank credit 24 hours after the payment date, and cash payments found on the
+        statement (confirm or dismiss them).
       </p>
       <RefreshBar onRefresh={onRefresh} loading={loading} />
       {loading ? (
@@ -948,18 +977,46 @@ function SuspenseTables({
                       <td className="tabular">{fmtAmount(entry.amount)}</td>
                       <td
                         className="max-w-[20rem] truncate"
-                        title={entry.narration || (entry.orderId ? `Order ${entry.orderId}` : "")}
+                        title={[entry.orderId ? `Order ${entry.orderId}` : "", entry.narration].filter(Boolean).join(" · ")}
                       >
-                        {entry.narration || (entry.orderId ? `Order ${entry.orderId}` : "—")}
+                        {entry.reason === "CASH_MATCH" && entry.orderId ? (
+                          <>
+                            <span className="font-semibold">Order {entry.orderId}</span>
+                            {entry.narration ? ` · ${entry.narration}` : ""}
+                          </>
+                        ) : (
+                          entry.narration || (entry.orderId ? `Order ${entry.orderId}` : "—")
+                        )}
                       </td>
                       <td>
-                        <Pill tone="bad">
+                        <Pill tone={entry.reason === "CASH_MATCH" ? "ok" : "bad"}>
                           {SUSPENSE_REASON_LABEL[entry.reason] || entry.reason}
                         </Pill>
                       </td>
                       <td>
                         <div className="flex gap-1">
-                          {entry.bankTransactionId ? (
+                          {entry.reason === "CASH_MATCH" && entry.paymentId ? (
+                            <>
+                              <button
+                                type="button"
+                                className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                                disabled={busyId === String(entry._id)}
+                                onClick={() => onConfirmMatch(entry)}
+                                title="This bank cash credit is this payment — mark it bank verified"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-border text-muted-foreground hover:bg-muted/50 disabled:opacity-50"
+                                disabled={busyId === String(entry._id)}
+                                onClick={() => onRejectMatch(entry)}
+                                title="Not the same money — the pairing is not offered again"
+                              >
+                                Not this
+                              </button>
+                            </>
+                          ) : entry.bankTransactionId ? (
                             <>
                               <button
                                 type="button"
