@@ -487,7 +487,10 @@ const AccountantDashboard = () => {
       const instance = NetworkManager(API.BANKING.POST_RECONCILE)
       const res = await instance.request({ dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
       setReconcileResult(res?.data ?? {})
-      Toast.success(res?.data?.updatedCount ? `${res.data.updatedCount} payment(s) verified by bank` : "Reconciliation complete")
+      Toast.success(
+        res?.data?.message ||
+          (res?.data?.updatedCount ? `${res.data.updatedCount} payment(s) verified by bank` : "Reconciliation complete")
+      )
       fetchUncleared()
       fetchForApproval()
     } catch (e) {

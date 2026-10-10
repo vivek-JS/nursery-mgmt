@@ -684,9 +684,10 @@ export function BankReconciliationLive({
         )}
         {reconcileResult && subTab === "pending" && (
           <div className="mb-3 px-3 py-2 rounded-sm bg-status-collected-bg text-status-collected text-xs font-medium">
-            {reconcileResult.updatedCount && reconcileResult.updatedCount > 0
-              ? `${reconcileResult.updatedCount} payment(s) verified by bank.`
-              : "No new matches."}
+            {reconcileResult.message ||
+              (reconcileResult.updatedCount && reconcileResult.updatedCount > 0
+                ? `${reconcileResult.updatedCount} payment(s) verified by bank.`
+                : "No new matches.")}
           </div>
         )}
 
