@@ -105,6 +105,21 @@ export const API = {
       "/api/banking/cash-deposit/:id/verify",
       HTTP_METHODS.POST
     ),
+    POST_CANCEL_CASH_DEPOSIT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/cash-deposit/:id/cancel",
+      HTTP_METHODS.POST
+    ),
+    GET_CASH_IN_HAND: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/cashbook/cash-in-hand",
+      HTTP_METHODS.GET
+    ),
+    GET_EMPLOYEE_CASH_BOOK: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/banking/cashbook/cash-in-hand/:employeeId",
+      HTTP_METHODS.GET
+    ),
     /** Maker–checker payouts through ICICI CIB (final approval in ICICI net banking). */
     GET_PAYOUT_CONFIG: new APICustomRouter(
       PAYMENTS_API_HOST,

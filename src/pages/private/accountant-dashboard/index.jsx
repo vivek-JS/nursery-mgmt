@@ -9,6 +9,8 @@ import {
   useHasPaymentsAccess,
   useHasPaymentAccess,
   useHasAgriPaymentCollectAccess,
+  useIsAccountant,
+  useIsSuperAdmin,
   useUserData,
 } from "utils/roleUtils"
 import { useWorkspace } from "workspace/WorkspaceContext"
@@ -71,6 +73,10 @@ const AccountantDashboard = () => {
   const hasPaymentAccessPlant = useHasPaymentAccess()
   const hasAgriPaymentCollectAccess = useHasAgriPaymentCollectAccess()
   const userData = useUserData()
+  const isAccountant = useIsAccountant()
+  const isSuperAdmin = useIsSuperAdmin()
+  /** Org-wide outstanding / collected totals are for super admin, not accountants. */
+  const hideKpis = isAccountant && !isSuperAdmin
   const { isAgriMode } = useWorkspace()
   const agriOnly = forceRamAgriAccountingOrg(userData, isAgriMode)
 
@@ -926,7 +932,9 @@ const AccountantDashboard = () => {
               )}
             </div>
 
-            <KpiCards orderPayments={orderPayments} bulkPayments={bulkPayments} totals={kpiTotals} />
+            {!hideKpis && (
+              <KpiCards orderPayments={orderPayments} bulkPayments={bulkPayments} totals={kpiTotals} />
+            )}
 
             <UnifiedPaymentsTable
               orderPayments={orderPayments}

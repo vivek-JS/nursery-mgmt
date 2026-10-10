@@ -5,12 +5,13 @@ import { Toast } from "helpers/toasts/toastHelper"
 import { BankApprovalMenu } from "./BankApprovalMenu"
 import { StatusBadge } from "./StatusBadge"
 import { getStatementMatchPresentation } from "./bankMatchLabels"
+import { CashbookPanel } from "./CashbookPanel"
 
 const SUB_TABS = [
   { id: "pending", label: "Pending" },
   { id: "verified", label: "Verified" },
   { id: "suspense", label: "Suspense" },
-  { id: "cash", label: "Cash deposit" },
+  { id: "cash", label: "Cashbook" },
   { id: "statement", label: "Statement" },
 ]
 
@@ -108,17 +109,7 @@ export function BankReconciliationLive({
   const [linkTarget, setLinkTarget] = useState(null)
   const [busySuspenseId, setBusySuspenseId] = useState(null)
 
-  const [deposits, setDeposits] = useState([])
-  const [loadingDeposits, setLoadingDeposits] = useState(false)
-  const [depositForm, setDepositForm] = useState({
-    entryDate: moment().format("YYYY-MM-DD"),
-    amount: "",
-    accountNumber: "",
-    slipNumber: "",
-    narration: "",
-  })
-  const [savingDeposit, setSavingDeposit] = useState(false)
-  const [busyDepositId, setBusyDepositId] = useState(null)
+  const [unmatchedDepositCount, setUnmatchedDepositCount] = useState(0)
 
   const [statementRows, setStatementRows] = useState([])
   const [statementTotal, setStatementTotal] = useState(0)
@@ -185,26 +176,6 @@ export function BankReconciliationLive({
       setLoadingSuspense(false)
     }
   }, [])
-
-  const fetchDeposits = useCallback(async () => {
-    setLoadingDeposits(true)
-    try {
-      const res = await NetworkManager(API.BANKING.GET_CASH_DEPOSITS).request(
-        {},
-        {
-          dateFrom: reconcileDateFrom,
-          dateTo: reconcileDateTo,
-          ...(accountNumber ? { accountNumber } : {}),
-        }
-      )
-      setDeposits(res?.data?.data ?? [])
-    } catch (e) {
-      Toast.error(apiError(e, "Failed to load cash deposits"))
-      setDeposits([])
-    } finally {
-      setLoadingDeposits(false)
-    }
-  }, [reconcileDateFrom, reconcileDateTo, accountNumber])
 
   const fetchStatement = useCallback(
     async ({ append = false } = {}) => {
@@ -349,9 +320,8 @@ export function BankReconciliationLive({
 
   useEffect(() => {
     if (subTab === "suspense") fetchSuspense()
-    if (subTab === "cash") fetchDeposits()
     if (subTab === "statement") void fetchStatement()
-  }, [subTab, fetchSuspense, fetchDeposits, fetchStatement])
+  }, [subTab, fetchSuspense, fetchStatement])
 
   useEffect(() => {
     if (prevSyncingRef.current && !bankStatementLoading) {
@@ -466,60 +436,6 @@ export function BankReconciliationLive({
     }
   }
 
-  const handleSaveDeposit = async (e) => {
-    e.preventDefault()
-    const account = depositForm.accountNumber || accountNumber
-    if (!(Number(depositForm.amount) > 0)) {
-      Toast.error("Enter a deposit amount")
-      return
-    }
-    if (!account) {
-      Toast.error("Select a bank account")
-      return
-    }
-    setSavingDeposit(true)
-    try {
-      await NetworkManager(API.BANKING.POST_CASH_DEPOSIT).request({
-        ...depositForm,
-        accountNumber: account,
-      })
-      Toast.success("Cash deposit recorded")
-      setDepositForm({
-        entryDate: moment().format("YYYY-MM-DD"),
-        amount: "",
-        accountNumber: account,
-        slipNumber: "",
-        narration: "",
-      })
-      await fetchDeposits()
-    } catch (err) {
-      Toast.error(apiError(err, "Could not save deposit"))
-    } finally {
-      setSavingDeposit(false)
-    }
-  }
-
-  const handleVerifyDeposit = async (deposit) => {
-    setBusyDepositId(String(deposit._id))
-    try {
-      const res = await NetworkManager(API.BANKING.POST_VERIFY_CASH_DEPOSIT).request(
-        {},
-        { pathParams: [String(deposit._id)] }
-      )
-      const body = res?.data ?? {}
-      if (body.matched === false) {
-        Toast.error(body.message || "No matching bank credit yet")
-      } else {
-        Toast.success("Deposit matched to bank credit")
-      }
-      await fetchDeposits()
-    } catch (e) {
-      Toast.error(apiError(e, "Verification failed"))
-    } finally {
-      setBusyDepositId(null)
-    }
-  }
-
   const handleVerifyStatementLine = async (row) => {
     setBusyStatementId(String(row._id))
     try {
@@ -576,10 +492,10 @@ export function BankReconciliationLive({
       pending: pendingTotal,
       verified: forApprovalList?.length ?? 0,
       suspense: suspenseList.length,
-      cash: deposits.length,
+      cash: unmatchedDepositCount || "",
       statement: statementTotal,
     }),
-    [pendingTotal, forApprovalList, suspenseList, deposits, statementTotal]
+    [pendingTotal, forApprovalList, suspenseList, unmatchedDepositCount, statementTotal]
   )
 
   const suspenseByAccount = useMemo(() => {
@@ -730,17 +646,10 @@ export function BankReconciliationLive({
         )}
 
         {subTab === "cash" && (
-          <CashDepositPanel
-            form={depositForm}
-            onFormChange={setDepositForm}
+          <CashbookPanel
             accounts={accounts}
             defaultAccount={accountNumber}
-            saving={savingDeposit}
-            onSubmit={handleSaveDeposit}
-            rows={deposits}
-            loading={loadingDeposits}
-            busyId={busyDepositId}
-            onVerify={handleVerifyDeposit}
+            onCountChange={setUnmatchedDepositCount}
           />
         )}
 
@@ -1180,149 +1089,6 @@ function LinkPaymentDrawer({ entry, candidates, busy, onClose, onLink }) {
         </table>
       </div>
     </div>
-  )
-}
-
-function CashDepositPanel({
-  form,
-  onFormChange,
-  accounts,
-  defaultAccount,
-  saving,
-  onSubmit,
-  rows,
-  loading,
-  busyId,
-  onVerify,
-}) {
-  const set = (patch) => onFormChange({ ...form, ...patch })
-  return (
-    <>
-      <p className="text-xs text-muted-foreground mb-2">
-        Cash paid into the bank over the counter. Verify matches it to the credit the bank posts.
-      </p>
-      <form onSubmit={onSubmit} className="flex flex-wrap gap-2 items-end mb-4">
-        <label className="text-[11px] font-semibold text-muted-foreground">
-          Date
-          <input
-            type="date"
-            className="erp-input block mt-1 text-xs"
-            value={form.entryDate}
-            onChange={(e) => set({ entryDate: e.target.value })}
-          />
-        </label>
-        <label className="text-[11px] font-semibold text-muted-foreground">
-          Amount
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            className="erp-input block mt-1 text-xs"
-            value={form.amount}
-            onChange={(e) => set({ amount: e.target.value })}
-          />
-        </label>
-        <label className="text-[11px] font-semibold text-muted-foreground">
-          Bank account
-          {accounts.length > 0 ? (
-            <select
-              className="erp-input block mt-1 text-xs"
-              value={form.accountNumber || defaultAccount || ""}
-              onChange={(e) => set({ accountNumber: e.target.value })}
-            >
-              <option value="">Select…</option>
-              {accounts.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              className="erp-input block mt-1 text-xs"
-              value={form.accountNumber}
-              onChange={(e) => set({ accountNumber: e.target.value })}
-            />
-          )}
-        </label>
-        <label className="text-[11px] font-semibold text-muted-foreground">
-          Slip no.
-          <input
-            type="text"
-            className="erp-input block mt-1 text-xs"
-            value={form.slipNumber}
-            onChange={(e) => set({ slipNumber: e.target.value })}
-          />
-        </label>
-        <label className="text-[11px] font-semibold text-muted-foreground flex-1 min-w-[12rem]">
-          Narration
-          <input
-            type="text"
-            className="erp-input block mt-1 text-xs w-full"
-            value={form.narration}
-            onChange={(e) => set({ narration: e.target.value })}
-          />
-        </label>
-        <button type="submit" className="btn-primary text-xs" disabled={saving}>
-          {saving ? "…" : "Save deposit"}
-        </button>
-      </form>
-
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Slip no.</th>
-                <th>Amount</th>
-                <th>Bank</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <EmptyRow colSpan={6}>No cash deposits in this range</EmptyRow>
-              ) : (
-                rows.map((d) => (
-                  <tr key={String(d._id)}>
-                    <td>{fmtDate(d.entryDate)}</td>
-                    <td>{d.slipNumber || "—"}</td>
-                    <td className="tabular">{fmtAmount(d.amount)}</td>
-                    <td>{d.accountNumber || "—"}</td>
-                    <td>
-                      {d.depositVerified ? (
-                        <Pill tone="ok">Verified</Pill>
-                      ) : (
-                        <Pill tone="warn">Unverified</Pill>
-                      )}
-                    </td>
-                    <td>
-                      {d.depositVerified ? (
-                        <span className="text-[11px] text-muted-foreground">—</span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
-                          disabled={busyId === String(d._id)}
-                          onClick={() => onVerify(d)}
-                        >
-                          {busyId === String(d._id) ? "…" : "Verify"}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
   )
 }
 
