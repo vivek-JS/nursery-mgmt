@@ -102,7 +102,7 @@ export function validateLagwadStep0(input) {
   if (!input.plantId) return "Select plant";
   if (!input.subtypeId) return "Select subtype";
   if (!input.batchId && !String(input.batchName || "").trim()) {
-    return "Select or enter batch number";
+    return "Select a batch";
   }
   if (input.plantsNum < 1) return "Enter at least 1 plant in R1/R2/R3";
   if (input.singleSizeLagwad && input.traysNum < 1) return "Enter tray count";

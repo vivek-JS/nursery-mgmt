@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Autocomplete,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -46,7 +47,6 @@ import {
   isBananaPlantName,
   isMongoObjectId,
   parseSplitFromForm,
-  pickDefaultBatchForPlantSubtype,
   plantsFromTrays,
   refId,
   secondaryReadyDaysForSize,
@@ -192,7 +192,6 @@ export default function SecondaryDirectLagwadWizard({
   dispatchBatches: dispatchBatchesProp = [],
   initialPlantId = "",
   initialSubtypeId = "",
-  initialBatchId = "",
 }) {
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -268,48 +267,15 @@ export default function SecondaryDirectLagwadWizard({
     }
   }, []);
 
-  const applyInitialBatch = useCallback(
-    (id) => {
-      const batch = dispatchBatches.find((b) => refId(b._id ?? b.id) === id);
-      if (batch) applyBatchSelection(batch);
-    },
-    [dispatchBatches, applyBatchSelection]
-  );
-
-  /** Page context batch — re-apply when dispatch batches load async. */
-  useEffect(() => {
-    if (!open || !initialBatchId || !dispatchBatches.length) return;
-    applyInitialBatch(initialBatchId);
-  }, [open, initialBatchId, dispatchBatches, applyInitialBatch]);
-
-  /** Auto-select Banana · G-9 · latest batch (or last used) — like primary sowing mobile. */
+  /** Plant + subtype only. Batch stays empty until the user picks one. */
   useEffect(() => {
     if (!open || catalogLoading || defaultsAppliedRef.current || !plants.length) return;
-    if (initialBatchId) {
-      defaultsAppliedRef.current = true;
-      return;
-    }
+
     if (initialPlantId) {
       setPlantId(initialPlantId);
       if (initialSubtypeId) setSubtypeId(initialSubtypeId);
       defaultsAppliedRef.current = true;
       return;
-    }
-
-    let lastId = "";
-    try {
-      lastId = localStorage.getItem(SECONDARY_LAGWAD_LAST_BATCH_KEY) || "";
-    } catch {
-      lastId = "";
-    }
-
-    if (lastId && dispatchBatches.length) {
-      const lastBatch = dispatchBatches.find((b) => refId(b._id ?? b.id) === lastId);
-      if (lastBatch) {
-        applyBatchSelection(lastBatch);
-        defaultsAppliedRef.current = true;
-        return;
-      }
     }
 
     const banana = findDefaultBananaPlant(plants);
@@ -320,31 +286,10 @@ export default function SecondaryDirectLagwadWizard({
       const defaultSub = findDefaultBananaSubtype(subtypes);
       const sid = defaultSub ? refId(defaultSub.subtypeId ?? defaultSub._id) : "";
       if (sid) setSubtypeId(sid);
-
-      if (sid && dispatchBatches.length) {
-        const batch = pickDefaultBatchForPlantSubtype(dispatchBatches, pid, sid);
-        if (batch) applyBatchSelection(batch);
-      }
     }
 
     defaultsAppliedRef.current = true;
-  }, [
-    open,
-    catalogLoading,
-    plants,
-    dispatchBatches,
-    initialBatchId,
-    initialPlantId,
-    initialSubtypeId,
-    applyBatchSelection,
-  ]);
-
-  /** When plant/subtype prefilled from analysis but no batch — pick latest batch. */
-  useEffect(() => {
-    if (!open || batchId || !plantId || !subtypeId || !dispatchBatches.length) return;
-    const batch = pickDefaultBatchForPlantSubtype(dispatchBatches, plantId, subtypeId);
-    if (batch) applyBatchSelection(batch);
-  }, [open, batchId, plantId, subtypeId, dispatchBatches, applyBatchSelection]);
+  }, [open, catalogLoading, plants, initialPlantId, initialSubtypeId]);
 
   const selectedPlant = useMemo(
     () => plants.find((p) => refId(p.plantId ?? p._id) === plantId),
@@ -368,10 +313,14 @@ export default function SecondaryDirectLagwadWizard({
     [subtypeOptions, subtypeId]
   );
 
-  const batchOptions = useMemo(
-    () => filterBatchesForPlantSubtype(dispatchBatches, plantId, subtypeId),
-    [dispatchBatches, plantId, subtypeId]
-  );
+  const batchOptions = useMemo(() => {
+    const list = filterBatchesForPlantSubtype(dispatchBatches, plantId, subtypeId);
+    return [...list].sort((a, b) => {
+      const da = new Date(a.updatedAt ?? a.createdAt ?? a.dateAdded ?? 0).getTime();
+      const db = new Date(b.updatedAt ?? b.createdAt ?? b.dateAdded ?? 0).getTime();
+      return db - da;
+    });
+  }, [dispatchBatches, plantId, subtypeId]);
 
   const selectedBatch = useMemo(
     () => batchOptions.find((b) => refId(b._id ?? b.id) === batchId) ?? null,
@@ -499,22 +448,14 @@ export default function SecondaryDirectLagwadWizard({
     setTraysInput("");
     setTraysDriven(true);
 
-    const batch = pickDefaultBatchForPlantSubtype(dispatchBatches, plantId, id);
-    if (batch) applyBatchSelection(batch);
   };
 
-  const handleBatchNameChange = (v) => {
-    setBatchName(v);
-    const trimmed = v.trim().toLowerCase();
-    if (!trimmed) {
-      setBatchId("");
-      return;
-    }
-    const match = batchOptions.find(
-      (b) => String(b.batchNumber ?? b.batchNo ?? "").trim().toLowerCase() === trimmed
-    );
-    if (match) applyBatchSelection(match);
-    else setBatchId("");
+  const clearBatch = () => {
+    setBatchId("");
+    setBatchName("");
+    setSplitForm(emptySplitForm());
+    setTraysInput("");
+    setTraysDriven(true);
   };
 
   const handlePickBatch = (id) => {
@@ -700,8 +641,6 @@ export default function SecondaryDirectLagwadWizard({
     selectedBatch?.batchNo ??
     (batchName || "—");
 
-  const batchSuggestions = batchOptions.slice(0, 6);
-
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Secondary lagwad (direct)</DialogTitle>
@@ -733,7 +672,9 @@ export default function SecondaryDirectLagwadWizard({
                 {selectedSubtype && (
                   <Chip size="small" variant="outlined" label={selectedSubtype.name} />
                 )}
-                <Chip size="small" variant="outlined" label={`Batch ${batchLabel}`} />
+                {batchReady && (
+                  <Chip size="small" variant="outlined" label={`Batch ${batchLabel}`} />
+                )}
                 {secondaryReadyDays > 0 && (
                   <Chip size="small" variant="outlined" label={`${secondaryReadyDays}d ready`} />
                 )}
@@ -833,36 +774,35 @@ export default function SecondaryDirectLagwadWizard({
               )}
 
               {subtypeId && (
-                <>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      required
-                      label="Batch number"
-                      value={batchName}
-                      onChange={(e) => handleBatchNameChange(e.target.value)}
-                      placeholder="Select below or type new batch"
-                    />
-                    {batchSuggestions.length > 0 && (
-                      <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 1 }}>
-                        {batchSuggestions.map((b) => {
-                          const id = refId(b._id ?? b.id);
-                          const num = b.batchNumber ?? b.batchNo;
-                          return (
-                            <Chip
-                              key={id}
-                              size="small"
-                              label={num}
-                              variant={batchId === id ? "filled" : "outlined"}
-                              color={batchId === id ? "primary" : "default"}
-                              onClick={() => handlePickBatch(id)}
-                            />
-                          );
-                        })}
-                      </Stack>
+                <Grid item xs={12}>
+                  <Autocomplete
+                    options={batchOptions}
+                    value={selectedBatch}
+                    onChange={(_, batch) => {
+                      if (!batch) {
+                        clearBatch();
+                        return;
+                      }
+                      handlePickBatch(refId(batch._id ?? batch.id));
+                    }}
+                    getOptionLabel={(b) => String(b.batchNumber ?? b.batchNo ?? "")}
+                    isOptionEqualToValue={(a, b) => refId(a._id ?? a.id) === refId(b._id ?? b.id)}
+                    noOptionsText="No matching batch"
+                    openOnFocus
+                    autoHighlight
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        required
+                        label="Batch"
+                        placeholder="Search batch"
+                        helperText={
+                          selectedBatch ? " " : "Nothing selected — search and pick a batch"
+                        }
+                      />
                     )}
-                  </Grid>
-                </>
+                  />
+                </Grid>
               )}
 
               {batchReady && (
