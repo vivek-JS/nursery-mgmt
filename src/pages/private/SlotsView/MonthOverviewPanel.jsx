@@ -23,12 +23,10 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
     totalExcessAvailableForBooking,
     totalSowingGapPlants,
     totalExpectedInSlots,
-    totalDeliveryThisMonth,
-    totalDeliveryNative,
-    totalDeliveryRolled,
     totalRemainingToDispatch,
     totalRemainingNative,
     totalRemainingRolled,
+    totalActualRemaining,
     totalAllDispatchedPlants,
     totalDispatchedNative,
     totalDispatchedRolled,
@@ -38,12 +36,17 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
   const dispatchedRollover =
     totalDispatchedRolled + Math.max(0, (totalDispatchedOther || 0) - (totalDispatchedRolled || 0))
 
-  const deliveryCrossCheck = (totalRemainingToDispatch || 0) + (totalAllDispatchedPlants || 0)
+  const splitRemaining =
+    (Number(totalRemainingNative) || 0) + (Number(totalRemainingRolled) || 0)
+  const remainingQueue =
+    totalActualRemaining != null
+      ? Number(totalActualRemaining) || 0
+      : splitRemaining || Number(totalRemainingToDispatch) || 0
 
   return (
     <div
-      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${
-        sowingAllowed ? "xl:grid-cols-6" : "xl:grid-cols-5"
+      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 ${
+        sowingAllowed ? "xl:grid-cols-5" : "xl:grid-cols-4"
       } gap-3`}>
       {sowingAllowed ? (
         <>
@@ -111,24 +114,6 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
         </div>
       </Tooltip>
 
-      <Tooltip title={D.monthDelivery.mr} arrow>
-        <div className={`${tileClass} bg-blue-50 border-blue-200`}>
-          <div className="flex items-center gap-0.5">
-            <p className="text-[10px] font-semibold uppercase text-blue-800">{D.monthDelivery.title}</p>
-            <MetricDefinitionIcon definitionKey="monthDelivery" />
-          </div>
-          <p className="text-xl font-bold tabular-nums text-blue-900">
-            {fmt(totalDeliveryThisMonth ?? deliveryCrossCheck)}
-          </p>
-          <SplitFootnote
-            native={totalDeliveryNative}
-            rolled={totalDeliveryRolled}
-            rolledLabel="Rollover & other"
-          />
-          <p className="text-[10px] text-blue-600 mt-0.5">= Remaining + Dispatched</p>
-        </div>
-      </Tooltip>
-
       <Tooltip title={D.monthRemaining.mr} arrow>
         <div className={`${tileClass} bg-amber-50 border-amber-200`}>
           <div className="flex items-center gap-0.5">
@@ -136,7 +121,7 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
             <MetricDefinitionIcon definitionKey="monthRemaining" />
           </div>
           <p className="text-xl font-bold tabular-nums text-amber-900">
-            {fmt(totalRemainingToDispatch)}
+            {fmt(remainingQueue)}
           </p>
           <SplitFootnote native={totalRemainingNative} rolled={totalRemainingRolled} />
         </div>

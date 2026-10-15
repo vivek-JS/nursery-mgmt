@@ -573,8 +573,11 @@ export const rollupMonthSlotMetrics = (slots) => {
       : Math.round((actualGapPlants / totalActualPlants) * 100)
   const sowingGap = totalBookedPlants - totalPrimarySowed
 
-  /** Delivery cohort = still to dispatch + already dispatched (cross-checks month cards). */
-  const totalDeliveryThisMonth = totalRemainingToDispatch + totalAllDispatchedPlants
+  /**
+   * Month remaining matches each slot card's "Remaining dispatch":
+   * native remaining + rolled-in. remainingToDispatch is native only.
+   */
+  const totalDeliveryThisMonth = totalActualRemaining + totalAllDispatchedPlants
   const totalDeliveryNative = totalRemainingNative + totalDispatchedNative
   const totalDeliveryRolled = totalRemainingRolled + totalDispatchedOther
 

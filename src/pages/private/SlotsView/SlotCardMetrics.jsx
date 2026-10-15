@@ -134,7 +134,7 @@ const SlotCardMetrics = ({
   const remainingCell = {
     key: "remaining",
     definitionKey: "slotRemaining",
-    label: "Delivery to dispatch",
+    label: D.slotRemaining.title,
     sub: "queue left",
     value: toDispatch,
     className: "bg-amber-50 border-amber-200 hover:bg-amber-100",

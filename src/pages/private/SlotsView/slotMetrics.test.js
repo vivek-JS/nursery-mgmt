@@ -112,6 +112,34 @@ describe("rollupMonthSlotMetrics", () => {
     expect(rollup.actualSurplusPlants).toBe(250);
     expect(rollup.totalBookedPlants).toBe(280);
   });
+
+  it("month remaining and delivery include rolled queue so they match slot cards", () => {
+    const rollup = rollupMonthSlotMetrics([
+      {
+        remainingNative: 170200,
+        remainingRolledIn: 387851,
+        remainingToDispatch: 170200,
+        totalAllDispatchedPlants: 0,
+      },
+      {
+        remainingNative: 322800,
+        remainingRolledIn: 0,
+        remainingToDispatch: 322800,
+        dispatchedNativePlants: 161654,
+        dispatchedOtherPlants: 18300,
+        totalAllDispatchedPlants: 179954,
+      },
+    ]);
+
+    expect(rollup.totalActualRemaining).toBe(880851);
+    expect(rollup.totalRemainingNative).toBe(493000);
+    expect(rollup.totalRemainingRolled).toBe(387851);
+    expect(rollup.totalRemainingToDispatch).toBe(493000);
+    expect(rollup.totalDeliveryThisMonth).toBe(1060805);
+    expect(rollup.totalDeliveryNative + rollup.totalDeliveryRolled).toBe(
+      rollup.totalDeliveryThisMonth
+    );
+  });
 });
 
 describe("sowing-allowed slot metrics", () => {
