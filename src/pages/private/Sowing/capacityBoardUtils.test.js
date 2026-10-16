@@ -1,4 +1,13 @@
-import { boardColumns, cellFor, columnTotals, exportSheet, filterRows, slotTabs, sortRows } from "./capacityBoardUtils"
+import {
+  boardColumns,
+  cellFor,
+  columnTotals,
+  exportSheet,
+  filterRows,
+  slotTabs,
+  sortRows,
+  stockBatchSheet,
+} from "./capacityBoardUtils"
 import { slotRangeLabel } from "./capacitySheetUtils"
 
 const cell = (startDay, endDay, ready, booked, extra = {}) => ({
@@ -49,6 +58,33 @@ test("one tab per slot length, shortest first", () => {
     ["1d", 1],
     ["7d", 2],
   ])
+})
+
+test("stock-only varieties get the last tab and a batch-wise export", () => {
+  const banana = {
+    plantId: "p9",
+    plantName: "Banana",
+    subtypeId: "s9",
+    subtypeName: "G9",
+    slotDays: 0,
+    sowingAllowed: false,
+    stock: {
+      inShed: 1729,
+      readyNow: 1500,
+      batches: [
+        { shed: "Shed 2", batchNumber: "B7", inShed: 1729, readyNow: 1500, notReady: 229, lagwadDate: "2026-08-01T00:00:00.000Z", readyDate: "2026-10-01T00:00:00.000Z", nextReadyDate: "2026-10-30T00:00:00.000Z" },
+      ],
+    },
+    current: {},
+    upcoming: [],
+    totals: { ready: 0 },
+  }
+  expect(slotTabs([banana, papaya]).map((t) => [t.key, t.label])).toEqual([
+    ["7d", "7-Day slots"],
+    ["0d", "Shed stock only"],
+  ])
+  const sheet = stockBatchSheet([banana], "Shed stock only")
+  expect(sheet.rows).toEqual([["Banana", "G9", "Shed 2", "B7", "2026-08-01", "2026-10-01", 1729, 1500, 229, "2026-10-30"]])
 })
 
 test("columns share dates when every variety uses the same window", () => {

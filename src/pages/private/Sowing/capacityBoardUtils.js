@@ -11,9 +11,12 @@ export function slotTabKey(slotDays) {
   return `${Number(slotDays) || 0}d`
 }
 
+/** Rows without slots: crops not sown here (e.g. banana) and varieties with only shed stock. */
+export const STOCK_ONLY_DAYS = 0
+
 export function slotTabLabel(slotDays) {
   const days = Number(slotDays) || 0
-  if (!days) return "No slots"
+  if (!days) return "Shed stock only"
   return days === 1 ? "1-Day slots" : `${days}-Day slots`
 }
 
@@ -174,6 +177,28 @@ export function columnTotals(rows, columns) {
       { ready: 0, booked: 0, net: 0, overdue: 0 }
     )
   )
+}
+
+/** Batch-wise stock lines, one per shed batch, for stock-only varieties. */
+export function stockBatchSheet(rows, title) {
+  return {
+    title,
+    headers: ["Plant", "Subtype", "Shed", "Batch", "Lagwad date", "Ready on", "In shed", "Ready now", "Not ready yet", "Next ready"],
+    rows: rows.flatMap((row) =>
+      (row.stock?.batches || []).map((batch) => [
+        row.plantName,
+        row.subtypeName,
+        batch.shed,
+        batch.batchNumber,
+        batch.lagwadDate ? String(batch.lagwadDate).slice(0, 10) : "",
+        batch.readyDate ? String(batch.readyDate).slice(0, 10) : "",
+        batch.inShed || 0,
+        batch.readyNow || 0,
+        batch.notReady || 0,
+        batch.nextReadyDate ? String(batch.nextReadyDate).slice(0, 10) : "",
+      ])
+    ),
+  }
 }
 
 export function exportSheet(rows, columns, title) {

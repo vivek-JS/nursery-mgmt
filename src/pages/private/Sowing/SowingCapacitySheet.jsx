@@ -25,24 +25,34 @@ import WarehouseOutlinedIcon from "@mui/icons-material/WarehouseOutlined"
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore"
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined"
 import { useSearchParams } from "react-router-dom"
 import { NetworkManager, API } from "network/core"
 import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
 import SowingCapacityAsk from "./components/SowingCapacityAsk"
 import SowingShedStockTab from "./components/SowingShedStockTab"
 import CapacityBoardTable from "./components/CapacityBoardTable"
+import StockOnlyTable from "./components/StockOnlyTable"
 import ReadyPlantsMessageDialog from "./components/ReadyPlantsMessageDialog"
 import { downloadSheetsXlsx } from "utils/exportExcel"
 import { dayLabel } from "./capacitySheetUtils"
 import {
   CAPACITY_FILTERS,
   SHED_TAB,
+  STOCK_ONLY_DAYS,
   boardColumns,
   exportSheet,
   filterRows,
   slotTabs,
   sortRows,
+  stockBatchSheet,
 } from "./capacityBoardUtils"
+
+function tabIcon(days) {
+  const sx = { fontSize: 18 }
+  if (days === STOCK_ONLY_DAYS) return <Inventory2OutlinedIcon sx={sx} />
+  return days === 1 ? <ViewDayOutlinedIcon sx={sx} /> : <ViewWeekOutlinedIcon sx={sx} />
+}
 
 const ASK_RANGE_DAYS = 30
 
@@ -107,6 +117,7 @@ export default function SowingCapacitySheet() {
   let tab = requested === SHED_TAB || tabs.some((t) => t.key === requested) ? requested : tabs[0]?.key
   if (!tab) tab = loading ? "" : SHED_TAB
   const activeTab = tabs.find((t) => t.key === tab)
+  const stockOnly = activeTab?.days === STOCK_ONLY_DAYS
 
   const setTab = (value) => {
     setSearchParams(
@@ -126,8 +137,8 @@ export default function SowingCapacitySheet() {
   const crops = useMemo(() => [...new Set(tabRows.map((row) => row.plantName))].sort(), [tabRows])
   const columns = useMemo(() => boardColumns(tabRows, activeTab?.days), [tabRows, activeTab])
   const rows = useMemo(
-    () => sortRows(filterRows(tabRows, { search, crop, capacity }), sort, columns),
-    [tabRows, search, crop, capacity, sort, columns]
+    () => sortRows(filterRows(tabRows, { search, crop, capacity: stockOnly ? "all" : capacity }), sort, columns),
+    [tabRows, search, crop, capacity, sort, columns, stockOnly]
   )
 
   useEffect(() => {
@@ -158,6 +169,7 @@ export default function SowingCapacitySheet() {
   const onExport = () => {
     const sheets = tabs.map((t) => {
       const list = board.rows.filter((row) => (Number(row.slotDays) || 0) === t.days)
+      if (t.days === STOCK_ONLY_DAYS) return stockBatchSheet(list, t.label)
       return exportSheet(sortRows(list, { key: "urgent" }, []), boardColumns(list, t.days), t.label)
     })
     downloadSheetsXlsx(`sowing-capacity-${board.today}`, sheets, { stamp: false })
@@ -257,7 +269,7 @@ export default function SowingCapacitySheet() {
             <Tab
               key={t.key}
               value={t.key}
-              icon={t.days === 1 ? <ViewDayOutlinedIcon sx={{ fontSize: 18 }} /> : <ViewWeekOutlinedIcon sx={{ fontSize: 18 }} />}
+              icon={tabIcon(t.days)}
               iconPosition="start"
               label={`${t.label} (${t.count})`}
             />
@@ -286,32 +298,42 @@ export default function SowingCapacitySheet() {
                   </MenuItem>
                 ))}
               </TextField>
-              <TextField select size="small" value={capacity} onChange={(event) => setCapacity(event.target.value)} sx={selectSx}>
-                {CAPACITY_FILTERS.map((option) => (
-                  <MenuItem key={option.key} value={option.key}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={allOpen ? <UnfoldLessIcon /> : <UnfoldMoreIcon />}
-                onClick={toggleAll}
-                disabled={!rows.length}
-                sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
-              >
-                {allOpen ? "Collapse sheds" : "Expand sheds"}
-              </Button>
+              {stockOnly ? null : (
+                <>
+                  <TextField select size="small" value={capacity} onChange={(event) => setCapacity(event.target.value)} sx={selectSx}>
+                    {CAPACITY_FILTERS.map((option) => (
+                      <MenuItem key={option.key} value={option.key}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={allOpen ? <UnfoldLessIcon /> : <UnfoldMoreIcon />}
+                    onClick={toggleAll}
+                    disabled={!rows.length}
+                    sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
+                  >
+                    {allOpen ? "Collapse sheds" : "Expand sheds"}
+                  </Button>
+                </>
+              )}
             </Stack>
-            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+            {stockOnly ? (
               <Typography sx={{ fontSize: 11.5, color: "#475569", fontWeight: 700 }}>
-                Cell = ready plants · chip = free (+) or short (−)
+                Crops with no sowing slots (e.g. banana) — shed stock batch-wise
               </Typography>
-              <Legend color="#f59e0b" label="Current + overdue" />
-              <Legend color="#10b981" label="Free to sell" />
-              <Legend color="#f43f5e" label="Short" />
-            </Stack>
+            ) : (
+              <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Typography sx={{ fontSize: 11.5, color: "#475569", fontWeight: 700 }}>
+                  Cell = ready plants · chip = free (+) or short (−)
+                </Typography>
+                <Legend color="#f59e0b" label="Current + overdue" />
+                <Legend color="#10b981" label="Free to sell" />
+                <Legend color="#f43f5e" label="Short" />
+              </Stack>
+            )}
           </Stack>
 
           {error ? (
@@ -328,6 +350,8 @@ export default function SowingCapacitySheet() {
             <Alert severity="info" sx={{ m: 1.5 }}>
               No ready stock or due slots for this filter.
             </Alert>
+          ) : stockOnly ? (
+            <StockOnlyTable rows={rows} />
           ) : (
             <CapacityBoardTable
               rows={rows}
@@ -343,7 +367,7 @@ export default function SowingCapacitySheet() {
           <Stack direction="row" justifyContent="space-between" sx={{ px: 2, py: 1, borderTop: "1px solid #e2e8f0" }}>
             <Typography variant="caption" color="text.secondary">
               Showing {rows.length} of {tabRows.length} varieties
-              {board.lookbackDays ? ` · overdue looks back ${board.lookbackDays} days` : ""}
+              {board.lookbackDays && !stockOnly ? ` · overdue looks back ${board.lookbackDays} days` : ""}
             </Typography>
             {updatedAt ? (
               <Typography variant="caption" color="text.secondary">

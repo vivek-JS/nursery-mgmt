@@ -66,6 +66,24 @@ const rows = [
     upcoming: [slot("d1", "17-10-2026", "17-10-2026", 900, 0)],
     totals: { ready: 1200 },
   },
+  {
+    plantId: "p3",
+    plantName: "Banana",
+    subtypeId: "s3",
+    subtypeName: "G9",
+    slotDays: 0,
+    sowingAllowed: false,
+    stock: {
+      inShed: 1729,
+      readyNow: 1500,
+      batches: [
+        { shed: "Shed 2", batchNumber: "B7", inShed: 1729, readyNow: 1500, notReady: 229, lagwadDate: null, readyDate: null, nextReadyDate: null },
+      ],
+    },
+    current: {},
+    upcoming: [],
+    totals: { ready: 0 },
+  },
 ]
 
 beforeEach(() => {
@@ -85,6 +103,20 @@ test("shows one tab per slot length and the 1-day board first", async () => {
   expect(screen.getByRole("tab", { name: /7-Day slots \(1\)/ })).toBeInTheDocument()
   expect(screen.queryByText("Papaya – Taiwan 786")).not.toBeInTheDocument()
   expect(screen.getAllByText("+900 free")).toHaveLength(2)
+})
+
+test("crops without sowing get a batch-wise shed stock tab", async () => {
+  render(
+    <MemoryRouter initialEntries={["/u/sowing-capacity?tab=0d"]}>
+      <SowingCapacitySheet />
+    </MemoryRouter>
+  )
+  expect(await screen.findByText("Banana – G9")).toBeInTheDocument()
+  expect(screen.getByRole("tab", { name: /Shed stock only \(1\)/ })).toBeInTheDocument()
+  expect(screen.getByText("Sowing not required")).toBeInTheDocument()
+  expect(screen.getByText("Shed 2")).toBeInTheDocument()
+  expect(screen.getAllByText("229")).toHaveLength(3)
+  expect(screen.queryByText("Papaya – Taiwan 786")).not.toBeInTheDocument()
 })
 
 test("7-day board folds overdue into today, expands sheds and opens orders", async () => {

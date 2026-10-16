@@ -13,9 +13,210 @@ import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined"
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded"
 import SendRoundedIcon from "@mui/icons-material/SendRounded"
 import { NetworkManager, API } from "network/core"
-import { fmt } from "../capacitySheetUtils"
+import { fmt, slotRangeLabel } from "../capacitySheetUtils"
 
-const PROMPTS = ["What can we book?", "What should we sow first?"]
+const PROMPTS = [
+  "What is overdue or short now?",
+  "What can we sell this week?",
+  "What should we sow first?",
+  "Shed stock and banana",
+  "Papaya Taiwan next ready dates",
+  "आज तातडीचे काय आहे?",
+  "कोणती रोपे विकायला मोकळी आहेत?",
+]
+
+const SOW_RE = /sow|पेर|लागवड/i
+const BOOK_RE = /book|बुक/i
+
+export function replyFocus(question, { intro, hasAnswer }) {
+  if (intro) return "all"
+  if (SOW_RE.test(question)) return "sow"
+  if (BOOK_RE.test(question)) return "book"
+  return hasAnswer ? "none" : "all"
+}
+
+function AnswerLine({ line }) {
+  const cut = line.indexOf(":")
+  if (cut > 0 && cut < 60) {
+    return (
+      <Typography fontSize={13.5} color="#e2e8f0" lineHeight={1.5} mt={0.6}>
+        <Box component="span" sx={{ fontWeight: 800, color: "#f8fafc" }}>
+          {line.slice(0, cut + 1)}
+        </Box>
+        {line.slice(cut + 1)}
+      </Typography>
+    )
+  }
+  return (
+    <Typography fontSize={13.5} color="#e2e8f0" lineHeight={1.5} mt={0.6}>
+      {line}
+    </Typography>
+  )
+}
+
+function slotLabel(slot) {
+  const [start, end] = String(slot || "").split(" to ")
+  return start ? slotRangeLabel(start, end || start) : ""
+}
+
+function NetPill({ net }) {
+  const value = Number(net) || 0
+  const tone =
+    value < 0
+      ? { color: "#fda4af", bg: "rgba(244,63,94,0.16)", text: `${fmt(-value)} short` }
+      : value > 0
+        ? { color: "#6ee7b7", bg: "rgba(16,185,129,0.16)", text: `${fmt(value)} free` }
+        : { color: "#cbd5e1", bg: "rgba(148,163,184,0.14)", text: "Matched" }
+  return (
+    <Box
+      component="span"
+      sx={{ px: 0.75, py: 0.1, borderRadius: 99, fontSize: 11, fontWeight: 800, whiteSpace: "nowrap", color: tone.color, bgcolor: tone.bg }}
+    >
+      {tone.text}
+    </Box>
+  )
+}
+
+function Stat({ label, value, sub, children }) {
+  return (
+    <Box sx={{ borderRadius: 2, px: 1, py: 0.75, bgcolor: "rgba(255,255,255,0.04)", minWidth: 0 }}>
+      <Typography fontSize={10.5} fontWeight={800} letterSpacing={0.6} color="#94a3b8" noWrap>
+        {label}
+      </Typography>
+      <Typography fontSize={15} fontWeight={800} color="#f8fafc" lineHeight={1.3}>
+        {value}
+      </Typography>
+      {sub ? (
+        <Typography fontSize={11.5} color="#cbd5e1" noWrap>
+          {sub}
+        </Typography>
+      ) : null}
+      {children}
+    </Box>
+  )
+}
+
+export function VarietyCard({ row, stockOnly }) {
+  const now = stockOnly ? null : row.now
+  const next = stockOnly ? [] : (row.next || []).filter((cell) => cell.ready || cell.booked).slice(0, 3)
+  const tag = !row.sowingRequired ? "No sowing" : row.slotDays ? `${row.slotDays}-day slots` : "No slots"
+  return (
+    <Box
+      sx={{
+        mt: 1,
+        borderRadius: 2.5,
+        p: 1.1,
+        bgcolor: "rgba(2,6,23,0.45)",
+        border: `1px solid ${row.urgent ? "rgba(244,63,94,0.45)" : "rgba(148,163,184,0.18)"}`,
+      }}
+    >
+      <Stack direction="row" alignItems="center" spacing={0.75}>
+        <Box sx={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, bgcolor: row.urgent ? "#f43f5e" : "#10b981" }} />
+        <Typography fontWeight={800} fontSize={14} color="#f8fafc" noWrap sx={{ flex: 1, minWidth: 0 }}>
+          {row.crop} – {row.variety}
+        </Typography>
+        <Typography component="span" sx={{ fontSize: 10.5, fontWeight: 700, color: "#94a3b8", whiteSpace: "nowrap" }}>
+          {tag}
+        </Typography>
+      </Stack>
+      <Box sx={{ display: "grid", gridTemplateColumns: now ? "1fr 1.3fr" : "1fr", gap: 0.75, mt: 0.85 }}>
+        <Stat
+          label="IN SHED"
+          value={row.stock?.inShed ? fmt(row.stock.inShed) : "—"}
+          sub={row.stock?.inShed ? `${fmt(row.stock.readyNow)} ready now` : "No lagwad stock"}
+        />
+        {now ? (
+          <Stat label={`NOW · ${slotLabel(now.slot) || "today"}`} value={`${fmt(now.ready)} ready`}>
+            <Stack direction="row" spacing={0.6} alignItems="center" flexWrap="wrap" useFlexGap mt={0.2}>
+              <Typography fontSize={11.5} color="#cbd5e1">
+                {fmt(now.booked)} booked
+              </Typography>
+              <NetPill net={now.net} />
+            </Stack>
+            {now.overdueBooked || now.unsoldFromPast ? (
+              <Typography fontSize={11} fontWeight={700} color="#fda4af" mt={0.3}>
+                {now.overdueBooked ? `${fmt(now.overdueBooked)} overdue` : ""}
+                {now.overdueBooked && now.unsoldFromPast ? " · " : ""}
+                {now.unsoldFromPast ? `${fmt(now.unsoldFromPast)} unsold` : ""}
+              </Typography>
+            ) : null}
+          </Stat>
+        ) : null}
+      </Box>
+      {next.length ? (
+        <Box sx={{ mt: 0.85 }}>
+          <Typography fontSize={10.5} fontWeight={800} letterSpacing={0.6} color="#94a3b8">
+            NEXT READY
+          </Typography>
+          {next.map((cell) => (
+            <Stack key={cell.slot} direction="row" alignItems="center" spacing={1} sx={{ mt: 0.4 }}>
+              <Typography fontSize={12} color="#e2e8f0" sx={{ width: 92, flexShrink: 0 }}>
+                {slotLabel(cell.slot)}
+              </Typography>
+              <Typography fontSize={12} fontWeight={800} color="#f8fafc" sx={{ flex: 1 }}>
+                {fmt(cell.ready)} ready
+              </Typography>
+              <NetPill net={cell.net} />
+            </Stack>
+          ))}
+        </Box>
+      ) : null}
+    </Box>
+  )
+}
+
+function AnswerCard({ advice, model }) {
+  const ai = advice?.answerSource === "ai"
+  const rows = advice?.answerRows || []
+  const lines = ai
+    ? String(advice?.answer || "")
+        .split("\n")
+        .map((line) => line.replace(/^[-•*]\s*/, "").replace(/\*\*/g, "").trim())
+        .filter(Boolean)
+    : []
+  const title = ai ? "" : advice?.answerTitle || (rows.length ? "" : advice?.answer)
+  if (!lines.length && !rows.length && !title) return null
+  return (
+    <Box
+      sx={{
+        borderRadius: 3,
+        px: 1.5,
+        py: 1.25,
+        background: "linear-gradient(180deg, rgba(99,102,241,0.2), rgba(99,102,241,0.05))",
+        border: "1px solid rgba(165,180,252,0.25)",
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Typography fontSize={11} fontWeight={800} letterSpacing={1.1} color="#a5b4fc">
+          ANSWER
+        </Typography>
+        <Typography
+          component="span"
+          title={ai && model ? model : undefined}
+          sx={{ fontSize: 10.5, fontWeight: 700, color: "#94a3b8", border: "1px solid rgba(148,163,184,0.3)", borderRadius: 99, px: 0.75 }}
+        >
+          {ai ? "AI · from our board" : "From our board"}
+        </Typography>
+      </Stack>
+      {title ? (
+        <Typography fontSize={15} fontWeight={800} color="#f8fafc" mt={0.5} lineHeight={1.35}>
+          {title}
+        </Typography>
+      ) : null}
+      {lines.map((line, index) => (
+        <AnswerLine key={index} line={line} />
+      ))}
+      {rows.map((row) => (
+        <VarietyCard key={`${row.crop}-${row.variety}`} row={row} stockOnly={advice.answerStockOnly} />
+      ))}
+      {advice.answerMore ? (
+        <Typography fontSize={12} color="#94a3b8" mt={0.85}>
+          + {advice.answerMore} more on the board
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
 
 const SHOW = 4
 
@@ -109,6 +310,7 @@ function SheetBrief({ advice, context, focus = "all" }) {
   const good = focus === "sow" ? [] : advicePoints(plants, "book")
   const bad = focus === "book" ? [] : advicePoints(plants, "sow_first")
   const hold = focus === "all" ? advicePoints(plants, "wait") : []
+  if (focus === "none") return null
   const empty =
     !good.length && !bad.length && !hold.length ? (
       <Typography fontSize={15} fontWeight={700} color="#f8fafc" mt={focus === "all" ? 1.2 : 0}>
@@ -489,19 +691,14 @@ export default function SowingCapacityAsk({ from, to }) {
                           {message.error}
                         </Typography>
                       ) : null}
+                      {advice && !message.intro ? (
+                        <AnswerCard advice={advice} model={message.result?.model} />
+                      ) : null}
                       {advice ? (
                         <SheetBrief
                           advice={advice}
                           context={message.result?.context}
-                          focus={
-                            message.intro
-                              ? "all"
-                              : /sow/i.test(message.question)
-                                ? "sow"
-                                : /book/i.test(message.question)
-                                  ? "book"
-                                  : "all"
-                          }
+                          focus={replyFocus(message.question, { intro: message.intro, hasAnswer: Boolean(advice.answer) })}
                         />
                       ) : null}
                     </Box>
@@ -556,7 +753,7 @@ export default function SowingCapacityAsk({ from, to }) {
                 fullWidth
                 multiline
                 maxRows={4}
-                placeholder="Ask about plants or subtypes"
+                placeholder="Ask in English or मराठी — e.g. Papaya Taiwan, overdue, banana stock"
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 onKeyDown={(event) => {
