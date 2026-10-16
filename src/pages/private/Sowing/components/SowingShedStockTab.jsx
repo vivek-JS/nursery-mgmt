@@ -46,6 +46,8 @@ const C = {
   remaining: "#15803d",
   orders: "#2563eb",
   gone: "#b45309",
+  destroyed: "#e11d48",
+  returned: "#d97706",
   current: "#15803d",
   currentBg: "#f0fdf4",
   expected: "#0369a1",
@@ -196,6 +198,22 @@ function Num({ value, color }) {
   )
 }
 
+const destroyedCol = {
+  key: "destroyed",
+  label: "Destroyed",
+  numeric: true,
+  render: (r) => <Num value={r.destroyed} color={C.destroyed} />,
+  total: (rows) => fmt(sumOf(rows, "destroyed")),
+}
+
+const returnedCol = {
+  key: "returned",
+  label: "Returned",
+  numeric: true,
+  render: (r) => <Num value={r.returned} color={C.returned} />,
+  total: (rows) => fmt(sumOf(rows, "returned")),
+}
+
 function NextReady({ item }) {
   if (!item) {
     return (
@@ -216,15 +234,20 @@ function NextReady({ item }) {
   )
 }
 
-/** Remaining / orders / other gone as a share of everything sowed. */
+/** Remaining / orders / destroyed / other gone as a share of everything that came in (sowed + returned). */
 function FlowBar({ row }) {
-  const total = Math.max(1, n(row.sowed))
+  const total = Math.max(1, n(row.sowed) + n(row.returned))
   const pct = (value) => `${Math.min(100, (n(value) / total) * 100)}%`
   return (
-    <Tooltip arrow placement="top" title={`Remaining ${fmt(row.remaining)} · Orders ${fmt(row.toOrders)} · Other gone ${fmt(row.otherGone)}`}>
+    <Tooltip
+      arrow
+      placement="top"
+      title={`Remaining ${fmt(row.remaining)} · Orders ${fmt(row.toOrders)} · Destroyed ${fmt(row.destroyed)} · Other gone ${fmt(row.otherGone)}`}
+    >
       <Box sx={{ display: "flex", height: 8, minWidth: 90, borderRadius: 99, overflow: "hidden", bgcolor: "#eef2f6" }}>
         <Box sx={{ width: pct(row.remaining), bgcolor: "#22c55e" }} />
         <Box sx={{ width: pct(row.toOrders), bgcolor: C.orders }} />
+        <Box sx={{ width: pct(row.destroyed), bgcolor: C.destroyed }} />
         <Box sx={{ width: pct(row.otherGone), bgcolor: "#f59e0b" }} />
       </Box>
     </Tooltip>
@@ -235,6 +258,7 @@ function Legend() {
   const items = [
     ["Remaining", "#22c55e"],
     ["To orders", C.orders],
+    ["Destroyed", C.destroyed],
     ["Other gone", "#f59e0b"],
   ]
   return (
@@ -274,14 +298,18 @@ function SummaryStrip({ totals }) {
   const tiles = [
     { label: "Sheds", value: totals.sheds, color: C.ink },
     { label: "Sowed", value: totals.sowed, color: C.sowed, hint: "Plants lagwad-ed into sheds (active batches)." },
-    { label: "Gone", value: totals.gone, color: C.gone, hint: "Sowed minus remaining." },
+    ...(n(totals.returned) > 0
+      ? [{ label: "Returned", value: totals.returned, color: C.returned, hint: "Plants brought back from vehicles into sheds." }]
+      : []),
+    { label: "Gone", value: totals.gone, color: C.gone, hint: "Sowed (+ returned) minus remaining." },
     { label: "To orders", value: totals.toOrders, color: C.orders, hint: "Gone plants that were loaded or delivered against an order." },
+    { label: "Destroyed", value: totals.destroyed, color: C.destroyed, hint: "Gone plants recorded as destroyed (dead / damaged / old stock)." },
     { label: "Remaining", value: totals.remaining, color: C.remaining, hint: "Still in sheds = current + expected." },
     { label: "Current", value: current, color: C.current, hint: "Ready now and can be sold or dispatched today." },
     { label: "Expected", value: expected, color: C.expected, hint: "In the shed but not ready yet. Open a row to see the date each entry gets ready." },
   ]
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(4, 1fr)", xl: "repeat(7, 1fr)" }, gap: 1.25, mb: 2 }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(4, 1fr)", xl: `repeat(${tiles.length}, 1fr)` }, gap: 1.25, mb: 2 }}>
       {tiles.map((tile) => (
         <Tile key={tile.label} {...tile} />
       ))}
@@ -468,7 +496,19 @@ function SortableTable({ columns, rows, rowKey, defaultSort, onRowClick, expande
 /* ───────────────────────── batch detail (entries + orders) ───────────────────────── */
 
 const entryColumns = [
-  { key: "size", label: "Size", sortValue: (r) => r.size || "", render: (r) => r.size || "—" },
+  {
+    key: "size",
+    label: "Size",
+    sortValue: (r) => r.size || "",
+    render: (r) => (
+      <>
+        {r.size || "—"}
+        {r.isReturn ? (
+          <Chip size="small" label="Returned" sx={{ ml: 0.75, height: 18, fontWeight: 800, bgcolor: "#fef3c7", color: "#92400e" }} />
+        ) : null}
+      </>
+    ),
+  },
   { key: "cavity", label: "Cavity", sortValue: (r) => r.cavity || "", render: (r) => r.cavity || "—" },
   { key: "lagwadDate", label: "Lagwad date", sortValue: (r) => istDay(r.lagwadDate), render: (r) => formatDate(r.lagwadDate) },
   { key: "readyDay", label: "Ready on", sortValue: (r) => r.readyDay, render: (r) => formatDate(r.readyDate) },
@@ -489,6 +529,7 @@ const entryColumns = [
   },
   { key: "sowed", label: "Sowed", numeric: true, render: (r) => <Num value={r.sowed} color={C.sowed} />, total: (rows) => fmt(sumOf(rows, "sowed")) },
   { key: "gone", label: "Gone", numeric: true, render: (r) => <Num value={r.gone} color={C.gone} />, total: (rows) => fmt(sumOf(rows, "gone")) },
+  destroyedCol,
   { key: "remaining", label: "Remaining", numeric: true, render: (r) => <Num value={r.remaining} color={C.remaining} />, total: (rows) => fmt(sumOf(rows, "remaining")) },
   { key: "current", label: "Current", numeric: true, bg: C.currentBg, render: (r) => <Num value={r.current} color={C.current} />, total: (rows) => fmt(sumOf(rows, "current")) },
   { key: "expected", label: "Expected", numeric: true, bg: C.expectedBg, render: (r) => <Num value={r.expected} color={C.expected} />, total: (rows) => fmt(sumOf(rows, "expected")) },
@@ -534,7 +575,8 @@ function BatchDetail({ batch }) {
           />
           {n(batch.otherGone) > 0 ? (
             <Typography variant="caption" color={C.muted} display="block" mt={0.75}>
-              {fmt(batch.otherGone)} more plants are gone without an order link (mortality, transfers or manual adjustments).
+              {fmt(batch.otherGone)} more plants are gone without an order link (mortality, transfers or manual adjustments)
+              {n(batch.destroyed) > 0 ? `; ${fmt(batch.destroyed)} were recorded as destroyed` : ""}.
             </Typography>
           ) : null}
         </>
@@ -545,7 +587,7 @@ function BatchDetail({ batch }) {
 
 /* ───────────────────────── batch table (used in the shed panel and the "All batches" view) ───────────────────────── */
 
-function BatchTable({ batches, showShed = false, maxHeight }) {
+function BatchTable({ batches, showShed = false, showReturned = false, maxHeight }) {
   const [openKey, setOpenKey] = useState("")
 
   const columns = useMemo(() => {
@@ -561,8 +603,10 @@ function BatchTable({ batches, showShed = false, maxHeight }) {
         render: (r) => [r.plantName, r.subtypeName].filter(Boolean).join(" · ") || "—",
       },
       { key: "sowed", label: "Sowed", numeric: true, render: (r) => <Num value={r.sowed} color={C.sowed} />, total: (rows) => fmt(sumOf(rows, "sowed")) },
+      ...(showReturned ? [returnedCol] : []),
       { key: "gone", label: "Gone", numeric: true, render: (r) => <Num value={r.gone} color={C.gone} />, total: (rows) => fmt(sumOf(rows, "gone")) },
       { key: "toOrders", label: "To orders", numeric: true, render: (r) => <Num value={r.toOrders} color={C.orders} />, total: (rows) => fmt(sumOf(rows, "toOrders")) },
+      destroyedCol,
       { key: "remaining", label: "Remaining", numeric: true, render: (r) => <Num value={r.remaining} color={C.remaining} />, total: (rows) => fmt(sumOf(rows, "remaining")) },
       {
         key: "current",
@@ -584,7 +628,7 @@ function BatchTable({ batches, showShed = false, maxHeight }) {
       { key: "flow", label: "Flow", sortValue: (r) => (n(r.sowed) ? n(r.remaining) / n(r.sowed) : null), render: (r) => <FlowBar row={r} /> }
     )
     return list
-  }, [showShed])
+  }, [showShed, showReturned])
 
   return (
     <SortableTable
@@ -610,23 +654,40 @@ function batchSheets(batches, withShed) {
   return [
     {
       title: "Batches",
-      headers: [...shedCol, "Batch", "Plant", "Subtype", "Sowed", "Gone", "To orders", "Remaining", "Current (ready)", "Expected (not ready)", "Next ready"],
-      rows: batches.map((b) => [...shedVal(b), b.batchNumber, b.plantName, b.subtypeName, b.sowed, b.gone, b.toOrders, b.remaining, b.current, b.expected, nextReadyText(b.nextReady)]),
+      headers: [...shedCol, "Batch", "Plant", "Subtype", "Sowed", "Returned", "Gone", "To orders", "Destroyed", "Other gone", "Remaining", "Current (ready)", "Expected (not ready)", "Next ready"],
+      rows: batches.map((b) => [
+        ...shedVal(b),
+        b.batchNumber,
+        b.plantName,
+        b.subtypeName,
+        b.sowed,
+        n(b.returned),
+        b.gone,
+        b.toOrders,
+        n(b.destroyed),
+        n(b.otherGone),
+        b.remaining,
+        b.current,
+        b.expected,
+        nextReadyText(b.nextReady),
+      ]),
     },
     {
       title: "Entries (lagwad lines)",
-      headers: [...shedCol, "Batch", "Size", "Cavity", "Lagwad date", "Ready on", "Status", "Sowed", "Gone", "Remaining", "Current (ready)", "Expected (not ready)"],
+      headers: [...shedCol, "Batch", "Size", "Returned line", "Cavity", "Lagwad date", "Ready on", "Status", "Sowed", "Gone", "Destroyed", "Remaining", "Current (ready)", "Expected (not ready)"],
       rows: batches.flatMap((b) =>
         b.lines.map((l) => [
           ...shedVal(b),
           batchTitle(b),
           l.size,
+          l.isReturn ? "Yes" : "",
           l.cavity,
           formatDate(l.lagwadDate),
           formatDate(l.readyDate),
           l.ready ? "Ready" : l.daysToReady == null ? "Date not set" : `Ready ${relDays(l.daysToReady)}`,
           l.sowed,
           l.gone,
+          n(l.destroyed),
           l.remaining,
           l.current,
           l.expected,
@@ -641,9 +702,25 @@ function batchSheets(batches, withShed) {
   ]
 }
 
+const SHED_EXPORT_HEADERS = ["Shed", "Sowed", "Returned", "Gone", "To orders", "Destroyed", "Other gone", "Remaining", "Current (ready)", "Expected (not ready)", "Next ready"]
+
+const shedExportRow = (s) => [
+  s.shed,
+  s.sowed,
+  n(s.returned),
+  s.gone,
+  s.toOrders,
+  n(s.destroyed),
+  n(s.otherGone),
+  s.remaining,
+  s.current,
+  s.expected,
+  nextReadyText(s.nextReady),
+]
+
 /* ───────────────────────── shed side panel ───────────────────────── */
 
-function ShedDrawer({ shed, filter, onClose }) {
+function ShedDrawer({ shed, filter, showReturned = false, onClose }) {
   const [batchSearch, setBatchSearch] = useState("")
   const shedKey = shed ? shed.shed : ""
 
@@ -659,8 +736,8 @@ function ShedDrawer({ shed, filter, onClose }) {
   const getExportSheets = () => [
     {
       title: `Shed ${shed.shed}`,
-      headers: ["Shed", "Sowed", "Gone", "To orders", "Remaining", "Current (ready)", "Expected (not ready)", "Next ready"],
-      rows: [[shed.shed, shed.sowed, shed.gone, shed.toOrders, shed.remaining, shed.current, shed.expected, nextReadyText(shed.nextReady)]],
+      headers: SHED_EXPORT_HEADERS,
+      rows: [shedExportRow(shed)],
     },
     ...batchSheets(batches, false),
   ]
@@ -692,10 +769,11 @@ function ShedDrawer({ shed, filter, onClose }) {
               </Stack>
             </Stack>
 
-            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(3, 1fr)", sm: "repeat(6, 1fr)" }, gap: 1, mt: 1.5 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(3, 1fr)", sm: "repeat(7, 1fr)" }, gap: 1, mt: 1.5 }}>
               <Tile label="Sowed" value={shed.sowed} color={C.sowed} />
               <Tile label="Gone" value={shed.gone} color={C.gone} />
               <Tile label="To orders" value={shed.toOrders} color={C.orders} />
+              <Tile label="Destroyed" value={shed.destroyed} color={C.destroyed} hint={n(shed.returned) > 0 ? `Returned from vehicles: ${fmt(shed.returned)}` : undefined} />
               <Tile label="Remaining" value={shed.remaining} color={C.remaining} />
               <Tile label="Current" value={shed.current} color={C.current} hint="Ready now." />
               <Tile label="Expected" value={shed.expected} color={C.expected} hint="Not ready yet — gets ready on the dates below." />
@@ -728,7 +806,7 @@ function ShedDrawer({ shed, filter, onClose }) {
           </Box>
 
           <Box sx={{ px: 2, pb: 2, flex: 1, minHeight: 0, overflow: "auto" }}>
-            <BatchTable batches={batches} />
+            <BatchTable batches={batches} showReturned={showReturned} />
           </Box>
         </Box>
       ) : null}
@@ -779,6 +857,8 @@ export default function SowingShedStockTab() {
     [data.sheds, filter, q]
   )
 
+  const hasReturns = n(data.totals?.returned) > 0
+
   const batchRows = useMemo(() => shedRows.flatMap((shed) => shed.batches.filter((batch) => batchVisible(batch, filter) && (!q || shed.shed.toLowerCase().includes(q) || matchesSearch(batch, q)))), [shedRows, filter, q])
 
   const shedColumns = useMemo(
@@ -804,8 +884,10 @@ export default function SowingShedStockTab() {
         total: (rows) => fmt(rows.reduce((total, row) => total + n(filter === "all" ? row.batchCount : row.activeBatchCount), 0)),
       },
       { key: "sowed", label: "Sowed", numeric: true, render: (r) => <Num value={r.sowed} color={C.sowed} />, total: (rows) => fmt(sumOf(rows, "sowed")) },
+      ...(hasReturns ? [returnedCol] : []),
       { key: "gone", label: "Gone", numeric: true, render: (r) => <Num value={r.gone} color={C.gone} />, total: (rows) => fmt(sumOf(rows, "gone")) },
       { key: "toOrders", label: "To orders", numeric: true, render: (r) => <Num value={r.toOrders} color={C.orders} />, total: (rows) => fmt(sumOf(rows, "toOrders")) },
+      destroyedCol,
       { key: "remaining", label: "Remaining", numeric: true, render: (r) => <Num value={r.remaining} color={C.remaining} />, total: (rows) => fmt(sumOf(rows, "remaining")) },
       {
         key: "current",
@@ -826,7 +908,7 @@ export default function SowingShedStockTab() {
       { key: "nextReady", label: "Next ready", minWidth: 150, sortValue: (r) => r.nextReadyDay, render: (r) => <NextReady item={r.nextReady} /> },
       { key: "flow", label: "Flow", sortValue: (r) => (n(r.sowed) ? n(r.remaining) / n(r.sowed) : null), render: (r) => <FlowBar row={r} /> },
     ],
-    [filter]
+    [filter, hasReturns]
   )
 
   const selected = useMemo(() => data.sheds.find((shed) => shed.shed === selectedName) || null, [data.sheds, selectedName])
@@ -834,8 +916,8 @@ export default function SowingShedStockTab() {
   const getExportSheets = () => [
     {
       title: "Sheds",
-      headers: ["Shed", "Sowed", "Gone", "To orders", "Remaining", "Current (ready)", "Expected (not ready)", "Next ready"],
-      rows: shedRows.map((s) => [s.shed, s.sowed, s.gone, s.toOrders, s.remaining, s.current, s.expected, nextReadyText(s.nextReady)]),
+      headers: SHED_EXPORT_HEADERS,
+      rows: shedRows.map(shedExportRow),
     },
     ...batchSheets(batchRows, true),
   ]
@@ -941,11 +1023,11 @@ export default function SowingShedStockTab() {
             emptyText="No sheds match this view."
           />
         ) : (
-          <BatchTable batches={batchRows} showShed maxHeight="calc(100vh - 380px)" />
+          <BatchTable batches={batchRows} showShed showReturned={hasReturns} maxHeight="calc(100vh - 380px)" />
         )
       ) : null}
 
-      <ShedDrawer shed={selected} filter={filter} onClose={() => setSelectedName("")} />
+      <ShedDrawer shed={selected} filter={filter} showReturned={hasReturns} onClose={() => setSelectedName("")} />
     </Box>
   )
 }

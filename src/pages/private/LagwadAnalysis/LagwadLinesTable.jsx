@@ -11,9 +11,12 @@ import {
   Download,
   Search,
   Sprout,
-  Trash2
+  Trash2,
+  Undo2
 } from "lucide-react"
 import DestroyPlantsDialog from "./DestroyPlantsDialog"
+import DestroyLogDialog from "./DestroyLogDialog"
+import DestroyRemainingDialog from "./DestroyRemainingDialog"
 import { fmt, getReadyStatusUi, tooltipSlotProps } from "./lagwadAnalysisUi"
 
 const PAGE_SIZES = [25, 50, 100, 0]
@@ -110,6 +113,8 @@ const LagwadLinesTable = ({ lines, slotLabelById, onChanged }) => {
   const [pageSize, setPageSize] = useState(50)
   const [page, setPage] = useState(0)
   const [destroyLine, setDestroyLine] = useState(null)
+  const [logLine, setLogLine] = useState(null)
+  const [destroyAllLine, setDestroyAllLine] = useState(null)
 
   const rows = useMemo(
     () =>
@@ -148,6 +153,16 @@ const LagwadLinesTable = ({ lines, slotLabelById, onChanged }) => {
     }
     return out
   }, [filtered])
+
+  const destroyAllEstimate = useMemo(() => {
+    if (!destroyAllLine) return null
+    const sameBatch = rows.filter((l) => String(l.batchId) === String(destroyAllLine.batchId))
+    const left = (list) => list.reduce((s, l) => s + num(l.availableQuantity), 0)
+    return {
+      batch: left(sameBatch),
+      shed: left(sameBatch.filter((l) => (l.pollyhouse || "") === (destroyAllLine.pollyhouse || "")))
+    }
+  }, [destroyAllLine, rows])
 
   const size = pageSize || sorted.length || 1
   const pageCount = Math.max(1, Math.ceil(sorted.length / size))
@@ -331,7 +346,22 @@ const LagwadLinesTable = ({ lines, slotLabelById, onChanged }) => {
                   <td className={`${td} text-center text-xs text-slate-400`}>
                     {safePage * size + i + 1}
                   </td>
-                  <td className={`${td} font-semibold text-slate-900`}>{l.batchNumber || "—"}</td>
+                  <td className={`${td} font-semibold text-slate-900`}>
+                    {l.batchNumber || "—"}
+                    {l.isReturn && (
+                      <Tooltip
+                        title={`Returned from vehicle${l.returnReason ? ` · ${l.returnReason}` : ""}${
+                          l.returnedAt ? ` · ${dayLabel(l.returnedAt)}` : ""
+                        }`}
+                        arrow
+                        slotProps={tooltipSlotProps}>
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+                          <Undo2 className="h-3 w-3" />
+                          Returned
+                        </span>
+                      </Tooltip>
+                    )}
+                  </td>
                   <td className={td}>
                     {l.size ? (
                       <span
@@ -356,7 +386,17 @@ const LagwadLinesTable = ({ lines, slotLabelById, onChanged }) => {
                     {fmt(sold)}
                   </td>
                   <td className={`${tdNum} ${destroyed ? "font-medium text-rose-600" : "text-slate-300"}`}>
-                    {fmt(destroyed)}
+                    {destroyed > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setLogLine(l)}
+                        title="View destroy log"
+                        className="underline decoration-dotted underline-offset-2 hover:text-rose-800">
+                        {fmt(destroyed)}
+                      </button>
+                    ) : (
+                      fmt(destroyed)
+                    )}
                   </td>
                   <td className={`${tdNum} font-semibold ${inShed ? "text-emerald-700" : "text-slate-300"}`}>
                     {fmt(inShed)}
@@ -396,6 +436,20 @@ const LagwadLinesTable = ({ lines, slotLabelById, onChanged }) => {
                         </button>
                       </span>
                     </Tooltip>
+                    <Tooltip
+                      title="Destroy all remaining of this batch (this shed or all sheds)"
+                      arrow
+                      slotProps={tooltipSlotProps}>
+                      <span>
+                        <button
+                          type="button"
+                          disabled={inShed < 1 || !l.batchId}
+                          onClick={() => setDestroyAllLine(l)}
+                          className="ml-1 inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-30">
+                          All
+                        </button>
+                      </span>
+                    </Tooltip>
                   </td>
                 </tr>
               )
@@ -423,6 +477,14 @@ const LagwadLinesTable = ({ lines, slotLabelById, onChanged }) => {
         open={Boolean(destroyLine)}
         line={destroyLine}
         onClose={() => setDestroyLine(null)}
+        onDone={onChanged}
+      />
+      <DestroyLogDialog open={Boolean(logLine)} line={logLine} onClose={() => setLogLine(null)} />
+      <DestroyRemainingDialog
+        open={Boolean(destroyAllLine)}
+        line={destroyAllLine}
+        estimate={destroyAllEstimate}
+        onClose={() => setDestroyAllLine(null)}
         onDone={onChanged}
       />
     </div>

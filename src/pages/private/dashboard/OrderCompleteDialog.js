@@ -20,6 +20,10 @@ import { normalizeOrderFor } from "utils/orderCustomerDisplay"
 import CompleteInvoicePDF from "./CompleteInvoicePDF"
 import { buildCompletePreviewDispatch } from "./orderCompletePreview"
 import LinkShedStockDialog from "./LinkShedStockDialog"
+import ReturnToShedBlock, {
+  appShedReturnedForOrder,
+  returnToShedPayload,
+} from "./ReturnToShedBlock"
 import {
   isBananaPlantOrder,
   normalizeDispatchOrderPlantFields,
@@ -675,6 +679,11 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [batchStockLoading, setBatchStockLoading] = useState(false)
   /** pick_vehicle: composite key per order row for shedLoadedBatches line */
   const [vehicleLoadPickByOrder, setVehicleLoadPickByOrder] = useState({})
+  const [shedReturnRowsByOrder, setShedReturnRowsByOrder] = useState({})
+  const [vehicleReturnInfo, setVehicleReturnInfo] = useState({ lines: [], shedReturns: [], sheds: [] })
+  const handleShedReturnRowsChange = useCallback((k, rows) => {
+    setShedReturnRowsByOrder((prev) => ({ ...prev, [k]: rows }))
+  }, [])
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false)
   const [invoicePreviewDispatch, setInvoicePreviewDispatch] = useState(null)
   const [linkShedStockOrder, setLinkShedStockOrder] = useState(null)
@@ -744,6 +753,43 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       cancelled = true
     }
   }, [open])
+
+  /** Shed-app loaded lines + earlier shed returns, for the Return to shed block. */
+  const returnInfoDispatchId = String(localDispatch?._id || dispatchData?._id || "")
+  useEffect(() => {
+    if (!open || !returnInfoDispatchId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [linesRes, shedRes] = await Promise.all([
+          NetworkManager(API.PLANT_OUTWARD.SECONDARY_VEHICLE_LOADED_LINES).request({}, [
+            returnInfoDispatchId,
+          ]),
+          NetworkManager(API.POLLY_HOUSE.GET_HOUSES).request(
+            {},
+            { page: 1, limit: 500, status: "true" }
+          ),
+        ])
+        const data = linesRes?.data?.data || {}
+        const shedRows = shedRes?.data?.data?.data
+        const sheds = (Array.isArray(shedRows) ? shedRows : [])
+          .filter((p) => p?.isActive !== false)
+          .map((p) => String(p.name || p.title || p.location || "").trim())
+          .filter(Boolean)
+        if (cancelled) return
+        setVehicleReturnInfo({
+          lines: Array.isArray(data.lines) ? data.lines : [],
+          shedReturns: Array.isArray(data.shedReturns) ? data.shedReturns : [],
+          sheds,
+        })
+      } catch {
+        if (!cancelled) setVehicleReturnInfo({ lines: [], shedReturns: [], sheds: [] })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, returnInfoDispatchId])
 
   const [tripData, setTripData] = useState({ kmRun: "", rent: "", otherCharges: "", remark: "", expanded: false })
 
@@ -826,6 +872,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setReturnedPlants({})
     setDamagedPlants({})
     setReturnReasons({})
+    setShedReturnRowsByOrder({})
     setExpandedRows(new Set())
     setPaymentFormExpandedByOrder({})
     setPaymentReceiptBusy(false)
@@ -1386,6 +1433,26 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         batchManualEntryByOrder
       )
 
+      const orderShedLines = vehicleReturnInfo.lines.filter(
+        (l) => String(l.linkedOrderId || "") === String(oid)
+      )
+      const returnToShed = orderShedLines.length
+        ? returnToShedPayload(shedReturnRowsByOrder[k])
+        : []
+      if (returnToShed.length) {
+        const appBack = appShedReturnedForOrder(vehicleReturnInfo.shedReturns, oid)
+        const allowed = Math.max(0, returnedQuantity - appBack)
+        const sum = returnToShed.reduce((s, r) => s + r.quantity, 0)
+        if (sum > allowed) {
+          throw new Error(
+            `Return to shed for order #${orderLabel} is ${sum}, more than the ${allowed} returned plants not yet back in a shed`
+          )
+        }
+        if (returnToShed.some((r) => !r.pollyhouse)) {
+          throw new Error(`Choose the shed for Return to shed (order #${orderLabel})`)
+        }
+      }
+
       orderUpdates.push({
         orderId: oid,
         returnedPlants: returnedQuantity,
@@ -1420,6 +1487,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           completeOrder: finalCompleteAction,
           finalStatus
         },
+        ...(returnToShed.length ? { returnToShed } : {}),
         ...(newPayments.length ? { newPayments } : {})
       })
     })
@@ -1940,6 +2008,20 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                             </p>
                           </div>
                         </div>
+                        <ReturnToShedBlock
+                          orderKey={k}
+                          lines={vehicleReturnInfo.lines.filter(
+                            (l) => String(l.linkedOrderId || "") === String(apiOrderId(order))
+                          )}
+                          sheds={vehicleReturnInfo.sheds}
+                          returnedQuantity={returnedQuantity}
+                          appReturned={appShedReturnedForOrder(
+                            vehicleReturnInfo.shedReturns,
+                            apiOrderId(order)
+                          )}
+                          rows={shedReturnRowsByOrder[k]}
+                          onRowsChange={handleShedReturnRowsChange}
+                        />
                         <div>
                           <label className="text-[11px] font-medium text-gray-600">Nursery (expected)</label>
                           <select
