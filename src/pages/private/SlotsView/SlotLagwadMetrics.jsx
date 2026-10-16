@@ -56,6 +56,8 @@ const SlotLagwadMetrics = ({
   const lagwadSowingMode = isSlotSowingAllowed(slot, sowingAllowed)
   const actualPlants = Number(slot?.actualPlants) || 0
   const mortality = getExpectedMortality(slot)
+  /** Stored reserve can predate the order-buffer rule; the live sowing reserve comes from the API. */
+  const mortalityShown = Math.max(mortality, Number(slot?.sowedExpectedMortality) || 0)
   /** Stored on slot (often pipeline for banana); may exceed shed calendar-ready today. */
   const storedReadyOnSlot = getActualReadyPlants(slot)
   const shedCalendarReady = Math.max(0, Number(slot?.shedRollupReadyPlants) || 0)
@@ -109,7 +111,7 @@ const SlotLagwadMetrics = ({
       : forSellExpected
   const hasLagwad =
     actualPlants > 0 ||
-    mortality > 0 ||
+    mortalityShown > 0 ||
     syncedReady > 0 ||
     dispatchReady > 0 ||
     expectedReady.total > 0 ||
@@ -272,7 +274,22 @@ const SlotLagwadMetrics = ({
   ].filter(Boolean)
 
   const sowLabel = lagwadSowingMode ? "Sow" : "Actual"
-  const sowSub = lagwadSowingMode ? "90% sellable · tap → entries" : "on slot (no sow %)"
+  const sowSub = lagwadSowingMode ? "survivors · tap → entries" : "on slot (no sow %)"
+  const mortalityCell = {
+    key: "mortality",
+    definitionKey: "lagwadMortality",
+    label: "Exp. mort.",
+    sub: mortality > 0 && onSlotChanged ? "tap → transfer" : lagwadSowingMode ? "reserve" : "—",
+    value: mortalityShown,
+    className:
+      mortality > 0 && onSlotChanged
+        ? "bg-rose-50 border-rose-200 hover:bg-rose-100 cursor-pointer"
+        : "bg-rose-50 border-rose-200",
+    valueClass: "text-rose-800",
+    title: D.lagwadMortality.mr,
+    clickable: mortality > 0 && Boolean(onSlotChanged),
+    onClick: openTransfer,
+  }
   const sowTitle = lagwadSowingMode ? D.lagwadSow.mr : D.lagwadActual.mr
 
   const cells = compact
@@ -289,6 +306,7 @@ const SlotLagwadMetrics = ({
           clickable: lagwadSowingMode || Boolean(onOpenActual),
           onClick: openActual,
         },
+        mortalityCell,
         {
           key: "ready",
           definitionKey: "lagwadReady",
@@ -319,7 +337,7 @@ const SlotLagwadMetrics = ({
           key: "sellable",
           definitionKey: lagwadSowingMode ? "lagwadSow" : "lagwadActual",
           label: lagwadSowingMode ? "Sellable" : "Actual",
-          sub: lagwadSowingMode ? "90% of sowed · tap → entries" : "on slot",
+          sub: lagwadSowingMode ? "survivors · tap → entries" : "on slot",
           value: actualPlants,
           className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
           valueClass: "text-teal-900",
@@ -327,21 +345,7 @@ const SlotLagwadMetrics = ({
           clickable: lagwadSowingMode || Boolean(onOpenActual),
           onClick: openActual,
         },
-        {
-          key: "mortality",
-          definitionKey: "lagwadMortality",
-          label: "Exp. mort.",
-          sub: mortality > 0 ? "tap → transfer" : lagwadSowingMode ? "10% reserve" : "—",
-          value: mortality,
-          className:
-            mortality > 0
-              ? "bg-rose-50 border-rose-200 hover:bg-rose-100 cursor-pointer"
-              : "bg-rose-50 border-rose-200",
-          valueClass: "text-rose-800",
-          title: D.lagwadMortality.mr,
-          clickable: mortality > 0 && Boolean(onSlotChanged),
-          onClick: openTransfer,
-        },
+        mortalityCell,
         {
           key: "actualReady",
           definitionKey: "lagwadReady",
@@ -446,7 +450,7 @@ const SlotLagwadMetrics = ({
       <div
         className={
           compact
-            ? "grid grid-cols-3 gap-1"
+            ? "grid grid-cols-2 gap-1"
             : variant === "detail"
               ? "grid grid-cols-2 md:grid-cols-4 gap-2"
               : "grid grid-cols-2 gap-1"
