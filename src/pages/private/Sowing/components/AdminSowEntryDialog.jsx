@@ -23,6 +23,8 @@ import MachineTimeField, {
   durationLabel,
 } from "./MachineTimeField"
 
+const TRAY_SIZE = 126
+
 function todayYmd() {
   const d = new Date()
   const yyyy = d.getFullYear()
@@ -225,6 +227,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   }, [req, raisingCap])
 
   const plantsNum = Number(plants) || 0
+  const traysNum = plantsNum > 0 ? Math.ceil(plantsNum / TRAY_SIZE) : 0
   const usedNum = Number(packetsUsed) || 0
   const returnedNum = Number(packetsReturned) || 0
   const raisingUsedNum = Number(raisingUsed) || 0
@@ -338,6 +341,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     try {
       const payload = {
         plantsSowed: plantsNum,
+        traySize: TRAY_SIZE,
+        trays: traysNum,
         packetsUsed: hasCompany ? usedNum : 0,
         packetsToReturn: hasCompany ? returnedNum : 0,
         raisingPacketsUsed: hasRaising ? raisingUsedNum : 0,
@@ -447,6 +452,21 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
             fullWidth
             inputProps={{ min: 0 }}
           />
+
+          <Stack direction="row" spacing={1.5}>
+            <TextField select label="Tray" value={TRAY_SIZE} disabled fullWidth>
+              <MenuItem value={TRAY_SIZE}>{TRAY_SIZE} cavity</MenuItem>
+            </TextField>
+            <TextField
+              label="Trays"
+              value={traysNum ? traysNum.toLocaleString() : ""}
+              fullWidth
+              InputProps={{ readOnly: true }}
+              helperText={
+                plantsNum > 0 ? `${plantsNum.toLocaleString()} ÷ ${TRAY_SIZE}, rounded up` : "From plants sowed"
+              }
+            />
+          </Stack>
 
           <TextField
             label="Sow date *"

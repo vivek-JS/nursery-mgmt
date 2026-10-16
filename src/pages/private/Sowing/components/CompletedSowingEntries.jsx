@@ -58,6 +58,15 @@ function fmtDay(d) {
   }
 }
 
+const TRAY_SIZE = 126
+
+/** Older rows may lack trays; a part-filled tray is still a tray. */
+function traysOf(row) {
+  if (row?.trays != null && Number.isFinite(Number(row.trays))) return Number(row.trays)
+  const p = Number(row?.sowedQuantity) || 0
+  return p > 0 ? Math.ceil(p / (Number(row?.traySize) || TRAY_SIZE)) : 0
+}
+
 function fmtPkt(n) {
   const v = Number(n)
   return Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "0"
@@ -203,6 +212,7 @@ function printCompletionPdf(row) {
     <div><strong>Plant</strong> ${esc(row.plantName)} · ${esc(row.subtypeName)}</div>
     <div><strong>Batch no.</strong> ${esc(batch)}</div>
     <div><strong>Plants sowed</strong> ${esc(row.sowedQuantity ?? 0)}</div>
+    <div><strong>Trays</strong> ${esc(traysOf(row))} × ${esc(row.traySize || TRAY_SIZE)}</div>
     <div><strong>Packets used</strong> ${esc(fmtPkt(row.packetsUsed))}
       ${row.packetsReturned ? ` · returned ${esc(fmtPkt(row.packetsReturned))}` : ""}</div>
     <div><strong>Shed</strong> ${esc(row.shedName || "—")}</div>
@@ -242,6 +252,7 @@ const COLUMNS = [
   { id: "plant", label: "Plant", align: "left" },
   { id: "status", label: "Entry", align: "left" },
   { id: "plants", label: "Plants", align: "right" },
+  { id: "trays", label: "Trays (126)", align: "right" },
   { id: "slot", label: "Slot affected", align: "left" },
   { id: "batch", label: "Batch", align: "left" },
   { id: "packets", label: "Pkt used / ret", align: "right" },
@@ -265,6 +276,7 @@ const COL_TINT = {
   plant: "#ffffff",
   status: "#f8fafc",
   plants: "#fffbeb",
+  trays: "#f0fdf4",
   packets: "#f8fafc",
   labour: "#faf5ff",
   orders: "#fff7ed",
@@ -279,6 +291,7 @@ function sortValue(row, key) {
   if (key === "status") return `${row.requestCompleted ? 1 : 0} ${row.requestNumber || ""}`
   if (key === "labour") return (Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)
   if (key === "plants") return Number(row.sowedQuantity) || 0
+  if (key === "trays") return traysOf(row)
   if (key === "packets") return Number(row.packetsUsed) || 0
   if (key === "sowDate") return new Date(row.sowingDate || row.sowingCompletedDate || 0).getTime()
   if (key === "added") return new Date(row.createdAt || 0).getTime()
@@ -654,6 +667,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.plants, fontWeight: 900, color: "#b45309" }} align="right">
                       {row.sowedQuantity ?? "—"}
                     </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.trays, fontWeight: 800, color: "#166534" }} align="right">
+                      {traysOf(row).toLocaleString()}
+                    </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.slot, py: 0.5 }} onClick={(e) => e.stopPropagation()}>
                       <SlotCell slot={row.affectedSlot} onOpen={(e) => openSlotPop(e, row)} />
                     </TableCell>
@@ -836,7 +852,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                   getSheets={() => [
                     {
                       title: "Sowing entry",
-                      headers: ["Request", "Entry", "Request status", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
+                      headers: ["Request", "Entry", "Request status", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Tray size", "Trays", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
                       rows: [[
                         detail.requestNumber,
                         detail.entryCount ? `${detail.entryNo}/${detail.entryCount}` : "",
@@ -847,6 +863,8 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         detail.batchNumber,
                         detail.outwardNumber,
                         detail.sowedQuantity,
+                        detail.traySize || TRAY_SIZE,
+                        traysOf(detail),
                         detail.laboursLadies || 0,
                         detail.laboursGents || 0,
                         clock12(detail.machineStartTime),
@@ -901,6 +919,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
             ) : null}
             <Typography variant="body2" mb={1}>
               Plants sowed: <strong>{detail.sowedQuantity}</strong>
+              {" · Trays: "}
+              <strong>{traysOf(detail).toLocaleString()}</strong>
+              {` (${detail.traySize || TRAY_SIZE})`}
               {" · "}
               Labour:{" "}
               <strong>

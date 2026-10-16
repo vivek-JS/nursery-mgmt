@@ -108,6 +108,7 @@ const SlotSowEntriesDialog = ({ open, onClose, slot }) => {
                     <th className="px-2 py-2 text-left">Request</th>
                     <th className="px-2 py-2 text-left">Plant</th>
                     <th className="px-2 py-2 text-right">Plants</th>
+                    <th className="px-2 py-2 text-right">Trays (126)</th>
                     <th className="px-2 py-2 text-right">Pkt used / ret</th>
                     <th className="px-2 py-2 text-left">Shed</th>
                     <th className="px-2 py-2 text-left">Batch</th>
@@ -141,6 +142,9 @@ const SlotSowEntriesDialog = ({ open, onClose, slot }) => {
                       </td>
                       <td className="px-2 py-1.5 text-right font-bold text-amber-700 tabular-nums">
                         {fmt(r.sowedQuantity)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-bold text-green-800 tabular-nums">
+                        {fmt(r.trays ?? Math.ceil((Number(r.sowedQuantity) || 0) / 126))}
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums">
                         {fmtPkt(r.packetsUsed)} / {fmtPkt(r.packetsReturned)}
