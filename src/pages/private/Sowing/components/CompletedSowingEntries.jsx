@@ -63,6 +63,69 @@ function fmtPkt(n) {
   return Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "0"
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** "15-08-2026" → "15 Aug"; other formats pass through. */
+function shortDmy(s) {
+  const m = String(s || "").match(/^(\d{2})-(\d{2})-(\d{4})$/)
+  if (!m) return s || ""
+  return `${m[1]} ${MONTHS[Number(m[2]) - 1] || m[2]}`
+}
+
+function SlotCell({ slot, onOpen }) {
+  if (!slot) {
+    return (
+      <Typography fontSize="0.75rem" color="text.secondary">
+        —
+      </Typography>
+    )
+  }
+  const start = shortDmy(slot.startDay)
+  const end = shortDmy(slot.endDay)
+  const range = !end || start === end ? start : `${start} → ${end}`
+  const ready = shortDmy(slot.plantReadyDate)
+  return (
+    <Tooltip title="Click for slot details">
+      <Box
+        component="button"
+        type="button"
+        onClick={onOpen}
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: 0.25,
+          px: 1,
+          py: 0.5,
+          borderRadius: 1.5,
+          border: "1px solid #bfdbfe",
+          bgcolor: "#eff6ff",
+          cursor: "pointer",
+          font: "inherit",
+          textAlign: "left",
+          "&:hover": { bgcolor: "#dbeafe", borderColor: "#60a5fa" },
+        }}
+      >
+        <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: "#1d4ed8", lineHeight: 1.2 }}>
+          {range || slot.label}
+          {slot.year ? (
+            <Typography component="span" sx={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>
+              {" "}
+              {slot.year}
+            </Typography>
+          ) : null}
+        </Typography>
+        {ready || slot.plantReadyDays != null ? (
+          <Typography sx={{ fontSize: 11, fontWeight: 700, color: "#0f766e", lineHeight: 1.2 }}>
+            {ready ? `Ready ${ready}` : ""}
+            {slot.plantReadyDays != null ? `${ready ? " · " : ""}+${slot.plantReadyDays}d` : ""}
+          </Typography>
+        ) : null}
+      </Box>
+    </Tooltip>
+  )
+}
+
 function esc(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -179,11 +242,11 @@ const COLUMNS = [
   { id: "plant", label: "Plant", align: "left" },
   { id: "status", label: "Entry", align: "left" },
   { id: "plants", label: "Plants", align: "right" },
+  { id: "slot", label: "Slot affected", align: "left" },
+  { id: "batch", label: "Batch", align: "left" },
   { id: "packets", label: "Pkt used / ret", align: "right" },
   { id: "labour", label: "Labour", align: "right" },
   { id: "orders", label: "Orders", align: "left" },
-  { id: "slot", label: "Slot affected", align: "left" },
-  { id: "batch", label: "Batch", align: "left" },
 ]
 
 const gridCell = {
@@ -591,6 +654,34 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.plants, fontWeight: 900, color: "#b45309" }} align="right">
                       {row.sowedQuantity ?? "—"}
                     </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.slot, py: 0.5 }} onClick={(e) => e.stopPropagation()}>
+                      <SlotCell slot={row.affectedSlot} onOpen={(e) => openSlotPop(e, row)} />
+                    </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.batch }}>
+                      {(row.batchNumbers?.length ? row.batchNumbers : row.batchNumber ? [row.batchNumber] : []).length ? (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                          {(row.batchNumbers?.length ? row.batchNumbers : [row.batchNumber]).map((b) => (
+                            <Chip
+                              key={b}
+                              size="small"
+                              label={b}
+                              sx={{
+                                height: 22,
+                                fontWeight: 800,
+                                fontSize: "0.7rem",
+                                fontFamily: "monospace",
+                                bgcolor: "#e0e7ff",
+                                color: "#3730a3",
+                              }}
+                            />
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Typography fontSize="0.75rem" color="text.secondary">
+                          —
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.packets }} align="right">
                       {fmtPkt(row.packetsUsed)} / {fmtPkt(row.packetsReturned)}
                     </TableCell>
@@ -620,28 +711,6 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                           sx={{ fontWeight: 700 }}
                         />
                       </Stack>
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.slot }} onClick={(e) => e.stopPropagation()}>
-                      {row.affectedSlot ? (
-                        <Tooltip title="Click for slot details">
-                          <Chip
-                            size="small"
-                            clickable
-                            color="primary"
-                            variant="outlined"
-                            label={row.affectedSlot.label}
-                            onClick={(e) => openSlotPop(e, row)}
-                            sx={{ fontWeight: 700, maxWidth: 160 }}
-                          />
-                        </Tooltip>
-                      ) : (
-                        <Typography fontSize="0.75rem" color="text.secondary">
-                          —
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.batch, fontWeight: 700 }}>
-                      {row.batchNumber || "—"}
                     </TableCell>
                     <TableCell sx={gridCell} align="center" onClick={(e) => e.stopPropagation()}>
                       <Tooltip title="Print PDF (orders + batch + date)">
