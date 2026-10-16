@@ -39,13 +39,16 @@ import ReadyPlantsMessageDialog from "./components/ReadyPlantsMessageDialog"
 import { downloadSheetsXlsx } from "utils/exportExcel"
 import { dayLabel } from "./capacitySheetUtils"
 import {
+  CUSTOM_GROUP,
   GROUP_OPTIONS,
+  MAX_GROUP_DAYS,
   SHED_TAB,
   SHOW_OPTIONS,
   STOCK_ONLY_DAYS,
   boardColumns,
   exportSheet,
   filterRows,
+  parseGroup,
   slotTabs,
   sortRows,
   stockBatchSheet,
@@ -88,8 +91,12 @@ export default function SowingCapacitySheet() {
   const [detail, setDetail] = useState(null)
   const [messageOpen, setMessageOpen] = useState(false)
 
-  const group = Number(searchParams.get("group")) === 3 ? 3 : 1
+  const group = parseGroup(searchParams.get("group")) || 1
   const mode = searchParams.get("show") === "gap" ? "gap" : "excess"
+  const isPreset = GROUP_OPTIONS.some((option) => option.value === group)
+  const [customOpen, setCustomOpen] = useState(!isPreset)
+  const [customDays, setCustomDays] = useState(isPreset ? "" : String(group))
+  const groupChoice = customOpen || !isPreset ? CUSTOM_GROUP : group
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -135,6 +142,26 @@ export default function SowingCapacitySheet() {
     )
   }
   const setTab = (value) => setParam("tab", value)
+
+  const onGroupChoice = (value) => {
+    if (value === null) return
+    if (value === CUSTOM_GROUP) {
+      setCustomOpen(true)
+      if (!customDays) setCustomDays(String(group))
+      return
+    }
+    setCustomOpen(false)
+    setParam("group", value)
+  }
+  const applyCustomDays = () => {
+    const days = parseGroup(customDays)
+    if (!days) {
+      setCustomDays(String(group))
+      return
+    }
+    setCustomDays(String(days))
+    if (days !== group) setParam("group", days)
+  }
 
   const tabRows = useMemo(
     () => (activeTab ? board.rows.filter((row) => (Number(row.slotDays) || 0) === activeTab.days) : []),
@@ -314,8 +341,8 @@ export default function SowingCapacitySheet() {
                   <ToggleButtonGroup
                     exclusive
                     size="small"
-                    value={group}
-                    onChange={(_, value) => value && setParam("group", value)}
+                    value={groupChoice}
+                    onChange={(_, value) => onGroupChoice(value)}
                     sx={{
                       bgcolor: "#fff",
                       "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 700, fontSize: 12.5, px: 1.5, py: 0.6, color: "#475569" },
@@ -327,7 +354,22 @@ export default function SowingCapacitySheet() {
                         {option.label}
                       </ToggleButton>
                     ))}
+                    <ToggleButton value={CUSTOM_GROUP}>Custom</ToggleButton>
                   </ToggleButtonGroup>
+                  {groupChoice === CUSTOM_GROUP ? (
+                    <TextField
+                      size="small"
+                      type="number"
+                      autoFocus={customOpen}
+                      value={customDays}
+                      onChange={(event) => setCustomDays(event.target.value)}
+                      onBlur={applyCustomDays}
+                      onKeyDown={(event) => event.key === "Enter" && applyCustomDays()}
+                      inputProps={{ min: 1, max: MAX_GROUP_DAYS, "aria-label": "Custom days" }}
+                      InputProps={{ endAdornment: <InputAdornment position="end">days</InputAdornment> }}
+                      sx={{ width: 110, bgcolor: "#fff", "& .MuiInputBase-input": { fontSize: 13, fontWeight: 700, py: 0.75 } }}
+                    />
+                  ) : null}
                   <ToggleButtonGroup
                     exclusive
                     size="small"

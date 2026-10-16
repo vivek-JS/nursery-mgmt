@@ -1,5 +1,5 @@
 import React from "react"
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import SowingCapacitySheet from "./SowingCapacitySheet"
 
@@ -118,15 +118,33 @@ test("shows one tab per slot length and the 1-day board first", async () => {
   expect(mockRequest).toHaveBeenCalledWith({}, { group: 1 })
 })
 
-test("3-day groups ask the API with group=3", async () => {
+test("3 / 6 day groups and custom days ask the API with group=N", async () => {
   render(
     <MemoryRouter initialEntries={["/u/sowing-capacity"]}>
       <SowingCapacitySheet />
     </MemoryRouter>
   )
-  fireEvent.click(await screen.findByRole("button", { name: "3-day groups" }))
-  await screen.findByText("Teja 4")
-  expect(mockRequest).toHaveBeenLastCalledWith({}, { group: 3 })
+  fireEvent.click(await screen.findByRole("button", { name: "3 days" }))
+  await waitFor(() => expect(mockRequest).toHaveBeenLastCalledWith({}, { group: 3 }))
+  fireEvent.click(await screen.findByRole("button", { name: "6 days" }))
+  await waitFor(() => expect(mockRequest).toHaveBeenLastCalledWith({}, { group: 6 }))
+
+  fireEvent.click(await screen.findByRole("button", { name: "Custom" }))
+  const input = await screen.findByRole("spinbutton", { name: "Custom days" })
+  fireEvent.change(input, { target: { value: "10" } })
+  fireEvent.keyDown(input, { key: "Enter" })
+  await waitFor(() => expect(mockRequest).toHaveBeenLastCalledWith({}, { group: 10 }))
+  expect(screen.getByRole("button", { name: "Custom" })).toHaveAttribute("aria-pressed", "true")
+})
+
+test("custom days from the URL open the custom input", async () => {
+  render(
+    <MemoryRouter initialEntries={["/u/sowing-capacity?group=12"]}>
+      <SowingCapacitySheet />
+    </MemoryRouter>
+  )
+  expect(await screen.findByRole("spinbutton", { name: "Custom days" })).toHaveValue(12)
+  expect(mockRequest).toHaveBeenCalledWith({}, { group: 12 })
 })
 
 test("crops without sowing get a batch-wise shed stock tab", async () => {

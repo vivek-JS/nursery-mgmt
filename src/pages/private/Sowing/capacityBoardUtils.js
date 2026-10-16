@@ -5,8 +5,18 @@ export const SHED_TAB = "shed"
 /** Column grouping the board API understands (?group=N). */
 export const GROUP_OPTIONS = [
   { value: 1, label: "Day-wise" },
-  { value: 3, label: "3-day groups" },
+  { value: 3, label: "3 days" },
+  { value: 6, label: "6 days" },
 ]
+export const CUSTOM_GROUP = "custom"
+export const MAX_GROUP_DAYS = 30
+
+/** Whole days 1..MAX_GROUP_DAYS, else null. */
+export function parseGroup(value) {
+  const days = Number(value)
+  if (!Number.isInteger(days) || days < 1) return null
+  return Math.min(MAX_GROUP_DAYS, days)
+}
 
 export function slotTabKey(slotDays) {
   return `${Number(slotDays) || 0}d`
