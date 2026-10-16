@@ -58,6 +58,11 @@ function fmtDay(d) {
   }
 }
 
+function fmtPkt(n) {
+  const v = Number(n)
+  return Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "0"
+}
+
 function esc(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -135,8 +140,8 @@ function printCompletionPdf(row) {
     <div><strong>Plant</strong> ${esc(row.plantName)} · ${esc(row.subtypeName)}</div>
     <div><strong>Batch no.</strong> ${esc(batch)}</div>
     <div><strong>Plants sowed</strong> ${esc(row.sowedQuantity ?? 0)}</div>
-    <div><strong>Packets used</strong> ${esc(row.packetsUsed ?? 0)}
-      ${row.packetsReturned ? ` · returned ${esc(row.packetsReturned)}` : ""}</div>
+    <div><strong>Packets used</strong> ${esc(fmtPkt(row.packetsUsed))}
+      ${row.packetsReturned ? ` · returned ${esc(fmtPkt(row.packetsReturned))}` : ""}</div>
     <div><strong>Shed</strong> ${esc(row.shedName || "—")}</div>
     <div><strong>Outward</strong> ${esc(row.outwardNumber || "—")}</div>
   </div>
@@ -587,7 +592,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       {row.sowedQuantity ?? "—"}
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.packets }} align="right">
-                      {Number(row.packetsUsed) || 0} / {Number(row.packetsReturned) || 0}
+                      {fmtPkt(row.packetsUsed)} / {fmtPkt(row.packetsReturned)}
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.labour, color: "#6d28d9", fontWeight: 800 }} align="right">
                       {(Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)}
@@ -713,7 +718,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                 {slotPop.slot.batchPlantsSowed || slotPop.row?.sowedQuantity || 0}{" "}
                 plants
                 {slotPop.slot.batchPacketsUsed
-                  ? ` · ${slotPop.slot.batchPacketsUsed} pkt`
+                  ? ` · ${fmtPkt(slotPop.slot.batchPacketsUsed)} pkt`
                   : ""}
               </Box>
               <Box>
@@ -778,9 +783,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         clock12(detail.machineStartTime),
                         clock12(detail.machineEndTime),
                         detail.machineMinutes ? durationLabel(detail.machineMinutes) : "",
-                        detail.packetsIssued ?? detail.packetsRequested ?? 0,
-                        detail.packetsUsed ?? 0,
-                        detail.packetsReturned ?? 0,
+                        Number(fmtPkt(detail.packetsIssued ?? detail.packetsRequested)),
+                        Number(fmtPkt(detail.packetsUsed)),
+                        Number(fmtPkt(detail.packetsReturned)),
                         detail.isExcess ? "Yes" : "No",
                         detail.affectedSlot?.label,
                         detail.completionNotes,
@@ -821,7 +826,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                 Entry {detail.entryNo} of {detail.entryCount}
                 {detail.requestCompleted ? " · request completed" : " · request still open"}
                 {detail.entryCount > 1
-                  ? ` · request total ${detail.requestPlants} plants, ${detail.requestPacketsUsed} pkt used`
+                  ? ` · request total ${detail.requestPlants} plants, ${fmtPkt(detail.requestPacketsUsed)} pkt used`
                   : ""}
               </Alert>
             ) : null}
@@ -846,11 +851,11 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
               </Typography>
             ) : null}
             <Typography variant="body2" mb={1}>
-              Packets issued: <strong>{detail.packetsIssued ?? detail.packetsRequested ?? 0}</strong>
+              Packets issued: <strong>{fmtPkt(detail.packetsIssued ?? detail.packetsRequested)}</strong>
               {" · used: "}
-              <strong>{detail.packetsUsed ?? 0}</strong>
+              <strong>{fmtPkt(detail.packetsUsed)}</strong>
               {" · returned: "}
-              <strong>{detail.packetsReturned ?? 0}</strong>
+              <strong>{fmtPkt(detail.packetsReturned)}</strong>
             </Typography>
             <Typography variant="body2" mb={1.5}>
               Batch: <strong>{detail.batchNumber || "—"}</strong>
