@@ -12,10 +12,12 @@ import {
   Typography,
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline"
 import { Link as RouterLink } from "react-router-dom"
 import { NetworkManager, API } from "network/core"
 import DrawerExportButton from "components/DrawerExportButton"
 import { fmt, STATUS_STYLE } from "../capacitySheetUtils"
+import SowBatchDestroyDialog from "./SowBatchDestroyDialog"
 
 function Stat({ label, value, color }) {
   return (
@@ -46,6 +48,8 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [packs, setPacks] = useState([])
+  const [reloadKey, setReloadKey] = useState(0)
+  const [destroyBatch, setDestroyBatch] = useState(null)
 
   useEffect(() => {
     if (!slotIds.length) {
@@ -78,7 +82,7 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
     return () => {
       cancelled = true
     }
-  }, [slotKey])
+  }, [slotKey, reloadKey])
 
   const slot = packs[0]?.slot
   const totals = packs.reduce(
@@ -108,6 +112,12 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
       subtypeName: pack.slot?.subtypeName || "",
     }))
   })
+  const sowBatches = packs.flatMap((pack) =>
+    (pack.batches || []).map((batch) => ({
+      ...batch,
+      slotLabel: pack.slot ? `${pack.slot.startDay} → ${pack.slot.endDay}` : ""
+    }))
+  )
   const title =
     focus === "gap" ? "Orders on this booking slot" : focus === "canBook" ? "Lagwad excess" : slot ? `${slot.plantName} · ${slot.subtypeName}` : "Capacity"
 
@@ -289,6 +299,60 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
               </>
             ) : null}
 
+            <Divider sx={{ my: 2 }} />
+            <Typography fontWeight={800} mb={1}>
+              Sowing batches
+            </Typography>
+            {sowBatches.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No sowing entered on this slot yet.
+              </Typography>
+            ) : (
+              <Stack spacing={1}>
+                {sowBatches.map((batch) => (
+                  <Box
+                    key={batch.batchId}
+                    sx={{ p: 1.25, borderRadius: 1.5, border: "1px solid #e2e8f0" }}>
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      spacing={1}>
+                      <Box minWidth={0}>
+                        <Typography fontWeight={700} fontSize="0.85rem">
+                          {batch.requestNumber || "Sowing"} · {fmt(batch.plantsLeft)} left
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Sow {batch.sowingDate || "—"} · ready {batch.plantReadyDate || "—"}
+                          {batch.shedName ? ` · ${batch.shedName}` : ""}
+                          {packs.length > 1 && batch.slotLabel ? ` · ${batch.slotLabel}` : ""}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Sowed {fmt(batch.plantsSowed)}
+                          {Number(batch.destroyedPlants) > 0 ? (
+                            <Box component="span" sx={{ color: "#e11d48", fontWeight: 700 }}>
+                              {` · destroyed ${fmt(batch.destroyedPlants)}`}
+                            </Box>
+                          ) : null}
+                        </Typography>
+                      </Box>
+                      {Number(batch.plantsLeft) > 0 ? (
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="outlined"
+                          startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />}
+                          onClick={() => setDestroyBatch(batch)}
+                          sx={{ textTransform: "none", fontWeight: 800, flexShrink: 0 }}>
+                          Destroy
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+
             <Stack direction="row" spacing={1} mt={3}>
               <Button component={RouterLink} to="/u/dashboard" variant="outlined" sx={{ textTransform: "none", fontWeight: 700 }}>
                 Add order
@@ -300,6 +364,12 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
           </>
         ) : null}
       </Box>
+      <SowBatchDestroyDialog
+        batch={destroyBatch}
+        open={Boolean(destroyBatch)}
+        onClose={() => setDestroyBatch(null)}
+        onDone={() => setReloadKey((k) => k + 1)}
+      />
     </Drawer>
   )
 }

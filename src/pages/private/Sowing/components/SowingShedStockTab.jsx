@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Drawer,
@@ -25,13 +26,17 @@ import {
   Typography,
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline"
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight"
 import RefreshIcon from "@mui/icons-material/Refresh"
 import SearchIcon from "@mui/icons-material/Search"
 import WarehouseOutlinedIcon from "@mui/icons-material/WarehouseOutlined"
 import { NetworkManager, API } from "network/core"
 import DrawerExportButton from "components/DrawerExportButton"
+import DestroyPlantsDialog from "pages/private/LagwadAnalysis/DestroyPlantsDialog"
 import { fmt } from "../capacitySheetUtils"
+
+const ReloadStock = React.createContext(() => {})
 
 /* ───────────────────────── look & feel ───────────────────────── */
 
@@ -545,8 +550,44 @@ const orderColumns = [
 
 function BatchDetail({ batch }) {
   const [panel, setPanel] = useState("entries")
+  const [destroyLine, setDestroyLine] = useState(null)
+  const reload = React.useContext(ReloadStock)
   // Entries that still hold plants first; finished (empty) entries are kept but sorted to the bottom by default.
   const lines = useMemo(() => batch.lines.slice().sort((a, b) => Number(b.remaining > 0) - Number(a.remaining > 0)), [batch.lines])
+  const columns = useMemo(
+    () => [
+      ...entryColumns,
+      {
+        key: "destroy",
+        label: "",
+        sortable: false,
+        align: "right",
+        render: (r) =>
+          n(r.remaining) > 0 ? (
+            <Button
+              size="small"
+              color="error"
+              startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />}
+              onClick={() =>
+                setDestroyLine({
+                  batchId: batch.batchId,
+                  secondaryInwardId: r.inwardId,
+                  availableQuantity: n(r.remaining),
+                  destroyedQuantity: n(r.destroyed),
+                  batchNumber: batch.batchNumber,
+                  size: r.size,
+                  pollyhouse: batch.shed,
+                })
+              }
+              sx={{ textTransform: "none", fontWeight: 800, py: 0 }}
+            >
+              Destroy
+            </Button>
+          ) : null,
+      },
+    ],
+    [batch.batchId, batch.batchNumber, batch.shed]
+  )
   return (
     <Box sx={{ p: 1.5 }} onClick={(event) => event.stopPropagation()}>
       <Stack direction={{ xs: "column", md: "row" }} spacing={1} justifyContent="space-between" alignItems={{ md: "center" }} mb={1}>
@@ -561,7 +602,7 @@ function BatchDetail({ batch }) {
         <ReadySchedule schedule={batch.schedule} dense />
       </Stack>
       {panel === "entries" ? (
-        <SortableTable columns={entryColumns} rows={lines} rowKey={(r) => r.inwardId} maxHeight={320} showTotals emptyText="No lagwad entries for this batch." />
+        <SortableTable columns={columns} rows={lines} rowKey={(r) => r.inwardId} maxHeight={320} showTotals emptyText="No lagwad entries for this batch." />
       ) : (
         <>
           <SortableTable
@@ -581,6 +622,12 @@ function BatchDetail({ batch }) {
           ) : null}
         </>
       )}
+      <DestroyPlantsDialog
+        line={destroyLine}
+        open={Boolean(destroyLine)}
+        onClose={() => setDestroyLine(null)}
+        onDone={reload}
+      />
     </Box>
   )
 }
@@ -923,111 +970,113 @@ export default function SowingShedStockTab() {
   ]
 
   return (
-    <Box>
-      <SummaryStrip totals={data.totals} />
+    <ReloadStock.Provider value={load}>
+      <Box>
+        <SummaryStrip totals={data.totals} />
 
-      <Stack direction={{ xs: "column", lg: "row" }} spacing={1.25} alignItems={{ lg: "center" }} justifyContent="space-between" mb={1.5}>
-        <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap alignItems="center">
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={view}
-            onChange={(_, value) => value && setView(value)}
-            sx={{
-              bgcolor: "#fff",
-              "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 800, px: 1.75, color: C.muted },
-              "& .Mui-selected": { bgcolor: "#0f172a !important", color: "#fff !important" },
-            }}
-          >
-            {VIEWS.map((item) => (
-              <ToggleButton key={item.value} value={item.value}>
-                {item.label}
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={filter}
-            onChange={(_, value) => value && setFilter(value)}
-            sx={{
-              bgcolor: "#fff",
-              "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 800, px: 1.5, color: C.muted },
-              "& .Mui-selected": { bgcolor: `${C.currentBg} !important`, color: "#166534 !important" },
-            }}
-          >
-            {FILTERS.map((item) => (
-              <ToggleButton key={item.value} value={item.value}>
-                {item.label}
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
+        <Stack direction={{ xs: "column", lg: "row" }} spacing={1.25} alignItems={{ lg: "center" }} justifyContent="space-between" mb={1.5}>
+          <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap alignItems="center">
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={view}
+              onChange={(_, value) => value && setView(value)}
+              sx={{
+                bgcolor: "#fff",
+                "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 800, px: 1.75, color: C.muted },
+                "& .Mui-selected": { bgcolor: "#0f172a !important", color: "#fff !important" },
+              }}
+            >
+              {VIEWS.map((item) => (
+                <ToggleButton key={item.value} value={item.value}>
+                  {item.label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={filter}
+              onChange={(_, value) => value && setFilter(value)}
+              sx={{
+                bgcolor: "#fff",
+                "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 800, px: 1.5, color: C.muted },
+                "& .Mui-selected": { bgcolor: `${C.currentBg} !important`, color: "#166534 !important" },
+              }}
+            >
+              {FILTERS.map((item) => (
+                <ToggleButton key={item.value} value={item.value}>
+                  {item.label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          </Stack>
+
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TextField
+              size="small"
+              placeholder="Search shed, batch, plant"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ minWidth: 240, bgcolor: "#fff", borderRadius: 2 }}
+            />
+            <DrawerExportButton getSheets={getExportSheets} fileName="shed-wise-stock" disabled={loading || !shedRows.length} />
+            <Tooltip title="Refresh">
+              <span>
+                <IconButton onClick={load} disabled={loading} aria-label="Refresh shed stock" sx={{ bgcolor: "#fff", border: `1px solid ${C.line}` }}>
+                  <RefreshIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
         </Stack>
 
-        <Stack direction="row" spacing={1} alignItems="center">
-          <TextField
-            size="small"
-            placeholder="Search shed, batch, plant"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ minWidth: 240, bgcolor: "#fff", borderRadius: 2 }}
-          />
-          <DrawerExportButton getSheets={getExportSheets} fileName="shed-wise-stock" disabled={loading || !shedRows.length} />
-          <Tooltip title="Refresh">
-            <span>
-              <IconButton onClick={load} disabled={loading} aria-label="Refresh shed stock" sx={{ bgcolor: "#fff", border: `1px solid ${C.line}` }}>
-                <RefreshIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" mb={1.25}>
+          <Legend />
+          <Typography variant="caption" color={C.muted} fontWeight={700}>
+            <b style={{ color: C.current }}>Current</b> = ready now · <b style={{ color: C.expected }}>Expected</b> = in the shed but not ready yet ·{" "}
+            {view === "shed" ? "click a shed to open its batches" : "click a batch for its entries, ready dates and orders"} · click a column to sort
+          </Typography>
         </Stack>
-      </Stack>
 
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" mb={1.25}>
-        <Legend />
-        <Typography variant="caption" color={C.muted} fontWeight={700}>
-          <b style={{ color: C.current }}>Current</b> = ready now · <b style={{ color: C.expected }}>Expected</b> = in the shed but not ready yet ·{" "}
-          {view === "shed" ? "click a shed to open its batches" : "click a batch for its entries, ready dates and orders"} · click a column to sort
-        </Typography>
-      </Stack>
+        {error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        ) : null}
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      ) : null}
+        {loading ? (
+          <Box display="flex" justifyContent="center" py={8}>
+            <CircularProgress size={28} />
+          </Box>
+        ) : null}
 
-      {loading ? (
-        <Box display="flex" justifyContent="center" py={8}>
-          <CircularProgress size={28} />
-        </Box>
-      ) : null}
+        {!loading && !error ? (
+          view === "shed" ? (
+            <SortableTable
+              columns={shedColumns}
+              rows={shedRows}
+              rowKey={(r) => r.shed}
+              defaultSort={{ key: "remaining", dir: "desc" }}
+              onRowClick={(row) => setSelectedName(row.shed)}
+              showTotals
+              maxHeight="calc(100vh - 380px)"
+              emptyText="No sheds match this view."
+            />
+          ) : (
+            <BatchTable batches={batchRows} showShed showReturned={hasReturns} maxHeight="calc(100vh - 380px)" />
+          )
+        ) : null}
 
-      {!loading && !error ? (
-        view === "shed" ? (
-          <SortableTable
-            columns={shedColumns}
-            rows={shedRows}
-            rowKey={(r) => r.shed}
-            defaultSort={{ key: "remaining", dir: "desc" }}
-            onRowClick={(row) => setSelectedName(row.shed)}
-            showTotals
-            maxHeight="calc(100vh - 380px)"
-            emptyText="No sheds match this view."
-          />
-        ) : (
-          <BatchTable batches={batchRows} showShed showReturned={hasReturns} maxHeight="calc(100vh - 380px)" />
-        )
-      ) : null}
-
-      <ShedDrawer shed={selected} filter={filter} showReturned={hasReturns} onClose={() => setSelectedName("")} />
-    </Box>
+        <ShedDrawer shed={selected} filter={filter} showReturned={hasReturns} onClose={() => setSelectedName("")} />
+      </Box>
+    </ReloadStock.Provider>
   )
 }

@@ -26,9 +26,11 @@ import SearchIcon from "@mui/icons-material/Search"
 import RefreshIcon from "@mui/icons-material/Refresh"
 import CloseIcon from "@mui/icons-material/Close"
 import PrintIcon from "@mui/icons-material/Print"
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline"
 import { NetworkManager, API } from "network/core"
 import DrawerExportButton from "components/DrawerExportButton"
 import { clock12, durationLabel } from "./MachineTimeField"
+import SowBatchDestroyDialog from "./SowBatchDestroyDialog"
 
 function fmtDate(d) {
   if (!d) return "—"
@@ -70,6 +72,27 @@ function traysOf(row) {
 function fmtPkt(n) {
   const v = Number(n)
   return Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "0"
+}
+
+function fmtNum(n) {
+  return (Number(n) || 0).toLocaleString("en-IN")
+}
+
+/** The slot sowing batch this entry put sow-ready stock into. */
+function sowBatchOf(row) {
+  const s = row?.affectedSlot || {}
+  const sowed = Number(s.batchPlantsSowed) || 0
+  const destroyed = Number(s.batchDestroyedPlants) || 0
+  return {
+    slotId: s.slotId,
+    batchId: s.batchId,
+    plantsSowed: sowed,
+    destroyedPlants: destroyed,
+    plantsLeft: Math.max(0, sowed - destroyed),
+    requestNumber: row?.requestNumber,
+    sowingDate: s.sowingDate,
+    shedName: s.shedName
+  }
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -315,6 +338,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
   const [total, setTotal] = useState(0)
   const [error, setError] = useState("")
   const [detail, setDetail] = useState(null)
+  const [destroyBatch, setDestroyBatch] = useState(null)
   const [slotPop, setSlotPop] = useState({ anchor: null, slot: null, row: null })
   const scrollRef = useRef(null)
   const sentinelRef = useRef(null)
@@ -968,6 +992,34 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                   : ""}
               </Typography>
             ) : null}
+            {detail.affectedSlot?.batchId ? (
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                spacing={1}
+                mb={1.5}>
+                <Typography variant="body2">
+                  Sown on slot: <strong>{fmtNum(detail.affectedSlot.batchPlantsSowed)}</strong>
+                  {Number(detail.affectedSlot.batchDestroyedPlants) > 0 ? (
+                    <Box component="span" sx={{ color: "#e11d48", fontWeight: 700 }}>
+                      {` · destroyed ${fmtNum(detail.affectedSlot.batchDestroyedPlants)}`}
+                    </Box>
+                  ) : null}
+                </Typography>
+                {sowBatchOf(detail).plantsLeft > 0 ? (
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="outlined"
+                    startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />}
+                    onClick={() => setDestroyBatch(sowBatchOf(detail))}
+                    sx={{ textTransform: "none", fontWeight: 800, flexShrink: 0 }}>
+                    Destroy
+                  </Button>
+                ) : null}
+              </Stack>
+            ) : null}
             {detail.completionNotes ? (
               <Typography variant="body2" color="text.secondary" mb={1.5}>
                 {detail.completionNotes}
@@ -1110,6 +1162,15 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
           </Box>
         )}
       </Drawer>
+      <SowBatchDestroyDialog
+        batch={destroyBatch}
+        open={Boolean(destroyBatch)}
+        onClose={() => setDestroyBatch(null)}
+        onDone={() => {
+          setDetail(null)
+          load(1, true)
+        }}
+      />
     </Box>
   )
 }

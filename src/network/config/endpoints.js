@@ -1527,6 +1527,7 @@ export const API = {
     GET_CAPACITY_SHED_STOCK: new APIRouter("/sowing/capacity-sheet/shed-stock", HTTP_METHODS.GET),
     ASK_CAPACITY: new APIRouter("/sowing/capacity-ask", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_CAPACITY_SLOT: new APIRouter("/sowing/capacity-sheet/slot/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    DESTROY_SOW_BATCH: new APIRouter("/sowing/sow-batch/destroy", HTTP_METHODS.POST),
     GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS_LITE: new APIRouter("/sowing/today-sowing-cards-lite", HTTP_METHODS.GET, OFFLINE.PROFILE),
