@@ -74,6 +74,12 @@ function fmtPkt(n) {
   return Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "0"
 }
 
+/** Expected mortality held on the entry's slot batch; null when the entry has no slot batch. */
+function mortalityOf(row) {
+  const s = row?.affectedSlot
+  return s?.batchId ? Number(s.batchExpectedMortality) || 0 : null
+}
+
 function fmtNum(n) {
   return (Number(n) || 0).toLocaleString("en-IN")
 }
@@ -276,6 +282,7 @@ const COLUMNS = [
   { id: "status", label: "Entry", align: "left" },
   { id: "plants", label: "Plants", align: "right" },
   { id: "trays", label: "Trays (126)", align: "right" },
+  { id: "mortality", label: "Exp. mortality", align: "right" },
   { id: "slot", label: "Slot affected", align: "left" },
   { id: "batch", label: "Batch", align: "left" },
   { id: "packets", label: "Pkt used / ret", align: "right" },
@@ -300,6 +307,7 @@ const COL_TINT = {
   status: "#f8fafc",
   plants: "#fffbeb",
   trays: "#f0fdf4",
+  mortality: "#fff1f2",
   packets: "#f8fafc",
   labour: "#faf5ff",
   orders: "#fff7ed",
@@ -315,6 +323,7 @@ function sortValue(row, key) {
   if (key === "labour") return (Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)
   if (key === "plants") return Number(row.sowedQuantity) || 0
   if (key === "trays") return traysOf(row)
+  if (key === "mortality") return mortalityOf(row) ?? -1
   if (key === "packets") return Number(row.packetsUsed) || 0
   if (key === "sowDate") return new Date(row.sowingDate || row.sowingCompletedDate || 0).getTime()
   if (key === "added") return new Date(row.createdAt || 0).getTime()
@@ -694,6 +703,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.trays, fontWeight: 800, color: "#166534" }} align="right">
                       {traysOf(row).toLocaleString()}
                     </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.mortality, fontWeight: 800, color: "#be123c" }} align="right">
+                      {mortalityOf(row) == null ? "—" : fmtNum(mortalityOf(row))}
+                    </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.slot, py: 0.5 }} onClick={(e) => e.stopPropagation()}>
                       <SlotCell slot={row.affectedSlot} onOpen={(e) => openSlotPop(e, row)} />
                     </TableCell>
@@ -876,7 +888,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                   getSheets={() => [
                     {
                       title: "Sowing entry",
-                      headers: ["Request", "Entry", "Request status", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Tray size", "Trays", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
+                      headers: ["Request", "Entry", "Request status", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Tray size", "Trays", "Expected mortality", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
                       rows: [[
                         detail.requestNumber,
                         detail.entryCount ? `${detail.entryNo}/${detail.entryCount}` : "",
@@ -889,6 +901,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         detail.sowedQuantity,
                         detail.traySize || TRAY_SIZE,
                         traysOf(detail),
+                        mortalityOf(detail) ?? "",
                         detail.laboursLadies || 0,
                         detail.laboursGents || 0,
                         clock12(detail.machineStartTime),
@@ -1001,6 +1014,8 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                 mb={1.5}>
                 <Typography variant="body2">
                   Sown on slot: <strong>{fmtNum(detail.affectedSlot.batchPlantsSowed)}</strong>
+                  {" · exp. mortality "}
+                  <strong>{fmtNum(mortalityOf(detail))}</strong>
                   {Number(detail.affectedSlot.batchDestroyedPlants) > 0 ? (
                     <Box component="span" sx={{ color: "#e11d48", fontWeight: 700 }}>
                       {` · destroyed ${fmtNum(detail.affectedSlot.batchDestroyedPlants)}`}
