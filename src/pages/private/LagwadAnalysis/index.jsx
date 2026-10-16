@@ -243,7 +243,7 @@ const LagwadAnalysis = () => {
         )}
 
         {hasSelection && data && (
-          <LagwadLinesTable lines={lines} slotLabelById={slotLabelById} />
+          <LagwadLinesTable lines={lines} slotLabelById={slotLabelById} onChanged={refetch} />
         )}
       </div>
 

@@ -1323,6 +1323,10 @@ export const API = {
       "laboutward/secondary/:batchId/secondary-inward/:secondaryInwardId/readiness-bypass",
       HTTP_METHODS.PATCH
     ),
+    SECONDARY_INWARD_DESTROY: new APIRouter(
+      "laboutward/secondary/:batchId/secondary-inward/:secondaryInwardId/destroy",
+      HTTP_METHODS.POST
+    ),
     SECONDARY_ORDERS_READY_FOR_DISPATCH: new APIRouter(
       "laboutward/secondary/:batchId/orders-ready-for-dispatch",
       HTTP_METHODS.GET
