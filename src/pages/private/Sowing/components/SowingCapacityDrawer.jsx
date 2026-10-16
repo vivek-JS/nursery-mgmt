@@ -230,15 +230,15 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
               <Stat label="Sowed" value={stats.sowed} color="#059669" />
               {Number(stats.survivors) > 0 ? (
                 <>
-                  <Stat label="Survivors 90%" value={stats.survivors} color="#047857" />
-                  <Stat label="Mortality 10%" value={stats.expectedMortality} color="#b45309" />
+                  <Stat label="Survivors" value={stats.survivors} color="#047857" />
+                  <Stat label="Exp. mortality" value={stats.expectedMortality} color="#b45309" />
                 </>
               ) : null}
             </Stack>
             <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-              Excess is survivors (90% of sowed) minus plants covering orders; the other 10% is kept as
-              expected mortality. Can book is excess minus gap. A minus means the gap is higher and more
-              sowing is needed.
+              Orders keep all their plants. Expected mortality is 10% of sowed, or the extra sown for
+              orders up to 20% of the order plants, whichever is more; the rest is excess. Can book is
+              excess minus gap. A minus means the gap is higher and more sowing is needed.
             </Typography>
 
             {focus !== "canBook" ? (
@@ -299,7 +299,7 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
                           {entry.slotLabel ? ` · ${entry.slotLabel}` : ""}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Sowed {fmt(entry.plantsSowed)} · covered {fmt(entry.orderCoveredPlants)} · sellable 90% {fmt(entry.actualPlantsApplied)} · reserve 10% {fmt(entry.expectedMortalityApplied)}
+                          Sowed {fmt(entry.plantsSowed)} · covered {fmt(entry.orderCoveredPlants)} · survivors {fmt(entry.actualPlantsApplied)} · exp. mortality {fmt(entry.expectedMortalityApplied)}
                           {entry.shedName ? ` · ${entry.shedName}` : ""}
                         </Typography>
                       </Box>
