@@ -9,7 +9,6 @@ import {
   Stack,
   Typography,
   MenuItem,
-  ListSubheader,
   Alert,
   CircularProgress,
   Chip,
@@ -67,6 +66,9 @@ function parsePagedList(res) {
   if (Array.isArray(body)) return body
   return []
 }
+
+/** Sowing is done only in Panhalgad (12), Vishalgad (14), Salher (15) and Kondhana (23). */
+const SOWING_SHED_NUMBERS = new Set(["12", "14", "15", "23"])
 
 function houseOption(row, group) {
   const name = String(row?.name || row?.title || row?.pollyHouseName || "").trim()
@@ -244,7 +246,6 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     [sowDate, readyDaysNum]
   )
 
-  const pollyOpts = shedOptions.filter((o) => o.group === "pollyhouse")
   const shadeOpts = shedOptions.filter((o) => o.group === "shed")
 
   useEffect(() => {
@@ -270,24 +271,21 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     ;(async () => {
       setShedsLoading(true)
       try {
-        const pollyInst = NetworkManager(API.POLLY_HOUSE.GET_HOUSES)
-        const shadeInst = NetworkManager(API.SHADE.GET_SHADES)
-        const query = { page: 1, limit: 500, status: "true" }
-        const [pollyRes, shadeRes] = await Promise.all([
-          pollyInst.request({}, query),
-          shadeInst.request({}, query),
-        ])
+        const shadeRes = await NetworkManager(API.SHADE.GET_SHADES).request(
+          {},
+          { page: 1, limit: 500, status: "true" }
+        )
         if (cancelled) return
-        const polly = parsePagedList(pollyRes)
-          .filter((p) => p?.isActive !== false)
-          .map((p) => houseOption(p, "pollyhouse"))
-          .filter(Boolean)
         const shades = parsePagedList(shadeRes)
-          .filter((s) => s?.isActive !== false)
+          .filter(
+            (s) =>
+              s?.isActive !== false &&
+              SOWING_SHED_NUMBERS.has(String(s?.number ?? "").trim())
+          )
           .map((s) => houseOption(s, "shed"))
           .filter(Boolean)
         const seen = new Set()
-        const merged = [...polly, ...shades].filter((o) => {
+        const merged = shades.filter((o) => {
           if (seen.has(o.value)) return false
           seen.add(o.value)
           return true
@@ -547,27 +545,20 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
           {shedOptions.length > 0 || shedsLoading ? (
           <TextField
             select
-            label="Pollyhouse / shed *"
+            label="Shed *"
             value={shedName}
             onChange={(e) => setShedName(e.target.value)}
             fullWidth
             disabled={shedsLoading}
             helperText={
               shedsLoading
-                ? "Loading pollyhouses and sheds…"
+                ? "Loading sowing sheds…"
                 : "Select where sowing was done"
             }
           >
             <MenuItem value="" disabled>
-              {shedsLoading ? "Loading…" : "Select pollyhouse or shed"}
+              {shedsLoading ? "Loading…" : "Select shed"}
             </MenuItem>
-            {pollyOpts.length > 0 ? <ListSubheader disableSticky>Pollyhouse</ListSubheader> : null}
-            {pollyOpts.map((o) => (
-              <MenuItem key={`p-${o.value}`} value={o.value}>
-                {o.label}
-              </MenuItem>
-            ))}
-            {shadeOpts.length > 0 ? <ListSubheader disableSticky>Shed</ListSubheader> : null}
             {shadeOpts.map((o) => (
               <MenuItem key={`s-${o.value}`} value={o.value}>
                 {o.label}
