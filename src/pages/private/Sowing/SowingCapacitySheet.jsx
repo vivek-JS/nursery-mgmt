@@ -350,7 +350,7 @@ export default function SowingCapacitySheet() {
             ) : (
               <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
                 <Typography sx={{ fontSize: 11.5, color: "#475569", fontWeight: 700 }}>
-                  Only dates with plants · cell = ready · chip = free (+) or short (−)
+                  Each variety shows only its own dates · number = ready · chip = free (+) or short (−)
                 </Typography>
                 <Legend color="#f59e0b" label="Current + overdue" />
                 <Legend color="#10b981" label="Free to sell" />
@@ -378,7 +378,6 @@ export default function SowingCapacitySheet() {
           ) : (
             <CapacityBoardTable
               rows={rows}
-              columns={columns}
               sort={sort}
               onSort={onSort}
               expanded={expanded}

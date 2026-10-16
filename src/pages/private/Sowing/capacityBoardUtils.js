@@ -53,7 +53,31 @@ function spanDays(startDay, endDay) {
   return Number.isFinite(days) ? days : 1
 }
 
-const nowCell = (row) => row?.now || row?.current || null
+/** Date text for one cell: "15 Oct" + weekday, or "19–21 Oct" + "3 days". */
+export function cellLabel(cell) {
+  if (!cell?.startDay) return { range: "", sub: "" }
+  const days = spanDays(cell.startDay, cell.endDay)
+  return {
+    range: slotRangeLabel(cell.startDay, cell.endDay),
+    sub: days === 1 ? weekday(cell.startDay) : `${days} days`,
+  }
+}
+
+export function hasPlants(cell) {
+  return Number(cell?.ready) > 0 || Number(cell?.booked) > 0 || Number(cell?.net) !== 0
+}
+
+export const nowCell = (row) => row?.now || row?.current || null
+
+/** The cards one variety shows: now (if it has plants or overdue) then its own dated cells. */
+export function rowCards(row) {
+  const now = nowCell(row)
+  const showNow = hasPlants(now) || Number(now?.overdue?.booked) > 0 || Number(now?.overdue?.unsold) > 0
+  return [
+    ...(showNow ? [{ ...now, key: "now", isNow: true }] : []),
+    ...(row?.cells || []).filter(hasPlants).map((cell) => ({ ...cell, isNow: false })),
+  ]
+}
 
 /**
  * Board columns: "now" (current slot + overdue) then one column per date that has plants in any row.
@@ -80,15 +104,7 @@ export function boardColumns(rows) {
     }
   }
   for (const [key, cell] of [...byKey].sort(([a], [b]) => a.localeCompare(b))) {
-    const days = spanDays(cell.startDay, cell.endDay)
-    columns.push({
-      key,
-      startDay: cell.startDay,
-      endDay: cell.endDay,
-      range: slotRangeLabel(cell.startDay, cell.endDay),
-      shared: true,
-      sub: days === 1 ? weekday(cell.startDay) : `${days} days`,
-    })
+    columns.push({ key, startDay: cell.startDay, endDay: cell.endDay, shared: true, ...cellLabel(cell) })
   }
   return columns
 }
