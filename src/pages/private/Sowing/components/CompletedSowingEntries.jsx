@@ -128,7 +128,9 @@ function printCompletionPdf(row) {
   <h1>Sowing completion — orders</h1>
   <div class="sub">Printed ${esc(fmtDate(new Date()))}</div>
   <div class="meta">
-    <div><strong>Request</strong> ${esc(row.requestNumber)}</div>
+    <div><strong>Request</strong> ${esc(row.requestNumber)}${
+      row.entryCount > 1 ? ` · entry ${esc(row.entryNo)}/${esc(row.entryCount)}` : ""
+    }${row.entryCount && !row.requestCompleted ? " (open)" : ""}</div>
     <div><strong>Sow date</strong> ${esc(sowDate)}</div>
     <div><strong>Plant</strong> ${esc(row.plantName)} · ${esc(row.subtypeName)}</div>
     <div><strong>Batch no.</strong> ${esc(batch)}</div>
@@ -170,6 +172,7 @@ const COLUMNS = [
   { id: "sowDate", label: "Sow date", align: "left" },
   { id: "added", label: "Date added", align: "left" },
   { id: "plant", label: "Plant", align: "left" },
+  { id: "status", label: "Entry", align: "left" },
   { id: "plants", label: "Plants", align: "right" },
   { id: "packets", label: "Pkt used / ret", align: "right" },
   { id: "labour", label: "Labour", align: "right" },
@@ -192,6 +195,7 @@ const COL_TINT = {
   sowDate: "#ecfdf5",
   added: "#eff6ff",
   plant: "#ffffff",
+  status: "#f8fafc",
   plants: "#fffbeb",
   packets: "#f8fafc",
   labour: "#faf5ff",
@@ -204,6 +208,7 @@ function sortValue(row, key) {
   if (key === "orders") return row.linkedOrders?.length || 0
   if (key === "slot") return row.affectedSlot?.label || ""
   if (key === "batch") return row.batchNumber || ""
+  if (key === "status") return `${row.requestCompleted ? 1 : 0} ${row.requestNumber || ""}`
   if (key === "labour") return (Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)
   if (key === "plants") return Number(row.sowedQuantity) || 0
   if (key === "packets") return Number(row.packetsUsed) || 0
@@ -264,6 +269,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
         const res = await instance.request(
           {},
           {
+            view: "entries",
             page: nextPage,
             limit: PAGE_SIZE,
             sort: sortKey,
@@ -330,7 +336,8 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
   }, [hasMore, loading, loadingMore, page, load])
 
   const rows = useMemo(() => {
-    const pageOnly = sortKey === "orders" || sortKey === "slot" || sortKey === "batch"
+    const pageOnly =
+      sortKey === "orders" || sortKey === "slot" || sortKey === "batch" || sortKey === "status"
     if (!pageOnly) return items
     const dir = sortDir === "asc" ? 1 : -1
     return [...items].sort((a, b) => {
@@ -345,7 +352,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
     if (sortKey === id) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
     else {
       setSortKey(id)
-      setSortDir(id === "plant" || id === "slot" || id === "batch" ? "asc" : "desc")
+      setSortDir(id === "plant" || id === "slot" || id === "batch" || id === "status" ? "asc" : "desc")
     }
   }
 
@@ -375,9 +382,10 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
           spacing={1}
         >
           <Box>
-            <Typography fontWeight={900}>Completed sowing entries</Typography>
+            <Typography fontWeight={900}>Sowing entries</Typography>
             <Typography variant="caption" sx={{ opacity: 0.9 }}>
-              Scroll for more · click a column to sort · filter sow date or date added
+              Every sow entry, including partial ones on open requests · click a column to sort ·
+              filter sow date or date added
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -468,7 +476,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
             <CircularProgress size={28} />
           </Box>
         ) : items.length === 0 ? (
-          <Alert severity="info">No completed sowing entries yet.</Alert>
+          <Alert severity="info">No sowing entries yet.</Alert>
         ) : (
           <TableContainer
             ref={scrollRef}
@@ -555,6 +563,25 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         {" "}
                         · {row.subtypeName}
                       </Typography>
+                    </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.status }}>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>
+                          {row.requestNumber}
+                          {row.entryCount > 1 ? ` · ${row.entryNo}/${row.entryCount}` : ""}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={row.requestCompleted ? "Completed" : "Request open"}
+                          sx={{
+                            height: 20,
+                            fontSize: "0.65rem",
+                            fontWeight: 800,
+                            bgcolor: row.requestCompleted ? "#dcfce7" : "#fef3c7",
+                            color: row.requestCompleted ? "#166534" : "#92400e",
+                          }}
+                        />
+                      </Stack>
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.plants, fontWeight: 900, color: "#b45309" }} align="right">
                       {row.sowedQuantity ?? "—"}
@@ -735,9 +762,11 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                   getSheets={() => [
                     {
                       title: "Sowing entry",
-                      headers: ["Request", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
+                      headers: ["Request", "Entry", "Request status", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
                       rows: [[
                         detail.requestNumber,
+                        detail.entryCount ? `${detail.entryNo}/${detail.entryCount}` : "",
+                        detail.requestCompleted ? "Completed" : "Open",
                         detail.plantName,
                         detail.subtypeName,
                         detail.shedName,
@@ -787,6 +816,15 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
               {detail.requestNumber} · {detail.plantName} · {detail.subtypeName}
               {detail.shedName ? ` · Shed ${detail.shedName}` : ""}
             </Typography>
+            {detail.entryCount ? (
+              <Alert severity={detail.requestCompleted ? "success" : "warning"} sx={{ mb: 1.5, py: 0.25 }}>
+                Entry {detail.entryNo} of {detail.entryCount}
+                {detail.requestCompleted ? " · request completed" : " · request still open"}
+                {detail.entryCount > 1
+                  ? ` · request total ${detail.requestPlants} plants, ${detail.requestPacketsUsed} pkt used`
+                  : ""}
+              </Alert>
+            ) : null}
             <Typography variant="body2" mb={1}>
               Plants sowed: <strong>{detail.sowedQuantity}</strong>
               {" · "}
