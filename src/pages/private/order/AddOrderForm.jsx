@@ -4916,15 +4916,11 @@ const AddOrderForm = ({
                               ? `${fmtCoverNum(totalFree)} excess plants ready within ±5 days`
                               : `${fmtCoverNum(totalFree)} excess plants within ±5 days (${pct}%)`}
                           </Typography>
-                          {choice ? (
+                          {choice && (
                             <Typography variant="caption" color="text.secondary">
                               {isCover
                                 ? `Selected: cover from sowed ${coverDates} → Sow completed`
                                 : `Selected: ${SOW_LABEL} (goes to sowing)`}
-                            </Typography>
-                          ) : (
-                            <Typography variant="caption" color="error.main" fontWeight={700}>
-                              Required: choose {isFull ? `${COVER_LABEL} or ` : ""}{SOW_LABEL}
                             </Typography>
                           )}
                         </Box>
