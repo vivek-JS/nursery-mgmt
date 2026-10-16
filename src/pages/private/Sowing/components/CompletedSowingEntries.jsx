@@ -28,6 +28,7 @@ import CloseIcon from "@mui/icons-material/Close"
 import PrintIcon from "@mui/icons-material/Print"
 import { NetworkManager, API } from "network/core"
 import DrawerExportButton from "components/DrawerExportButton"
+import { clock12, durationLabel } from "./MachineTimeField"
 
 function fmtDate(d) {
   if (!d) return "—"
@@ -563,6 +564,14 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.labour, color: "#6d28d9", fontWeight: 800 }} align="right">
                       {(Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)}
+                      {row.machineStartTime && row.machineEndTime ? (
+                        <Typography
+                          component="div"
+                          sx={{ fontSize: "0.66rem", fontWeight: 700, color: "#64748b", whiteSpace: "nowrap" }}
+                        >
+                          {clock12(row.machineStartTime)} – {clock12(row.machineEndTime)}
+                        </Typography>
+                      ) : null}
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.orders }}>
                       <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
@@ -726,7 +735,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                   getSheets={() => [
                     {
                       title: "Sowing entry",
-                      headers: ["Request", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Labour ladies", "Labour gents", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
+                      headers: ["Request", "Plant", "Subtype", "Shed", "Batch", "Outward", "Plants sowed", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Notes"],
                       rows: [[
                         detail.requestNumber,
                         detail.plantName,
@@ -737,6 +746,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         detail.sowedQuantity,
                         detail.laboursLadies || 0,
                         detail.laboursGents || 0,
+                        clock12(detail.machineStartTime),
+                        clock12(detail.machineEndTime),
+                        detail.machineMinutes ? durationLabel(detail.machineMinutes) : "",
                         detail.packetsIssued ?? detail.packetsRequested ?? 0,
                         detail.packetsUsed ?? 0,
                         detail.packetsReturned ?? 0,
@@ -787,6 +799,14 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
               {" / G "}
               {detail.laboursGents || 0})
             </Typography>
+            {detail.machineStartTime && detail.machineEndTime ? (
+              <Typography variant="body2" mb={1}>
+                Machine: <strong>{clock12(detail.machineStartTime)}</strong>
+                {" – "}
+                <strong>{clock12(detail.machineEndTime)}</strong>
+                {detail.machineMinutes ? ` · ${durationLabel(detail.machineMinutes)}` : ""}
+              </Typography>
+            ) : null}
             <Typography variant="body2" mb={1}>
               Packets issued: <strong>{detail.packetsIssued ?? detail.packetsRequested ?? 0}</strong>
               {" · used: "}

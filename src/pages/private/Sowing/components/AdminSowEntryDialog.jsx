@@ -17,6 +17,12 @@ import {
 } from "@mui/material"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import MachineTimeField, {
+  EMPTY_CLOCK,
+  toClock24,
+  machineMinutes,
+  durationLabel,
+} from "./MachineTimeField"
 
 function todayYmd() {
   const d = new Date()
@@ -187,6 +193,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   const [gents, setGents] = useState("")
   const [notes, setNotes] = useState("")
   const [plantReadyDays, setPlantReadyDays] = useState("")
+  const [machineStart, setMachineStart] = useState(EMPTY_CLOCK)
+  const [machineEnd, setMachineEnd] = useState(EMPTY_CLOCK)
   const [saving, setSaving] = useState(false)
 
   const req = request || card?.activeRequest || card?.pendingRequest || null
@@ -251,6 +259,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     setLadies("")
     setGents("")
     setNotes("")
+    setMachineStart(EMPTY_CLOCK)
+    setMachineEnd(EMPTY_CLOCK)
     setPlantReadyDays(defaultReady > 0 ? String(defaultReady) : "")
   }, [open, req?._id, expectedPlants, companyOpen, raisingOpen, hasCompany, hasRaising, defaultReady])
 
@@ -298,16 +308,23 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
 
   const companyTouched = hasCompany && (usedNum > 0 || returnedNum > 0)
   const raisingTouched = hasRaising && (raisingUsedNum > 0 || raisingReturnedNum > 0)
+  const machineStart24 = toClock24(machineStart)
+  const machineEnd24 = toClock24(machineEnd)
+  const machineSet = Boolean(machineStart24 && machineEnd24)
+  const machineNeeded = plantsNum > 0
   const canSubmit =
     Boolean(shedName.trim()) &&
     Boolean(String(sowDate || "").trim()) &&
     readyDaysNum >= 1 &&
     (plantsNum > 0 || companyTouched || raisingTouched) &&
+    (!machineNeeded || machineSet) &&
     !packetsOver
 
   const handleSubmit = async () => {
     if (!canSubmit) {
-      Toast.error("Select sow date, pollyhouse/shed, plant ready days, and plants / packets")
+      Toast.error(
+        "Select sow date, pollyhouse/shed, plant ready days, machine start/end time, and plants / packets"
+      )
       return
     }
     if (companyOver) {
@@ -333,6 +350,9 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
         sowDate: String(sowDate).trim(),
         plantReadyDays: readyDaysNum,
         completeSowing: willClose,
+        ...(machineSet
+          ? { machineStartTime: machineStart24, machineEndTime: machineEnd24 }
+          : {}),
       }
       const instance = NetworkManager(API.sowing.COMPLETE_SOWING_REQUEST)
       const res = await instance.request(payload, { pathParams: [req._id] })
@@ -438,6 +458,26 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
             InputLabelProps={{ shrink: true }}
             helperText="Defaults to today — change if sowing was on another day"
           />
+
+          <Box>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <MachineTimeField
+                label={`Machine start${machineNeeded ? " *" : ""}`}
+                value={machineStart}
+                onChange={setMachineStart}
+              />
+              <MachineTimeField
+                label={`Machine end${machineNeeded ? " *" : ""}`}
+                value={machineEnd}
+                onChange={setMachineEnd}
+              />
+            </Stack>
+            {machineSet ? (
+              <Typography fontSize="0.72rem" fontWeight={700} color="#0f766e" mt={0.5}>
+                Machine ran {durationLabel(machineMinutes(machineStart24, machineEnd24))}
+              </Typography>
+            ) : null}
+          </Box>
 
           <TextField
             label="Plant ready days *"
