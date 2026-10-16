@@ -491,6 +491,14 @@ export const getLagwadRemaining = (slot) =>
 export const getShedReadyInShed = (slot) =>
   Math.max(0, Number(slot?.shedReadyInShed) || 0)
 
+/** All stock still physically in the shed for this slot, ready or not. */
+export const getShedAvailableInShed = (slot) =>
+  Math.max(0, Number(slot?.shedAvailableInShed) || 0)
+
+/** In the shed, ready date not reached yet. */
+export const getShedInProcessPlants = (slot) =>
+  Math.max(0, getShedAvailableInShed(slot) - getShedReadyInShed(slot))
+
 export const getRolledInAvailablePlants = (slot) =>
   Number(slot?.rolledInAvailablePlants) || 0
 
@@ -515,6 +523,7 @@ export const rollupMonthSlotMetrics = (slots) => {
   let totalActualAvailable = 0
   let totalActualReadyPlants = 0
   let totalShedReadyInShed = 0
+  let totalShedInProcessPlants = 0
   let totalExpectedMortality = 0
   let totalLagwadGrossPlants = 0
   let totalLagwadRemaining = 0
@@ -551,6 +560,7 @@ export const rollupMonthSlotMetrics = (slots) => {
     totalQueueAvailable += getQueueAvailablePlants(slot)
     totalActualReadyPlants += getActualReadyPlants(slot)
     totalShedReadyInShed += getShedReadyInShed(slot)
+    totalShedInProcessPlants += getShedInProcessPlants(slot)
     totalExpectedMortality += getExpectedMortality(slot)
     totalLagwadGrossPlants += getLagwadGrossPlants(slot)
     totalLagwadRemaining += getLagwadRemaining(slot)
@@ -605,6 +615,7 @@ export const rollupMonthSlotMetrics = (slots) => {
     totalQueueAvailable,
     totalActualReadyPlants,
     totalShedReadyInShed,
+    totalShedInProcessPlants,
     totalExpectedMortality,
     totalLagwadGrossPlants,
     totalLagwadRemaining,

@@ -36,6 +36,8 @@ export default function OrderSowingDetailsPanel({
   sowingDone = false,
   sowingDoneAt = null,
   sowingDoneRequestId = null,
+  sowingCoverSources = [],
+  sowingCoverReversedAt = null,
   sowingPlan = null,
   plantId = null,
   subtypeId = null,
@@ -44,6 +46,45 @@ export default function OrderSowingDetailsPanel({
   canEdit = false,
   onUpdated,
 }) {
+  const coverSources = Array.isArray(sowingCoverSources) ? sowingCoverSources : []
+  const coverSourcesBlock = coverSources.length > 0 && (
+    <Box
+      sx={{
+        p: 1.25,
+        borderRadius: 1.5,
+        border: `1px solid ${sowingCoverReversedAt ? "#f59e0b" : "#16a34a"}`,
+        bgcolor: sowingCoverReversedAt ? "#fffbeb" : "#f0fdf4",
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center" mb={0.5} flexWrap="wrap" useFlexGap>
+        <Typography variant="body2" fontWeight={800}>
+          Covered from excess sowing
+        </Typography>
+        {sowingCoverReversedAt && (
+          <Chip
+            size="small"
+            color="warning"
+            label={`Cover reversed · ${formatDoneAt(sowingCoverReversedAt)}`}
+            sx={{ fontWeight: 700 }}
+          />
+        )}
+      </Stack>
+      {coverSources.map((s, idx) => {
+        const off = Number(s.offsetDays) || 0
+        const offLabel = off === 0 ? "delivery" : off > 0 ? `+${off}d` : `${off}d`
+        return (
+          <Typography key={s.batchId || idx} variant="caption" sx={{ display: "block" }}>
+            Ready {s.plantReadyDate || "—"} ({offLabel})
+            {s.sowingDate ? ` · sowed ${s.sowingDate}` : ""}
+            {s.shedName ? ` · ${s.shedName}` : ""}
+            {s.requestNumber ? ` · ${s.requestNumber}` : ""} ·{" "}
+            <strong>{Number(s.plants || 0).toLocaleString("en-IN")} plants</strong>
+          </Typography>
+        )
+      })}
+    </Box>
+  )
+
   if (sowingDone) {
     return (
       <Box className="space-y-3">
@@ -62,11 +103,14 @@ export default function OrderSowingDetailsPanel({
             <Chip size="small" variant="outlined" label="Direct sow / slot transfer" />
           )}
         </Stack>
+        {coverSourcesBlock}
         <Alert severity="success" sx={{ py: 0.75 }}>
           Marked <strong>sowingDone</strong>.
-          {sowingDoneRequestId
-            ? " Plants recorded on the ready-date slot from sow completion."
-            : " Plants allocated to the ready-date slot or reserved from nearby saleable stock."}
+          {coverSources.length > 0
+            ? " Plants taken from excess of the sowing entries above."
+            : sowingDoneRequestId
+              ? " Plants recorded on the ready-date slot from sow completion."
+              : " Plants allocated to the ready-date slot or reserved from nearby saleable stock."}
         </Alert>
       </Box>
     )
@@ -74,6 +118,7 @@ export default function OrderSowingDetailsPanel({
 
   return (
     <Box className="space-y-3">
+      {coverSourcesBlock}
       <OrderSowForm
         orderMongoId={orderMongoId}
         plantId={plantId}

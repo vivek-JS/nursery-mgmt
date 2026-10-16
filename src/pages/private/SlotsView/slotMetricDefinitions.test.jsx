@@ -36,6 +36,9 @@ describe("slot metric Marathi definitions", () => {
     render(<MonthOverviewPanel summary={summary} sowingAllowed={false} />)
 
     expect(screen.getByText("Available for booking")).toBeInTheDocument()
+    expect(screen.getByText("Sellable")).toBeInTheDocument()
+    expect(screen.getByText("In process")).toBeInTheDocument()
+    expect(screen.getByText("Ready in sheds")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Available for booking definition" }))
     expect(
       screen.getByText(/नवीन बुकिंगसाठी मोकळी असलेली एकूण रोपे/)

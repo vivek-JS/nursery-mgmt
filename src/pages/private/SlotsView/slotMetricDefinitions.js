@@ -15,6 +15,16 @@ export const SLOT_METRIC_DEFINITIONS = {
     label: "उरलेला डिस्पॅच",
     mr: "अजून डिस्पॅच न झालेली रोपे. यात या डिलिव्हरी तारखेचे ऑर्डर (नेटिव्ह) आणि मागील स्लॉटमधून आणलेले ऑर्डर (रोलओव्हर) दोन्ही येतात.",
   },
+  monthSellable: {
+    title: "Sellable",
+    label: "विक्रीयोग्य",
+    mr: "शेडमध्ये तयार असलेली रोपे. ही रोपे आता विकता येतील.",
+  },
+  monthInProcess: {
+    title: "In process",
+    label: "प्रक्रियेत",
+    mr: "शेडमध्ये असलेली रोपे, ज्यांची तयार तारीख अजून आलेली नाही.",
+  },
   monthDispatched: {
     title: "Dispatched this month",
     label: "डिस्पॅच झालेले",
@@ -44,6 +54,16 @@ export const SLOT_METRIC_DEFINITIONS = {
     title: "Remaining dispatch",
     label: "डिस्पॅच बाकी",
     mr: "या स्लॉटमधून अजून डिस्पॅच व्हायची असलेली रोपे. यात या डिलिव्हरी तारखेचे ऑर्डर आणि मागील स्लॉटमधून आणलेले ऑर्डर दोन्ही येतात.",
+  },
+  slotSellable: {
+    title: "Sellable",
+    label: "विक्रीयोग्य",
+    mr: "या स्लॉटसाठी शेडमध्ये तयार असलेली रोपे. ही रोपे आता विकता येतील.",
+  },
+  slotInProcess: {
+    title: "In process",
+    label: "प्रक्रियेत",
+    mr: "या स्लॉटसाठी शेडमध्ये असलेली रोपे, ज्यांची तयार तारीख अजून आलेली नाही.",
   },
   slotDispatched: {
     title: "Dispatched",

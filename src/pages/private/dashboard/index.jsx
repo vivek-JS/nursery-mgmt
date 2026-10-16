@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react"
 import { Grid, Button, Box, Badge, Tabs, Tab, Alert, IconButton } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
-import { Add as AddIcon, Phone as PhoneIcon, Backup as BackupIcon, Close as CloseIcon } from "@mui/icons-material"
+import {
+  Add as AddIcon,
+  Phone as PhoneIcon,
+  Backup as BackupIcon,
+  Close as CloseIcon,
+  WhatsApp as WhatsAppIcon,
+} from "@mui/icons-material"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useSelector } from "react-redux"
 import FarmerOrdersTable from "./FarmerOrdersTable"
@@ -12,6 +18,7 @@ import {
   COPY_ORDER_OPEN_EVENT,
 } from "utils/copyOrderPrefill"
 import AddOrderForm from "../order/AddOrderForm"
+import ReadyPlantsMessageDialog from "../Sowing/components/ReadyPlantsMessageDialog"
 import { FarmerPhoneCorrectionModal, ExcelExport } from "components"
 import useInvalidPhoneFarmers from "hooks/useInvalidPhoneFarmers"
 import { useWorkspace } from "workspace/WorkspaceContext"
@@ -45,6 +52,7 @@ function Dashboard() {
   const [copyOrderPrefill, setCopyOrderPrefill] = useState(null)
   const [ordersSlotFilter, setOrdersSlotFilter] = useState(null)
   const [isFarmerPhoneModalOpen, setIsFarmerPhoneModalOpen] = useState(false)
+  const [isReadyMessageOpen, setIsReadyMessageOpen] = useState(false)
   const { count: invalidPhoneCount, refetch: refetchInvalidPhoneCount } = useInvalidPhoneFarmers()
 
   const handleMainTabChange = (_e, value) => {
@@ -231,6 +239,16 @@ function Dashboard() {
           </Button>
         </Badge>
       ) : null}
+      {!isAgriWorkspace ? (
+        <Button
+          variant="contained"
+          startIcon={<WhatsAppIcon />}
+          onClick={() => setIsReadyMessageOpen(true)}
+          className={classes.addButton}
+          sx={{ bgcolor: "#25d366", "&:hover": { bgcolor: "#1ebe5a" } }}>
+          Ready Plants Message
+        </Button>
+      ) : null}
       <Button
         variant="contained"
         color="primary"
@@ -320,6 +338,10 @@ function Dashboard() {
           refetchInvalidPhoneCount()
         }}
       />
+
+      {isReadyMessageOpen ? (
+        <ReadyPlantsMessageDialog open onClose={() => setIsReadyMessageOpen(false)} />
+      ) : null}
     </Grid>
   )
 }

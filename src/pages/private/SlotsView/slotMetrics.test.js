@@ -5,6 +5,8 @@ import {
   getActualSurplusPlants,
   getActualAvailablePlants,
   getActualReadyPlants,
+  getShedInProcessPlants,
+  getShedReadyInShed,
   getExpectedMortality,
   getLagwadGrossPlants,
   rollupMonthSlotMetrics,
@@ -58,6 +60,13 @@ describe("slot physical metrics helpers", () => {
     ).toBe(800);
   });
 
+  it("sellable is ready in sheds and in process is the rest still in the shed", () => {
+    const row = slot({ shedReadyInShed: 659574, shedAvailableInShed: 800000 });
+    expect(getShedReadyInShed(row)).toBe(659574);
+    expect(getShedInProcessPlants(row)).toBe(140426);
+    expect(getShedInProcessPlants(slot({ shedReadyInShed: 10, shedAvailableInShed: 4 }))).toBe(0);
+  });
+
   it("getActualReadyPlants reads API shed rollup", () => {
     expect(getActualReadyPlants(slot({ actualReadyPlants: 350 }))).toBe(350);
     expect(getActualReadyPlants(slot({ actualReadyPlants: -5 }))).toBe(0);
@@ -88,6 +97,7 @@ describe("rollupMonthSlotMetrics", () => {
         totalPlants: 300,
         actualReadyPlants: 120,
         shedReadyInShed: 150,
+        shedAvailableInShed: 400,
       },
       {
         actualPlants: 200,
@@ -108,6 +118,7 @@ describe("rollupMonthSlotMetrics", () => {
     expect(rollup.totalActualRemaining).toBe(450);
     expect(rollup.totalActualReadyPlants).toBe(150);
     expect(rollup.totalShedReadyInShed).toBe(150);
+    expect(rollup.totalShedInProcessPlants).toBe(250);
     expect(rollup.actualGapPlants).toBe(0);
     expect(rollup.actualSurplusPlants).toBe(250);
     expect(rollup.totalBookedPlants).toBe(280);

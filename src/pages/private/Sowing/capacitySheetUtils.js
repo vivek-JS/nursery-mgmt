@@ -2,41 +2,17 @@ export function fmt(n) {
   return (Number(n) || 0).toLocaleString("en-IN")
 }
 
-export function ymd(date) {
-  const d = date instanceof Date ? date : new Date(date)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
-
-export function addDays(ymdStr, days) {
-  const [y, m, d] = ymdStr.split("-").map(Number)
-  const dt = new Date(y, m - 1, d)
-  dt.setDate(dt.getDate() + days)
-  return ymd(dt)
-}
-
-export function monthBounds(ymdStr) {
-  const [y, m] = ymdStr.split("-").map(Number)
-  const start = new Date(y, m - 1, 1)
-  const end = new Date(y, m, 0)
-  return { from: ymd(start), to: ymd(end) }
-}
-
-export function rangeForPreset(preset, today = ymd(new Date())) {
-  if (preset === "today") return { from: today, to: today }
-  if (preset === "7") return { from: today, to: addDays(today, 6) }
-  if (preset === "month") return monthBounds(today)
-  return { from: today, to: addDays(today, 13) }
+export function signed(n) {
+  const v = Number(n) || 0
+  return v > 0 ? `+${fmt(v)}` : fmt(v)
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 function parseDay(value) {
   const text = String(value || "")
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    const [y, m, d] = text.split("-").map(Number)
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    const [y, m, d] = text.slice(0, 10).split("-").map(Number)
     return { y, m, d }
   }
   const [d, m, y] = text.split("-").map(Number)
@@ -44,65 +20,22 @@ function parseDay(value) {
   return { y, m, d }
 }
 
-export function formatLongDay(value) {
-  const day = parseDay(value)
-  if (!day) return value || ""
-  return `${day.d}-${MONTHS[day.m - 1]}-${day.y}`
-}
-
-export function formatShortRange(start, end) {
+/** "16 Oct", "16–18 Oct", "30 Oct–5 Nov" from DD-MM-YYYY or YYYY-MM-DD days. */
+export function slotRangeLabel(start, end) {
   const a = parseDay(start)
-  const b = parseDay(end)
   if (!a) return ""
-  if (!b) return formatLongDay(start)
-  const left = `${a.d}-${MONTHS[a.m - 1]}`
-  const right = `${b.d}-${MONTHS[b.m - 1]}`
-  if (a.y === b.y && a.m === b.m && a.d === b.d) return `${left}-${a.y}`
-  if (a.y === b.y) return `${left} to ${right}`
-  return `${left}-${a.y} to ${right}-${b.y}`
+  const b = parseDay(end) || a
+  if (a.y === b.y && a.m === b.m && a.d === b.d) return `${a.d} ${MONTHS[a.m - 1]}`
+  if (a.y === b.y && a.m === b.m) return `${a.d}–${b.d} ${MONTHS[a.m - 1]}`
+  return `${a.d} ${MONTHS[a.m - 1]}–${b.d} ${MONTHS[b.m - 1]}`
 }
 
-export function seedPlanDetail(label) {
-  if (label === "Raising") return "Raising seed"
-  if (label === "Mixed") return "Mixed seed"
-  return "Company seed"
-}
-
-export function slotCardTone(slot) {
-  if (Number(slot?.gap) > 0) {
-    return {
-      key: "deficit",
-      badge: `Deficit -${fmt(slot.gap)}`,
-      border: "#fdba74",
-      badgeBg: "#ffedd5",
-      badgeColor: "#c2410c",
-    }
-  }
-  if (Number(slot?.excess) > 0) {
-    return {
-      key: "excess",
-      badge: "Ready excess",
-      border: "#93c5fd",
-      badgeBg: "#eff6ff",
-      badgeColor: "#1d4ed8",
-    }
-  }
-  if (Number(slot?.canBook) > 0) {
-    return {
-      key: "open",
-      badge: "Capacity open",
-      border: "#86efac",
-      badgeBg: "#f0fdf4",
-      badgeColor: "#15803d",
-    }
-  }
-  return {
-    key: "fulfilled",
-    badge: "Fulfilled",
-    border: "#bbf7d0",
-    badgeBg: "#f0fdf4",
-    badgeColor: "#047857",
-  }
+/** "16 Oct 2026" for an ISO date / timestamp. */
+export function dayLabel(value) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })
 }
 
 export const STATUS_STYLE = {

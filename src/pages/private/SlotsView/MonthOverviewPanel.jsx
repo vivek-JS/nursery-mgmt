@@ -27,6 +27,8 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
     totalRemainingNative,
     totalRemainingRolled,
     totalActualRemaining,
+    totalShedReadyInShed,
+    totalShedInProcessPlants,
     totalAllDispatchedPlants,
     totalDispatchedNative,
     totalDispatchedRolled,
@@ -45,8 +47,8 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
 
   return (
     <div
-      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 ${
-        sowingAllowed ? "xl:grid-cols-5" : "xl:grid-cols-4"
+      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${
+        sowingAllowed ? "xl:grid-cols-7" : "xl:grid-cols-6"
       } gap-3`}>
       {sowingAllowed ? (
         <>
@@ -124,6 +126,32 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
             {fmt(remainingQueue)}
           </p>
           <SplitFootnote native={totalRemainingNative} rolled={totalRemainingRolled} />
+        </div>
+      </Tooltip>
+
+      <Tooltip title={D.monthSellable.mr} arrow>
+        <div className={`${tileClass} bg-emerald-50 border-emerald-200`}>
+          <div className="flex items-center gap-0.5">
+            <p className="text-[10px] font-semibold uppercase text-emerald-800">{D.monthSellable.title}</p>
+            <MetricDefinitionIcon definitionKey="monthSellable" />
+          </div>
+          <p className="text-xl font-bold tabular-nums text-emerald-900">
+            {fmt(totalShedReadyInShed)}
+          </p>
+          <p className="text-[10px] text-emerald-700">Ready in sheds</p>
+        </div>
+      </Tooltip>
+
+      <Tooltip title={D.monthInProcess.mr} arrow>
+        <div className={`${tileClass} bg-indigo-50 border-indigo-200`}>
+          <div className="flex items-center gap-0.5">
+            <p className="text-[10px] font-semibold uppercase text-indigo-800">{D.monthInProcess.title}</p>
+            <MetricDefinitionIcon definitionKey="monthInProcess" />
+          </div>
+          <p className="text-xl font-bold tabular-nums text-indigo-900">
+            {fmt(totalShedInProcessPlants)}
+          </p>
+          <p className="text-[10px] text-indigo-700">In sheds, not ready yet</p>
         </div>
       </Tooltip>
 

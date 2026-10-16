@@ -4,6 +4,8 @@ import {
   getBookedPlants,
   getDisplayAvailablePlants,
   getActualRemainingPlants,
+  getShedInProcessPlants,
+  getShedReadyInShed,
   getTotalAllDispatchedPlants,
   getExcessAvailableForBooking,
   getDisplaySowingGap,
@@ -38,6 +40,8 @@ const SlotCardMetrics = ({
   const hasCoverDetail = hasSowingCoverDetail(slot)
   const dispatched = getTotalAllDispatchedPlants(slot)
   const toDispatch = getActualRemainingPlants(slot)
+  const sellableReady = getShedReadyInShed(slot)
+  const inProcess = getShedInProcessPlants(slot)
   const labelSize = variant === "detail" ? "text-sm" : "text-[10px]"
   const valueSize = variant === "detail" ? "text-2xl" : "text-sm"
   const gridOrder = compact
@@ -143,6 +147,36 @@ const SlotCardMetrics = ({
     onClick: (e) => open(e, "remaining"),
   }
 
+  const sellableCell = {
+    key: "sellable",
+    definitionKey: "slotSellable",
+    label: D.slotSellable.title,
+    sub: "ready in sheds",
+    value: sellableReady,
+    className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
+    valueClass: "text-emerald-900",
+    title: D.slotSellable.mr,
+    onClick: (e) => {
+      e?.stopPropagation?.()
+      onOpenActual?.(slot)
+    },
+  }
+
+  const inProcessCell = {
+    key: "inProcess",
+    definitionKey: "slotInProcess",
+    label: D.slotInProcess.title,
+    sub: "in sheds, not ready",
+    value: inProcess,
+    className: "col-span-2 bg-indigo-50 border-indigo-200 hover:bg-indigo-100",
+    valueClass: "text-indigo-900",
+    title: D.slotInProcess.mr,
+    onClick: (e) => {
+      e?.stopPropagation?.()
+      onOpenActual?.(slot)
+    },
+  }
+
   const dispatchedCell = {
     key: "dispatched",
     definitionKey: "slotDispatched",
@@ -162,6 +196,8 @@ const SlotCardMetrics = ({
     bookedCell,
     ...(!allowed && !compact ? [dispatchedCell] : []),
     remainingCell,
+    sellableCell,
+    inProcessCell,
   ]
 
   return (

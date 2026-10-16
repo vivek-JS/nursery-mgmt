@@ -285,7 +285,6 @@ export default function PrivateLayout(props) {
       p === "/u/sowing-gap-analysis" ||
       p.startsWith("/u/sowing-gap-analysis/") ||
       p === "/u/sowing-capacity" ||
-      p.startsWith("/u/sowing-capacity/") ||
       p === "/u/lagwad-analysis" ||
       p.startsWith("/u/lagwad-analysis/") ||
       p === "/u/slots" ||

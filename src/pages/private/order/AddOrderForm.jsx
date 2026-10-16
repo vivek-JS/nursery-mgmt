@@ -62,6 +62,12 @@ import {
 } from "@mui/icons-material"
 import moment from "moment"
 import { resolveEffectiveRate, mapSubtypeOption } from "utils/resolveEffectiveRate"
+import ExcessBatchCoverDialog, {
+  SOW_LABEL,
+  fetchExcessBatches,
+  fmtNum as fmtCoverNum,
+  offsetChipLabel,
+} from "./ExcessBatchCoverDialog"
 import LocationSelector from "components/LocationSelector"
 import SearchableSelect from "components/FormField/SearchableSelect"
 import InstantPlantLineItems, {
@@ -480,6 +486,16 @@ const AddOrderForm = ({
   const [activeStep, setActiveStep] = useState(0)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [confirmationData, setConfirmationData] = useState({})
+
+  /** Booking-time excess cover (sowing batches within delivery ±5d). */
+  const [excessPreview, setExcessPreview] = useState(null)
+  const [excessLoading, setExcessLoading] = useState(false)
+  const [excessDialogOpen, setExcessDialogOpen] = useState(false)
+  /** { decision: "COVER" | "SOW", picks?: [{ batchId, slotId, plants, plantReadyDate, offsetDays }], picksMap?, offered? } */
+  const [sowingCoverChoice, setSowingCoverChoice] = useState(null)
+  const excessPreviewRef = useRef(null)
+  const sowingCoverChoiceRef = useRef(null)
+  const submitAfterCoverChoiceRef = useRef(false)
 
   // ============================================================================
   // ORDER TYPE STATE
@@ -2554,6 +2570,15 @@ const AddOrderForm = ({
   const handleSubmit = async () => {
     if (!validateForm()) return
 
+    if (
+      Number(excessPreviewRef.current?.totalFree) > 0 &&
+      !sowingCoverChoiceRef.current
+    ) {
+      submitAfterCoverChoiceRef.current = true
+      setExcessDialogOpen(true)
+      return
+    }
+
     // Show confirmation popup with farmer name and dates in bold
     const selectedPlant = plants.find((p) => p.value === formData?.plant)
     const selectedSubtype = subTypes.find((s) => s.value === formData?.subtype)
@@ -2865,6 +2890,19 @@ const AddOrderForm = ({
 
         const sowingPlan = buildSowingPlanPayload()
         if (sowingPlan) payload.sowingPlan = sowingPlan
+
+        const coverChoice = !instantMulti ? sowingCoverChoiceRef.current : null
+        if (coverChoice?.decision === "COVER" && coverChoice.picks?.length) {
+          payload.sowingCoverDecision = "COVER"
+          payload.sowingCoverPicks = coverChoice.picks.map(({ batchId, slotId, plants }) => ({
+            batchId,
+            slotId,
+            plants,
+          }))
+        } else if (coverChoice?.decision === "SOW") {
+          payload.sowingCoverDecision = "SOW"
+          if (coverChoice.offered > 0) payload.sowingCoverOffered = coverChoice.offered
+        }
         
         endpoint = API.FARMER.CREATE_FARMER
       }
@@ -2946,6 +2984,22 @@ const AddOrderForm = ({
       const instance = NetworkManager(endpoint)
       const response = await instance.request(formDataForUpload)
 
+      if (!response?.data && /excess popup/i.test(String(response?.message || ""))) {
+        updateSowingCoverChoice(null)
+        excessPreviewRef.current = null
+        setExcessPreview(null)
+        try {
+          const [plantId, subtypeId, deliveryDate, need] = excessCoverKey.split("|")
+          const fresh = await fetchExcessBatches({ plantId, subtypeId, deliveryDate, need: Number(need) })
+          const usable = fresh && Number(fresh.totalFree) > 0 ? fresh : null
+          excessPreviewRef.current = usable
+          setExcessPreview(usable)
+          if (usable) setExcessDialogOpen(true)
+        } catch (refreshErr) {
+          console.error("Excess preview refresh failed:", refreshErr)
+        }
+      }
+
       if (response?.data) {
         const orderId = response?.data?.data?.order?._id ||
                        response?.data?.data?._id ||
@@ -2956,6 +3010,13 @@ const AddOrderForm = ({
         const orderIdStr = orderId ? (typeof orderId === "string" ? orderId : orderId.toString?.() || String(orderId)) : null
 
         Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
+
+        const sowingCoverResult = response?.data?.data?.sowingCover
+        if (sowingCoverResult?.ok === false) {
+          Toast.warn(sowingCoverResult.message || "Excess cover failed — order will go through sowing")
+        } else if (sowingCoverResult?.ok) {
+          Toast.info(sowingCoverResult.message || "Order marked sow completed from excess")
+        }
 
         const orderDoc = response?.data?.data?.order || response?.data?.data || response?.data
         const createdOrderPayload = {
@@ -3345,6 +3406,94 @@ const AddOrderForm = ({
         ))}
       </Box>
     )
+  }
+
+  // ============================================================================
+  // EXCESS COVER (sowing-allowed: batches within delivery ±5d)
+  // ============================================================================
+  const excessCoverPlant = plants.find((p) => p.value === formData?.plant)
+  const excessCoverNeed = parseInt(formData?.noOfPlants, 10) || 0
+  const excessCoverDateYmd =
+    formData?.orderDate && moment(formData.orderDate).isValid()
+      ? moment(formData.orderDate).format("YYYY-MM-DD")
+      : ""
+  const excessCoverKey =
+    excessCoverPlant?.sowingAllowed &&
+    !formData?.productMappingId &&
+    !isInstantOrder &&
+    !bulkOrder &&
+    formData?.subtype &&
+    excessCoverDateYmd &&
+    excessCoverNeed > 0
+      ? [formData.plant, formData.subtype, excessCoverDateYmd, excessCoverNeed].join("|")
+      : ""
+
+  const updateSowingCoverChoice = (choice) => {
+    sowingCoverChoiceRef.current = choice
+    setSowingCoverChoice(choice)
+  }
+
+  useEffect(() => {
+    updateSowingCoverChoice(null)
+    excessPreviewRef.current = null
+    setExcessPreview(null)
+    setExcessDialogOpen(false)
+    submitAfterCoverChoiceRef.current = false
+    if (!excessCoverKey) {
+      setExcessLoading(false)
+      return undefined
+    }
+    const [plantId, subtypeId, deliveryDate, need] = excessCoverKey.split("|")
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setExcessLoading(true)
+      try {
+        const data = await fetchExcessBatches({
+          plantId,
+          subtypeId,
+          deliveryDate,
+          need: Number(need),
+          windowDays: 5,
+        })
+        if (cancelled) return
+        const usable = data && Number(data.totalFree) > 0 ? data : null
+        excessPreviewRef.current = usable
+        setExcessPreview(usable)
+      } catch (e) {
+        if (!cancelled) {
+          excessPreviewRef.current = null
+          setExcessPreview(null)
+        }
+      } finally {
+        if (!cancelled) setExcessLoading(false)
+      }
+    }, 450)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [excessCoverKey])
+
+  const finishCoverChoice = (choice) => {
+    updateSowingCoverChoice(choice)
+    setExcessDialogOpen(false)
+    if (submitAfterCoverChoiceRef.current) {
+      submitAfterCoverChoiceRef.current = false
+      setTimeout(() => handleSubmit(), 0)
+    }
+  }
+
+  const handleExcessCover = (picks, picksMap) => {
+    finishCoverChoice({ decision: "COVER", picks, picksMap })
+  }
+
+  const handleExcessSow = (offered) => {
+    finishCoverChoice({ decision: "SOW", offered: Number(offered) || 0 })
+  }
+
+  const handleExcessDialogClose = () => {
+    submitAfterCoverChoiceRef.current = false
+    setExcessDialogOpen(false)
   }
 
   // ============================================================================
@@ -4719,6 +4868,68 @@ const AddOrderForm = ({
                   return null
                 })()}
 
+                {/* Excess sowing within ±5d of delivery (sowing-allowed farmer orders) */}
+                {excessCoverKey && (excessLoading || excessPreview) && (() => {
+                  if (excessLoading && !excessPreview) {
+                    return (
+                      <Grid item xs={12}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.5 }}>
+                          <CircularProgress size={14} />
+                          <Typography variant="caption" color="text.secondary">
+                            Checking excess sowing within ±5 days…
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    )
+                  }
+                  const totalFree = Number(excessPreview?.totalFree) || 0
+                  const isFull = totalFree >= excessCoverNeed
+                  const pct = excessCoverNeed > 0 ? Math.round((totalFree / excessCoverNeed) * 100) : 0
+                  const choice = sowingCoverChoice
+                  return (
+                    <Grid item xs={12}>
+                      <Box
+                        onClick={() => setExcessDialogOpen(true)}
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 1.5,
+                          cursor: "pointer",
+                          border: `1px solid ${isFull ? "#16a34a" : "#f59e0b"}`,
+                          bgcolor: isFull ? "#f0fdf4" : "#fffbeb",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 1,
+                          flexWrap: "wrap",
+                        }}>
+                        <Box minWidth={0}>
+                          <Typography variant="body2" fontWeight={800} color={isFull ? "#166534" : "#92400e"}>
+                            {isFull
+                              ? `${fmtCoverNum(totalFree)} excess plants ready within ±5 days. Cover this order`
+                              : `${fmtCoverNum(totalFree)} excess plants within ±5 days (${pct}%)`}
+                          </Typography>
+                          {choice && (
+                            <Typography variant="caption" color="text.secondary">
+                              {choice.decision === "COVER"
+                                ? `Selected: cover from ${choice.picks?.length || 0} sowing entr${choice.picks?.length === 1 ? "y" : "ies"} → Sow completed`
+                                : `Selected: ${SOW_LABEL} (goes to sowing)`}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Button
+                          size="small"
+                          variant={isFull ? "contained" : "outlined"}
+                          color={isFull ? "success" : "warning"}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExcessDialogOpen(true)
+                          }}>
+                          {choice ? "Change" : "View"}
+                        </Button>
+                      </Box>
+                    </Grid>
+                  )
+                })()}
 
                 {/* Product Name Selection - Show when slot is selected and has productStock */}
                 {formData?.orderDate && (() => {
@@ -5466,6 +5677,17 @@ const AddOrderForm = ({
         </Box>
       </DialogActions>
 
+      <ExcessBatchCoverDialog
+        open={excessDialogOpen}
+        onClose={handleExcessDialogClose}
+        preview={excessPreview}
+        loading={excessLoading}
+        need={excessCoverNeed}
+        initialPicks={sowingCoverChoice?.decision === "COVER" ? sowingCoverChoice.picksMap : null}
+        onCover={handleExcessCover}
+        onSow={handleExcessSow}
+      />
+
       {/* Confirmation Dialog */}
       <Dialog
         open={showConfirmation}
@@ -5598,6 +5820,26 @@ const AddOrderForm = ({
                     )}
                     <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic" }}>
                       This order will be booked against the selected ready plants product from other nursery
+                    </Typography>
+                  </Box>
+                )}
+                {sowingCoverChoice?.decision === "COVER" && sowingCoverChoice.picks?.length > 0 && (
+                  <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "#f0fdf4", borderRadius: 1, border: "1px solid #16a34a" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: "#166534" }}>
+                      ✅ Will be marked sow completed from:
+                    </Typography>
+                    {sowingCoverChoice.picks.map((p) => (
+                      <Typography key={p.batchId} variant="caption" sx={{ display: "block" }}>
+                        Ready {p.plantReadyDate || "—"} ({offsetChipLabel(p.offsetDays)}) ·{" "}
+                        {fmtCoverNum(p.plants)} plants
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
+                {sowingCoverChoice?.decision === "SOW" && (
+                  <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "#fffbeb", borderRadius: 1, border: "1px solid #f59e0b" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: "#92400e" }}>
+                      🌱 Goes to sowing ({SOW_LABEL})
                     </Typography>
                   </Box>
                 )}

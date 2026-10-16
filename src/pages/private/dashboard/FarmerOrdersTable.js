@@ -6544,6 +6544,8 @@ const mapSlotForUi = (slotData) => {
           sowingDone,
           sowingDoneAt,
           sowingDoneRequestId,
+          sowingCoverSources,
+          sowingCoverReversedAt,
         } = data || {}
         const orderFor = normalizeOrderFor(orderForRaw)
         const deliveryDisplay = formatDeliveryDateDisplay(
@@ -6699,6 +6701,8 @@ const mapSlotForUi = (slotData) => {
             sowingDone: Boolean(sowingDone),
             sowingDoneAt: sowingDoneAt || null,
             sowingDoneRequestId: sowingDoneRequestId || null,
+            sowingCoverSources: Array.isArray(sowingCoverSources) ? sowingCoverSources : [],
+            sowingCoverReversedAt: sowingCoverReversedAt || null,
             slotHistory: Array.isArray(bookingSlot)
               ? bookingSlot.filter(Boolean)
               : bookingSlot
@@ -9968,6 +9972,18 @@ const mapSlotForUi = (slotData) => {
                               Raising
                             </span>
                           )}
+                          {!showAgriSalesOrders && row.details?.sowingDone && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide bg-green-100 text-green-800 border border-green-300"
+                              title={
+                                row.details?.sowingCoverSources?.length
+                                  ? "Sow completed · covered from excess sowing"
+                                  : "Sow completed"
+                              }
+                            >
+                              Sowed
+                            </span>
+                          )}
                           {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.linkedNurseryOrderCode && (
                             <button
                               type="button"
@@ -10624,6 +10640,14 @@ const mapSlotForUi = (slotData) => {
                                         linkedPlantDispatchByNurseryId={linkedPlantDispatchByNurseryId}
                                       />
                                     </div>
+                                  )}
+                                  {!showAgriSalesOrders && row.details?.sowingDone && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide bg-green-100 text-green-800 border border-green-300"
+                                      title="Sow completed"
+                                    >
+                                      Sowed
+                                    </span>
                                   )}
                                   {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                                     <span
@@ -12913,6 +12937,8 @@ const mapSlotForUi = (slotData) => {
                           sowingDone={Boolean(selectedOrder?.details?.sowingDone)}
                           sowingDoneAt={selectedOrder?.details?.sowingDoneAt}
                           sowingDoneRequestId={selectedOrder?.details?.sowingDoneRequestId}
+                          sowingCoverSources={selectedOrder?.details?.sowingCoverSources}
+                          sowingCoverReversedAt={selectedOrder?.details?.sowingCoverReversedAt}
                           sowingPlan={selectedOrder?.details?.sowingPlan}
                           plantId={selectedOrder?.details?.plantID}
                           subtypeId={selectedOrder?.details?.plantSubtypeID}
