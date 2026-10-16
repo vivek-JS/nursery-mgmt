@@ -4293,13 +4293,11 @@ const AddOrderForm = ({
                 )}
               </Grid>
 
-              <Alert severity="info" sx={{ mt: 2 }}>
-                <Typography variant="body2">
-                  {bulkOrder
-                    ? "टीप: बल्क ऑर्डरसाठी फक्त डीलर निवड शक्य."
-                    : "टीप: डीलर किंवा सेल्स यापैकी एक निवडा (लॉग-इन वापरकर्ता आपोआप श्रेय दिले जात नाही). रेडिओ बदलल्यावर निवड साफ होते."}
-                </Typography>
-              </Alert>
+              {bulkOrder && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  <Typography variant="body2">टीप: बल्क ऑर्डरसाठी फक्त डीलर निवड शक्य.</Typography>
+                </Alert>
+              )}
             </CardContent>
           </Card>
           )}
