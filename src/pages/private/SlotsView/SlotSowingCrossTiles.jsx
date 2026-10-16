@@ -1,11 +1,14 @@
 import React from "react"
 import { Tooltip } from "@mui/material"
 import { ArrowRightLeft, Sprout } from "lucide-react"
-import {
-  getSowingFromOtherSlotPlants,
-  getSowedForOtherDeliveryPlants,
-  isSlotSowingAllowed,
-} from "./slotMetrics"
+import { getSowedForOtherDeliveryPlants, isSlotSowingAllowed } from "./slotMetrics"
+
+/** Only orders the server listed as sowed on another slot — same rows the drawer shows. */
+const sowedOnOtherSlotPlants = (slot) => {
+  const d = slot?.sowingFromOtherSlotDetail
+  if (!d?.orders?.length) return 0
+  return Math.max(0, Number(d.plants) || 0)
+}
 
 const tileClass =
   "rounded-xl border px-2.5 py-2 text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer w-full min-h-[4.25rem]"
@@ -19,7 +22,7 @@ const SlotSowingCrossTiles = ({
 }) => {
   if (!isSlotSowingAllowed(slot, sowingAllowed)) return null
 
-  const onOtherSlot = getSowingFromOtherSlotPlants(slot)
+  const onOtherSlot = sowedOnOtherSlotPlants(slot)
   const otherSowing = getSowedForOtherDeliveryPlants(slot)
   if (onOtherSlot <= 0 && otherSowing <= 0) return null
 

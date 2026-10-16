@@ -12,6 +12,7 @@ import { ArrowRightLeft } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import SlotActualReadyBreakdownModal from "./SlotActualReadyBreakdownModal"
+import SlotSowEntriesDialog from "./SlotSowEntriesDialog"
 import { summaryFromBreakdownPayload } from "./expectedReadyInSlot"
 import { useSlotReadySold } from "./useSlotReadySold"
 import {
@@ -119,13 +120,19 @@ const SlotLagwadMetrics = ({
   const [transferring, setTransferring] = useState(false)
   const [readyBreakdownOpen, setReadyBreakdownOpen] = useState(false)
   const [readyBreakdownTab, setReadyBreakdownTab] = useState(0)
+  const [sowEntriesOpen, setSowEntriesOpen] = useState(false)
 
   const labelSize = variant === "detail" ? "text-xs" : "text-[10px]"
   const valueSize = variant === "detail" ? "text-xl" : "text-sm"
   const pad = variant === "detail" ? "pl-3 pr-6 py-2" : "pl-2 pr-5 py-1.5"
 
+  /** Unlimited-booking plants are stocked by sowing, so Sow opens the sow entries, not lagwad. */
   const openActual = (e) => {
     e?.stopPropagation?.()
+    if (lagwadSowingMode) {
+      setSowEntriesOpen(true)
+      return
+    }
     onOpenActual?.(slot)
   }
 
@@ -265,7 +272,7 @@ const SlotLagwadMetrics = ({
   ].filter(Boolean)
 
   const sowLabel = lagwadSowingMode ? "Sow" : "Actual"
-  const sowSub = lagwadSowingMode ? "90% sellable" : "on slot (no sow %)"
+  const sowSub = lagwadSowingMode ? "90% sellable · tap → entries" : "on slot (no sow %)"
   const sowTitle = lagwadSowingMode ? D.lagwadSow.mr : D.lagwadActual.mr
 
   const cells = compact
@@ -279,7 +286,7 @@ const SlotLagwadMetrics = ({
           className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
           valueClass: "text-teal-900",
           title: sowTitle,
-          clickable: Boolean(onOpenActual),
+          clickable: lagwadSowingMode || Boolean(onOpenActual),
           onClick: openActual,
         },
         {
@@ -312,12 +319,12 @@ const SlotLagwadMetrics = ({
           key: "sellable",
           definitionKey: lagwadSowingMode ? "lagwadSow" : "lagwadActual",
           label: lagwadSowingMode ? "Sellable" : "Actual",
-          sub: lagwadSowingMode ? "90% actual" : "on slot",
+          sub: lagwadSowingMode ? "90% of sowed · tap → entries" : "on slot",
           value: actualPlants,
           className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
           valueClass: "text-teal-900",
           title: sowTitle,
-          clickable: Boolean(onOpenActual),
+          clickable: lagwadSowingMode || Boolean(onOpenActual),
           onClick: openActual,
         },
         {
@@ -365,7 +372,7 @@ const SlotLagwadMetrics = ({
     <div className={className} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
       {variant === "detail" && (
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1 flex-wrap">
-          Lagwad physical
+          {lagwadSowingMode ? "Sowing on this slot" : "Lagwad physical"}
           {mortality > 0 && onSlotChanged && (
             <span className="text-rose-600 normal-case font-normal text-[10px]">
               · mortality can transfer to ready
@@ -406,13 +413,20 @@ const SlotLagwadMetrics = ({
       {!hasLagwad && variant === "card" && (
         <p className={`${labelSize} text-slate-400 mb-1`}>Lagwad: no stock on slot</p>
       )}
-      {isFutureSlot && (forSellLagwad > 0 || forSellExpected > 0) && (
+      {lagwadSowingMode && (forSellLagwad > 0 || actualPlants > 0) ? (
+        <p
+          className={`${labelSize} text-teal-900 bg-teal-50 border border-teal-200 rounded-md px-2 py-1 mb-2`}>
+          <strong>Unlimited booking plant (CMS)</strong> — stock here comes from{" "}
+          <strong>sowing entries</strong> on this ready slot, not shed lagwad. Sow = 90% of plants
+          sowed. Tap <strong>Sow</strong> to see the entries.
+        </p>
+      ) : isFutureSlot && (forSellLagwad > 0 || forSellExpected > 0) ? (
         <p
           className={`${labelSize} text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-1 mb-2`}>
           Future window — lagwad here is <strong>expected / pipeline</strong> (orders booked).{" "}
           <strong>Can sell = 0</strong> until this delivery window is active (today inside dates).
         </p>
-      )}
+      ) : null}
       {(forSellLagwad > 0 || canSellLagwad > 0 || forSellExpected > 0) && (
         <div
           className={`mb-2 rounded-lg border border-slate-200 bg-slate-50/90 px-2 py-1.5 ${variant === "detail" ? "text-sm" : ""}`}>
@@ -489,6 +503,14 @@ const SlotLagwadMetrics = ({
         initialTab={readyBreakdownTab}
         onMarkedReady={refreshExpectedReady}
       />
+
+      {lagwadSowingMode ? (
+        <SlotSowEntriesDialog
+          open={sowEntriesOpen}
+          onClose={() => setSowEntriesOpen(false)}
+          slot={slot}
+        />
+      ) : null}
 
       <Dialog
         open={transferOpen}
