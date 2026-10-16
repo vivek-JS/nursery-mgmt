@@ -2,10 +2,11 @@ import { slotRangeLabel } from "./capacitySheetUtils"
 
 export const SHED_TAB = "shed"
 
-/** Slot columns after "today" in the table; the API sends more for the ready-plants message. */
-export function tableSlotCount(slotDays) {
-  return Number(slotDays) <= 1 ? 7 : 4
-}
+/** Column grouping the board API understands (?group=N). */
+export const GROUP_OPTIONS = [
+  { value: 1, label: "Day-wise" },
+  { value: 3, label: "3-day groups" },
+]
 
 export function slotTabKey(slotDays) {
   return `${Number(slotDays) || 0}d`
@@ -35,26 +36,6 @@ export function slotTabs(rows) {
   }))
 }
 
-function rangeKey(cell) {
-  return cell?.startDay ? `${cell.startDay}|${cell.endDay}` : ""
-}
-
-function mostCommon(keys) {
-  const counts = new Map()
-  for (const key of keys) {
-    if (key) counts.set(key, (counts.get(key) || 0) + 1)
-  }
-  let best = ""
-  let bestN = 0
-  for (const [key, n] of counts) {
-    if (n > bestN) {
-      best = key
-      bestN = n
-    }
-  }
-  return { key: best, shared: counts.size === 1 }
-}
-
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 function weekday(ddmmyyyy) {
@@ -63,35 +44,68 @@ function weekday(ddmmyyyy) {
   return WEEKDAYS[new Date(y, m - 1, d).getDay()]
 }
 
+function spanDays(startDay, endDay) {
+  const toTime = (value) => {
+    const [d, m, y] = String(value || "").split("-").map(Number)
+    return y ? new Date(y, m - 1, d).getTime() : NaN
+  }
+  const days = Math.round((toTime(endDay) - toTime(startDay)) / 86400000) + 1
+  return Number.isFinite(days) ? days : 1
+}
+
+const nowCell = (row) => row?.now || row?.current || null
+
 /**
- * Board columns: the current slot (with overdue folded in) followed by the next slots.
- * When every row shares a window the header carries the dates; otherwise each cell shows its own.
+ * Board columns: "now" (current slot + overdue) then one column per date that has plants in any row.
+ * Dates with nothing are skipped, so 16 Oct can sit right next to 20 Oct.
  */
-export function boardColumns(rows, slotDays) {
+export function boardColumns(rows) {
   const list = rows || []
-  const longest = list.reduce((max, row) => Math.max(max, (row.upcoming || []).length), 0)
-  const width = Math.min(longest, tableSlotCount(slotDays))
-  const dayLabel = Number(slotDays) === 1
-  const columnInfo = (cells, index) => {
-    const { key, shared } = mostCommon(cells.map(rangeKey))
-    const [start, end] = key ? key.split("|") : ["", ""]
-    return {
-      index,
-      range: key ? slotRangeLabel(start, end) : "",
-      shared,
-      sub: index < 0 ? "Current slot + overdue" : dayLabel && start ? weekday(start) : `Slot ${index + 2}`,
+  const ranges = new Set(list.map((row) => nowCell(row)).filter((cell) => cell?.startDay).map((cell) => `${cell.startDay}|${cell.endDay}`))
+  const [nowStart, nowEnd] = ranges.size === 1 ? [...ranges][0].split("|") : ["", ""]
+  const columns = [
+    {
+      key: "now",
+      startDay: nowStart,
+      endDay: nowEnd,
+      range: nowStart ? slotRangeLabel(nowStart, nowEnd) : "",
+      shared: ranges.size <= 1,
+      sub: "Now + overdue",
+    },
+  ]
+  const byKey = new Map()
+  for (const row of list) {
+    for (const cell of row.cells || []) {
+      if (!byKey.has(cell.key)) byKey.set(cell.key, cell)
     }
   }
-  const columns = [{ key: "current", ...columnInfo(list.map((row) => row.current), -1) }]
-  for (let i = 0; i < width; i += 1) {
-    columns.push({ key: `u${i}`, ...columnInfo(list.map((row) => row.upcoming?.[i]), i) })
+  for (const [key, cell] of [...byKey].sort(([a], [b]) => a.localeCompare(b))) {
+    const days = spanDays(cell.startDay, cell.endDay)
+    columns.push({
+      key,
+      startDay: cell.startDay,
+      endDay: cell.endDay,
+      range: slotRangeLabel(cell.startDay, cell.endDay),
+      shared: true,
+      sub: days === 1 ? weekday(cell.startDay) : `${days} days`,
+    })
   }
   return columns
 }
 
 export function cellFor(row, column) {
-  if (column.key === "current") return row.current
-  return row.upcoming?.[column.index] || null
+  if (column.key === "now") return nowCell(row)
+  return (row.cells || []).find((cell) => cell.key === column.key) || null
+}
+
+/** Rows grouped under their crop, in the order the crops first appear (keeps urgent-first sorting). */
+export function groupByCrop(rows) {
+  const groups = new Map()
+  for (const row of rows || []) {
+    if (!groups.has(row.plantName)) groups.set(row.plantName, [])
+    groups.get(row.plantName).push(row)
+  }
+  return [...groups].map(([crop, list]) => ({ crop, rows: list }))
 }
 
 export function isUrgent(row) {
@@ -103,7 +117,7 @@ export function hasOverdue(row) {
 }
 
 function cells(row) {
-  return [row.current, ...(row.upcoming || []).slice(0, tableSlotCount(row.slotDays))].filter(Boolean)
+  return [nowCell(row), ...(row.cells || [])].filter(Boolean)
 }
 
 export const CAPACITY_FILTERS = [
@@ -204,9 +218,9 @@ export function stockBatchSheet(rows, title) {
 export function exportSheet(rows, columns, title) {
   const headers = ["Plant", "Subtype", "Stock in shed", "Ready now in shed"]
   for (const column of columns) {
-    const label = column.key === "current" ? `Current ${column.range}`.trim() : column.range || column.sub
+    const label = column.key === "now" ? `Now ${column.range}`.trim() : column.range
     headers.push(`${label} ready`, `${label} booked`, `${label} net`)
-    if (column.key === "current") headers.push("Overdue booked", "Overdue unsold")
+    if (column.key === "now") headers.push("Overdue booked", "Overdue unsold")
   }
   headers.push("Total ready")
   return {
@@ -217,7 +231,7 @@ export function exportSheet(rows, columns, title) {
       for (const column of columns) {
         const cell = cellFor(row, column)
         line.push(cell?.ready || 0, cell?.booked || 0, cell?.net || 0)
-        if (column.key === "current") line.push(cell?.overdue?.booked || 0, cell?.overdue?.unsold || 0)
+        if (column.key === "now") line.push(cell?.overdue?.booked || 0, cell?.overdue?.unsold || 0)
       }
       line.push(row.totals?.ready || 0)
       return line

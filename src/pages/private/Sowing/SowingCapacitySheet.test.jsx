@@ -48,6 +48,7 @@ const rows = [
       slotIds: ["cur", "old"],
     },
     upcoming: [slot("n1", "19-10-2026", "25-10-2026", 6500, 5000)],
+    cells: [{ key: "2026-10-19", ...slot("n1", "19-10-2026", "25-10-2026", 6500, 5000), slotIds: ["n1"] }],
     totals: { ready: 17600 },
   },
   {
@@ -63,8 +64,12 @@ const rows = [
       overdue: { booked: 0, ready: 0, net: 0, gap: 0, unsold: 0, slotIds: [] },
       slotIds: ["d0"],
     },
-    upcoming: [slot("d1", "17-10-2026", "17-10-2026", 900, 0)],
-    totals: { ready: 1200 },
+    upcoming: [slot("d1", "17-10-2026", "17-10-2026", 900, 0), slot("d4", "20-10-2026", "20-10-2026", 400, 0)],
+    cells: [
+      { key: "2026-10-17", ...slot("d1", "17-10-2026", "17-10-2026", 900, 0), slotIds: ["d1"] },
+      { key: "2026-10-20", ...slot("d4", "20-10-2026", "20-10-2026", 400, 0), slotIds: ["d4"] },
+    ],
+    totals: { ready: 1600 },
   },
   {
     plantId: "p3",
@@ -98,11 +103,28 @@ test("shows one tab per slot length and the 1-day board first", async () => {
       <SowingCapacitySheet />
     </MemoryRouter>
   )
-  expect(await screen.findByText("Chilli – Teja 4")).toBeInTheDocument()
+  expect(await screen.findByText("Teja 4")).toBeInTheDocument()
+  expect(screen.getByText("Chilli")).toBeInTheDocument()
   expect(screen.getByRole("tab", { name: /1-Day slots \(1\)/ })).toBeInTheDocument()
   expect(screen.getByRole("tab", { name: /7-Day slots \(1\)/ })).toBeInTheDocument()
-  expect(screen.queryByText("Papaya – Taiwan 786")).not.toBeInTheDocument()
-  expect(screen.getAllByText("+900 free")).toHaveLength(2)
+  expect(screen.queryByText("Taiwan 786")).not.toBeInTheDocument()
+  expect(screen.getAllByText("+900 free")).toHaveLength(3)
+  const headers = screen.getAllByRole("columnheader").map((cell) => cell.textContent)
+  expect(headers.some((text) => text.startsWith("17 Oct"))).toBe(true)
+  expect(headers.some((text) => text.startsWith("20 Oct"))).toBe(true)
+  expect(headers.some((text) => text.startsWith("18 Oct") || text.startsWith("19 Oct"))).toBe(false)
+  expect(mockRequest).toHaveBeenCalledWith({}, { group: 1 })
+})
+
+test("3-day groups ask the API with group=3", async () => {
+  render(
+    <MemoryRouter initialEntries={["/u/sowing-capacity"]}>
+      <SowingCapacitySheet />
+    </MemoryRouter>
+  )
+  fireEvent.click(await screen.findByRole("button", { name: "3-day groups" }))
+  await screen.findByText("Teja 4")
+  expect(mockRequest).toHaveBeenLastCalledWith({}, { group: 3 })
 })
 
 test("crops without sowing get a batch-wise shed stock tab", async () => {
@@ -116,7 +138,7 @@ test("crops without sowing get a batch-wise shed stock tab", async () => {
   expect(screen.getByText("Sowing not required")).toBeInTheDocument()
   expect(screen.getByText("Shed 2")).toBeInTheDocument()
   expect(screen.getAllByText("229")).toHaveLength(3)
-  expect(screen.queryByText("Papaya – Taiwan 786")).not.toBeInTheDocument()
+  expect(screen.queryByText("Taiwan 786")).not.toBeInTheDocument()
 })
 
 test("7-day board folds overdue into today, expands sheds and opens orders", async () => {
@@ -125,8 +147,9 @@ test("7-day board folds overdue into today, expands sheds and opens orders", asy
       <SowingCapacitySheet />
     </MemoryRouter>
   )
-  const name = await screen.findByText("Papaya – Taiwan 786")
-  expect(screen.getAllByText("-1,200 short")).toHaveLength(2)
+  const name = await screen.findByText("Taiwan 786")
+  expect(screen.getByText("Papaya")).toBeInTheDocument()
+  expect(screen.getAllByText("-1,200 short")).toHaveLength(3)
   expect(screen.getByText("incl. 5,100 overdue")).toBeInTheDocument()
   expect(screen.getByText("5,100 overdue")).toBeInTheDocument()
   expect(screen.getByText("12–18 Oct")).toBeInTheDocument()

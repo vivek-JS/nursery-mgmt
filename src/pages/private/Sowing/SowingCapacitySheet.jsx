@@ -12,6 +12,8 @@ import {
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from "@mui/material"
@@ -38,6 +40,7 @@ import { downloadSheetsXlsx } from "utils/exportExcel"
 import { dayLabel } from "./capacitySheetUtils"
 import {
   CAPACITY_FILTERS,
+  GROUP_OPTIONS,
   SHED_TAB,
   STOCK_ONLY_DAYS,
   boardColumns,
@@ -86,11 +89,13 @@ export default function SowingCapacitySheet() {
   const [detail, setDetail] = useState(null)
   const [messageOpen, setMessageOpen] = useState(false)
 
+  const group = Number(searchParams.get("group")) === 3 ? 3 : 1
+
   const load = useCallback(async () => {
     setLoading(true)
     setError("")
     try {
-      const res = await NetworkManager(API.sowing.GET_CAPACITY_BOARD).request({})
+      const res = await NetworkManager(API.sowing.GET_CAPACITY_BOARD).request({}, { group })
       if (res?.data?.success) {
         setBoard({
           today: res.data.today,
@@ -106,7 +111,7 @@ export default function SowingCapacitySheet() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [group])
 
   useEffect(() => {
     load()
@@ -119,23 +124,24 @@ export default function SowingCapacitySheet() {
   const activeTab = tabs.find((t) => t.key === tab)
   const stockOnly = activeTab?.days === STOCK_ONLY_DAYS
 
-  const setTab = (value) => {
+  const setParam = (name, value) => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-        next.set("tab", value)
+        next.set(name, String(value))
         return next
       },
       { replace: true }
     )
   }
+  const setTab = (value) => setParam("tab", value)
 
   const tabRows = useMemo(
     () => (activeTab ? board.rows.filter((row) => (Number(row.slotDays) || 0) === activeTab.days) : []),
     [board.rows, activeTab]
   )
   const crops = useMemo(() => [...new Set(tabRows.map((row) => row.plantName))].sort(), [tabRows])
-  const columns = useMemo(() => boardColumns(tabRows, activeTab?.days), [tabRows, activeTab])
+  const columns = useMemo(() => boardColumns(tabRows), [tabRows])
   const rows = useMemo(
     () => sortRows(filterRows(tabRows, { search, crop, capacity: stockOnly ? "all" : capacity }), sort, columns),
     [tabRows, search, crop, capacity, sort, columns, stockOnly]
@@ -170,7 +176,7 @@ export default function SowingCapacitySheet() {
     const sheets = tabs.map((t) => {
       const list = board.rows.filter((row) => (Number(row.slotDays) || 0) === t.days)
       if (t.days === STOCK_ONLY_DAYS) return stockBatchSheet(list, t.label)
-      return exportSheet(sortRows(list, { key: "urgent" }, []), boardColumns(list, t.days), t.label)
+      return exportSheet(sortRows(list, { key: "urgent" }, []), boardColumns(list), t.label)
     })
     downloadSheetsXlsx(`sowing-capacity-${board.today}`, sheets, { stamp: false })
   }
@@ -300,6 +306,23 @@ export default function SowingCapacitySheet() {
               </TextField>
               {stockOnly ? null : (
                 <>
+                  <ToggleButtonGroup
+                    exclusive
+                    size="small"
+                    value={group}
+                    onChange={(_, value) => value && setParam("group", value)}
+                    sx={{
+                      bgcolor: "#fff",
+                      "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 700, fontSize: 12.5, px: 1.5, py: 0.6, color: "#475569" },
+                      "& .Mui-selected": { bgcolor: "#0f172a !important", color: "#fff !important" },
+                    }}
+                  >
+                    {GROUP_OPTIONS.map((option) => (
+                      <ToggleButton key={option.value} value={option.value}>
+                        {option.label}
+                      </ToggleButton>
+                    ))}
+                  </ToggleButtonGroup>
                   <TextField select size="small" value={capacity} onChange={(event) => setCapacity(event.target.value)} sx={selectSx}>
                     {CAPACITY_FILTERS.map((option) => (
                       <MenuItem key={option.key} value={option.key}>
@@ -327,7 +350,7 @@ export default function SowingCapacitySheet() {
             ) : (
               <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
                 <Typography sx={{ fontSize: 11.5, color: "#475569", fontWeight: 700 }}>
-                  Cell = ready plants · chip = free (+) or short (−)
+                  Only dates with plants · cell = ready · chip = free (+) or short (−)
                 </Typography>
                 <Legend color="#f59e0b" label="Current + overdue" />
                 <Legend color="#10b981" label="Free to sell" />

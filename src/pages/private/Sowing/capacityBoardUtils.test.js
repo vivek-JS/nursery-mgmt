@@ -4,6 +4,7 @@ import {
   columnTotals,
   exportSheet,
   filterRows,
+  groupByCrop,
   slotTabs,
   sortRows,
   stockBatchSheet,
@@ -21,6 +22,8 @@ const cell = (startDay, endDay, ready, booked, extra = {}) => ({
   ...extra,
 })
 
+const keyed = (c) => ({ ...c, key: c.startDay.split("-").reverse().join("-") })
+
 const papaya = {
   plantId: "p1",
   plantName: "Papaya",
@@ -29,7 +32,7 @@ const papaya = {
   slotDays: 7,
   stock: { inShed: 8200, readyNow: 8200, batches: [] },
   current: cell("12-10-2026", "18-10-2026", 11100, 12300, { overdue: { booked: 5100, unsold: 0 }, slotIds: ["a", "b"] }),
-  upcoming: [cell("19-10-2026", "25-10-2026", 6500, 5000), cell("26-10-2026", "01-11-2026", 8000, 5200)],
+  cells: [keyed(cell("19-10-2026", "25-10-2026", 6500, 5000)), keyed(cell("26-10-2026", "01-11-2026", 8000, 5200))],
   totals: { ready: 25600 },
 }
 
@@ -41,7 +44,7 @@ const tomato = {
   slotDays: 7,
   stock: { inShed: 0, readyNow: 0, batches: [] },
   current: cell("12-10-2026", "18-10-2026", 2200, 1800, { overdue: { booked: 0, unsold: 0 }, slotIds: ["c"] }),
-  upcoming: [cell("19-10-2026", "25-10-2026", 3200, 2000)],
+  cells: [keyed(cell("19-10-2026", "25-10-2026", 3200, 2000))],
   totals: { ready: 5400 },
 }
 
@@ -87,17 +90,42 @@ test("stock-only varieties get the last tab and a batch-wise export", () => {
   expect(sheet.rows).toEqual([["Banana", "G9", "Shed 2", "B7", "2026-08-01", "2026-10-01", 1729, 1500, 229, "2026-10-30"]])
 })
 
-test("columns share dates when every variety uses the same window", () => {
-  const columns = boardColumns([papaya, tomato], 7)
-  expect(columns.map((c) => c.key)).toEqual(["current", "u0", "u1"])
+test("columns are now + only the dates that have plants, in date order", () => {
+  const columns = boardColumns([papaya, tomato])
+  expect(columns.map((c) => c.key)).toEqual(["now", "2026-10-19", "2026-10-26"])
   expect(columns[0]).toMatchObject({ range: "12–18 Oct", shared: true })
-  expect(columns[1]).toMatchObject({ range: "19–25 Oct", shared: true, sub: "Slot 2" })
+  expect(columns[1]).toMatchObject({ range: "19–25 Oct", sub: "7 days" })
+  expect(cellFor(tomato, columns[1]).ready).toBe(3200)
   expect(cellFor(tomato, columns[2])).toBeNull()
 })
 
-test("columns flag differing windows", () => {
-  const shifted = { ...tomato, upcoming: [cell("20-10-2026", "26-10-2026", 1, 0)] }
-  expect(boardColumns([papaya, shifted], 7)[1].shared).toBe(false)
+test("day-wise columns jump over empty days; differing current windows are flagged", () => {
+  const day = (d, ready) => keyed(cell(`${d}-10-2026`, `${d}-10-2026`, ready, 0))
+  const a = { ...chilli, current: cell("16-10-2026", "16-10-2026", 300, 200), cells: [day("20", 900)] }
+  const b = { ...chilli, plantId: "p4", current: cell("16-10-2026", "16-10-2026", 0, 0), cells: [day("17", 50), day("20", 10)] }
+  expect(boardColumns([a]).map((c) => c.range)).toEqual(["16 Oct", "20 Oct"])
+  expect(boardColumns([a, b]).map((c) => [c.range, c.sub])).toEqual([
+    ["16 Oct", "Now + overdue"],
+    ["17 Oct", "Sat"],
+    ["20 Oct", "Tue"],
+  ])
+  const shifted = { ...tomato, current: cell("13-10-2026", "19-10-2026", 1, 0) }
+  expect(boardColumns([papaya, shifted])[0].shared).toBe(false)
+})
+
+test("3-day groups use the API's now cell and group crops in sorted order", () => {
+  const grouped = { ...chilli, now: { ...cell("16-10-2026", "18-10-2026", 500, 100), key: "now" }, cells: [keyed(cell("19-10-2026", "21-10-2026", 40, 0))] }
+  const columns = boardColumns([grouped])
+  expect(columns.map((c) => [c.range, c.sub])).toEqual([
+    ["16–18 Oct", "Now + overdue"],
+    ["19–21 Oct", "3 days"],
+  ])
+  expect(cellFor(grouped, columns[0]).ready).toBe(500)
+  const papaya2 = { ...papaya, subtypeId: "s9", subtypeName: "Red Lady" }
+  expect(groupByCrop([papaya, tomato, papaya2]).map((g) => [g.crop, g.rows.length])).toEqual([
+    ["Papaya", 2],
+    ["Tomato", 1],
+  ])
 })
 
 test("filters and urgent-first sort", () => {
@@ -110,7 +138,7 @@ test("filters and urgent-first sort", () => {
 })
 
 test("column totals and export", () => {
-  const columns = boardColumns([papaya, tomato], 7)
+  const columns = boardColumns([papaya, tomato])
   const totals = columnTotals([papaya, tomato], columns)
   expect(totals[0]).toEqual({ ready: 13300, booked: 14100, net: -800, overdue: 5100 })
   const sheet = exportSheet([papaya], columns, "7-Day slots")
