@@ -234,7 +234,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     ? leftoverOf(raisingOpen, raisingUsedNum, raisingReturnedNum)
     : 0
   const leftoverPkts = leftoverCompany + leftoverRaising
-  const willClose = leftoverPkts <= 0.001
+  const returning = (hasCompany && returnedNum > 0) || (hasRaising && raisingReturnedNum > 0)
+  const willClose = leftoverPkts <= 0.001 || returning
   const companyOver = hasCompany && usedNum + returnedNum - companyOpen > 0.001
   const raisingOver = hasRaising && raisingUsedNum + raisingReturnedNum - raisingOpen > 0.001
   const packetsOver = companyOver || raisingOver
@@ -529,7 +530,15 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
             />
           ) : null}
 
-          {leftoverPkts > 0.001 ? (
+          {leftoverPkts > 0.001 && returning ? (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              Packets returned, so this request will close.{" "}
+              {leftoverCompany > 0.001 ? `${leftoverCompany} company pkt` : null}
+              {leftoverCompany > 0.001 && leftoverRaising > 0.001 ? " + " : null}
+              {leftoverRaising > 0.001 ? `${leftoverRaising} raising pkt` : null}
+              {" not entered will also be returned."}
+            </Alert>
+          ) : leftoverPkts > 0.001 ? (
             <Alert severity="warning" sx={{ py: 0.5 }}>
               {leftoverCompany > 0.001 ? `${leftoverCompany} company pkt` : null}
               {leftoverCompany > 0.001 && leftoverRaising > 0.001 ? " + " : null}
