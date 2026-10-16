@@ -3422,6 +3422,7 @@ const AddOrderForm = ({
       : ""
   const excessCoverKey =
     excessCoverPlant?.sowingAllowed &&
+    defaultOrderStatusOnPlace(isInstantOrder, user) === "ACCEPTED" &&
     !formData?.productMappingId &&
     !isInstantOrder &&
     !bulkOrder &&

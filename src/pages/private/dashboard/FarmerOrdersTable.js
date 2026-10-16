@@ -142,6 +142,11 @@ import { useFillViewportHeight } from "hooks/useFillViewportHeight"
 import OrderEditPanel from "./OrderEditPanel"
 import OrderRaisingIntakePanel from "./OrderRaisingIntakePanel"
 import OrderSowingDetailsPanel from "./OrderSowingDetailsPanel"
+import ExcessBatchCoverDialog, {
+  SOW_LABEL,
+  fetchExcessBatches,
+  fmtNum
+} from "../order/ExcessBatchCoverDialog"
 import {
   buildOrderEditState,
   hasOrderEditChanges,
@@ -2941,6 +2946,13 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     title: "",
     description: "",
     onConfirm: null
+  })
+  const [acceptCover, setAcceptCover] = useState({
+    open: false,
+    row: null,
+    preview: null,
+    need: 0,
+    saving: false
   })
   const [statusRemarkDialog, setStatusRemarkDialog] = useState({
     open: false,
@@ -6703,6 +6715,7 @@ const mapSlotForUi = (slotData) => {
             sowingDoneRequestId: sowingDoneRequestId || null,
             sowingCoverSources: Array.isArray(sowingCoverSources) ? sowingCoverSources : [],
             sowingCoverReversedAt: sowingCoverReversedAt || null,
+            productMappingId: data?.productMappingId || null,
             slotHistory: Array.isArray(bookingSlot)
               ? bookingSlot.filter(Boolean)
               : bookingSlot
@@ -7796,6 +7809,54 @@ const mapSlotForUi = (slotData) => {
     setSelectedRow(null)
   }
 
+  const isAcceptExcessCandidate = (row, newStatus) => {
+    const d = row?.details
+    if (newStatus !== "ACCEPTED" || row?.orderStatus !== "PENDING" || !d) return false
+    if (row.isAgriSalesOrder || d.isRamAgriProduct || d.dealerOrder || d.productMappingId) return false
+    if (d.sowingDone || !d.plantID || !d.plantSubtypeID || !d.deliveryDate) return false
+    return (
+      Boolean(d.sowingAllowed) ||
+      plants.some(
+        (p) => String(p.value || p.id || "") === String(d.plantID) && p.sowingAllowed
+      )
+    )
+  }
+
+  const closeAcceptCover = () =>
+    setAcceptCover({ open: false, row: null, preview: null, need: 0, saving: false })
+
+  const acceptAfterCoverChoice = (row, extra = {}) =>
+    pacthOrders({ id: row?.details?.orderid, orderStatus: "ACCEPTED", ...extra }, row)
+
+  const handleAcceptCover = async (picks) => {
+    const { row } = acceptCover
+    if (!row || !picks?.length) return
+    setAcceptCover((s) => ({ ...s, saving: true }))
+    try {
+      const instance = NetworkManager(API.sowing.COVER_ORDER_FROM_BATCHES)
+      const res = await instance.request(
+        { picks: picks.map((p) => ({ batchId: p.batchId, slotId: p.slotId, plants: p.plants })) },
+        [row.details.orderid]
+      )
+      if (!res?.data?.success) throw new Error(res?.data?.message || "Cover failed")
+      Toast.success(res.data.message || "Order covered from excess sowing")
+      closeAcceptCover()
+      await acceptAfterCoverChoice(row)
+    } catch (err) {
+      Toast.error(err?.response?.data?.message || err?.message || "Cover failed")
+      setAcceptCover((s) => ({ ...s, saving: false }))
+    }
+  }
+
+  const handleAcceptSow = async (totalFree) => {
+    const { row } = acceptCover
+    if (!row) return
+    closeAcceptCover()
+    await acceptAfterCoverChoice(row, {
+      orderRemarks: `Excess ${fmtNum(totalFree)} within ±5d shown at accept; chose "${SOW_LABEL}"`
+    })
+  }
+
   // Status change handler with confirmation
   const handleStatusChange = async (row, newStatus) => {
     const requiresRemark =
@@ -7925,6 +7986,29 @@ const mapSlotForUi = (slotData) => {
         }
       })
       return
+    }
+
+    if (isAcceptExcessCandidate(row, newStatus)) {
+      const d = row.details
+      const need = (Number(d.numberOfPlants) || 0) + (Number(d.additionalPlants) || 0)
+      let preview = null
+      setpatchLoading(true)
+      try {
+        preview = await fetchExcessBatches({
+          plantId: d.plantID,
+          subtypeId: d.plantSubtypeID,
+          deliveryDate: d.deliveryDate,
+          need
+        })
+      } catch (err) {
+        console.error("Excess sowing check failed:", err)
+      } finally {
+        setpatchLoading(false)
+      }
+      if (Number(preview?.totalFree) > 0) {
+        setAcceptCover({ open: true, row, preview, need, saving: false })
+        return
+      }
     }
 
     // Handle regular orders (existing flow)
@@ -13540,6 +13624,15 @@ const mapSlotForUi = (slotData) => {
         description={confirmDialog.description}
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
+      />
+      <ExcessBatchCoverDialog
+        open={acceptCover.open}
+        onClose={() => !acceptCover.saving && closeAcceptCover()}
+        preview={acceptCover.preview}
+        loading={acceptCover.saving}
+        need={acceptCover.need}
+        onCover={handleAcceptCover}
+        onSow={handleAcceptSow}
       />
       <Dialog
         open={statusRemarkDialog.open}
