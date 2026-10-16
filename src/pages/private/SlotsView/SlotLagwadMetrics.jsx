@@ -413,14 +413,7 @@ const SlotLagwadMetrics = ({
       {!hasLagwad && variant === "card" && (
         <p className={`${labelSize} text-slate-400 mb-1`}>Lagwad: no stock on slot</p>
       )}
-      {lagwadSowingMode && (forSellLagwad > 0 || actualPlants > 0) ? (
-        <p
-          className={`${labelSize} text-teal-900 bg-teal-50 border border-teal-200 rounded-md px-2 py-1 mb-2`}>
-          <strong>Unlimited booking plant (CMS)</strong> — stock here comes from{" "}
-          <strong>sowing entries</strong> on this ready slot, not shed lagwad. Sow = 90% of plants
-          sowed. Tap <strong>Sow</strong> to see the entries.
-        </p>
-      ) : isFutureSlot && (forSellLagwad > 0 || forSellExpected > 0) ? (
+      {!lagwadSowingMode && isFutureSlot && (forSellLagwad > 0 || forSellExpected > 0) ? (
         <p
           className={`${labelSize} text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-1 mb-2`}>
           Future window — lagwad here is <strong>expected / pipeline</strong> (orders booked).{" "}
