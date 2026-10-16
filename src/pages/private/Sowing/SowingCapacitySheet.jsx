@@ -39,9 +39,9 @@ import ReadyPlantsMessageDialog from "./components/ReadyPlantsMessageDialog"
 import { downloadSheetsXlsx } from "utils/exportExcel"
 import { dayLabel } from "./capacitySheetUtils"
 import {
-  CAPACITY_FILTERS,
   GROUP_OPTIONS,
   SHED_TAB,
+  SHOW_OPTIONS,
   STOCK_ONLY_DAYS,
   boardColumns,
   exportSheet,
@@ -83,13 +83,13 @@ export default function SowingCapacitySheet() {
   const [board, setBoard] = useState({ today: "", rows: [], generatedAt: "", lookbackDays: 0 })
   const [search, setSearch] = useState("")
   const [crop, setCrop] = useState("")
-  const [capacity, setCapacity] = useState("all")
   const [sort, setSort] = useState({ key: "urgent", dir: "asc" })
   const [expanded, setExpanded] = useState(() => new Set())
   const [detail, setDetail] = useState(null)
   const [messageOpen, setMessageOpen] = useState(false)
 
   const group = Number(searchParams.get("group")) === 3 ? 3 : 1
+  const mode = searchParams.get("show") === "gap" ? "gap" : "excess"
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -143,8 +143,13 @@ export default function SowingCapacitySheet() {
   const crops = useMemo(() => [...new Set(tabRows.map((row) => row.plantName))].sort(), [tabRows])
   const columns = useMemo(() => boardColumns(tabRows), [tabRows])
   const rows = useMemo(
-    () => sortRows(filterRows(tabRows, { search, crop, capacity: stockOnly ? "all" : capacity }), sort, columns),
-    [tabRows, search, crop, capacity, sort, columns, stockOnly]
+    () =>
+      sortRows(
+        filterRows(tabRows, { search, crop, mode: stockOnly ? "" : mode }),
+        sort.key === "urgent" && mode === "excess" ? { key: "total", dir: "desc", mode } : { ...sort, mode },
+        columns
+      ),
+    [tabRows, search, crop, mode, sort, columns, stockOnly]
   )
 
   useEffect(() => {
@@ -323,13 +328,31 @@ export default function SowingCapacitySheet() {
                       </ToggleButton>
                     ))}
                   </ToggleButtonGroup>
-                  <TextField select size="small" value={capacity} onChange={(event) => setCapacity(event.target.value)} sx={selectSx}>
-                    {CAPACITY_FILTERS.map((option) => (
-                      <MenuItem key={option.key} value={option.key}>
+                  <ToggleButtonGroup
+                    exclusive
+                    size="small"
+                    value={mode}
+                    onChange={(_, value) => value && setParam("show", value)}
+                    sx={{
+                      bgcolor: "#fff",
+                      "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 800, fontSize: 12.5, px: 1.5, py: 0.6, color: "#475569" },
+                    }}
+                  >
+                    {SHOW_OPTIONS.map((option) => (
+                      <ToggleButton
+                        key={option.value}
+                        value={option.value}
+                        sx={{
+                          "&.Mui-selected, &.Mui-selected:hover": {
+                            bgcolor: option.value === "gap" ? "#be123c" : "#047857",
+                            color: "#fff",
+                          },
+                        }}
+                      >
                         {option.label}
-                      </MenuItem>
+                      </ToggleButton>
                     ))}
-                  </TextField>
+                  </ToggleButtonGroup>
                   <Button
                     size="small"
                     variant="outlined"
@@ -350,11 +373,10 @@ export default function SowingCapacitySheet() {
             ) : (
               <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
                 <Typography sx={{ fontSize: 11.5, color: "#475569", fontWeight: 700 }}>
-                  Each variety shows only its own dates · number = ready · chip = free (+) or short (−)
+                  {mode === "gap" ? "Only dates where bookings are short" : "Only dates with free plants to sell"}
                 </Typography>
-                <Legend color="#f59e0b" label="Current + overdue" />
-                <Legend color="#10b981" label="Free to sell" />
-                <Legend color="#f43f5e" label="Short" />
+                <Legend color="#f59e0b" label="Now + overdue" />
+                {mode === "gap" ? <Legend color="#f43f5e" label="Short" /> : <Legend color="#10b981" label="Free" />}
               </Stack>
             )}
           </Stack>
@@ -371,13 +393,18 @@ export default function SowingCapacitySheet() {
             </Box>
           ) : rows.length === 0 ? (
             <Alert severity="info" sx={{ m: 1.5 }}>
-              No ready stock or due slots for this filter.
+              {stockOnly
+                ? "No shed stock for this filter."
+                : mode === "gap"
+                  ? "Nothing is short — every booking is covered."
+                  : "No free plants to sell for this filter."}
             </Alert>
           ) : stockOnly ? (
             <StockOnlyTable rows={rows} />
           ) : (
             <CapacityBoardTable
               rows={rows}
+              mode={mode}
               sort={sort}
               onSort={onSort}
               expanded={expanded}

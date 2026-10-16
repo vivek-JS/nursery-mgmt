@@ -79,6 +79,25 @@ export function rowCards(row) {
   ]
 }
 
+/** Excess = dates with free plants to sell; gap = dates where bookings are short. */
+export const SHOW_OPTIONS = [
+  { value: "excess", label: "Excess (free)" },
+  { value: "gap", label: "Gap (short)" },
+]
+
+export function modeAmount(cell, mode) {
+  const net = Number(cell?.net) || 0
+  return mode === "gap" ? Math.max(0, -net) : Math.max(0, net)
+}
+
+export function modeCards(row, mode = "excess") {
+  return rowCards(row).filter((cell) => modeAmount(cell, mode) > 0)
+}
+
+export function modeTotal(row, mode = "excess") {
+  return modeCards(row, mode).reduce((acc, cell) => acc + modeAmount(cell, mode), 0)
+}
+
 /**
  * Board columns: "now" (current slot + overdue) then one column per date that has plants in any row.
  * Dates with nothing are skipped, so 16 Oct can sit right next to 20 Oct.
@@ -132,27 +151,13 @@ export function hasOverdue(row) {
   return Number(row?.current?.overdue?.booked) > 0 || Number(row?.current?.overdue?.unsold) > 0
 }
 
-function cells(row) {
-  return [nowCell(row), ...(row.cells || [])].filter(Boolean)
-}
-
-export const CAPACITY_FILTERS = [
-  { key: "all", label: "All varieties" },
-  { key: "short", label: "Short only" },
-  { key: "overdue", label: "Overdue present" },
-  { key: "free", label: "Free to sell" },
-  { key: "stock", label: "Stock in shed" },
-]
-
-export function filterRows(rows, { search = "", crop = "", capacity = "all" } = {}) {
+/** mode "excess" / "gap" keeps only varieties that have at least one such date; no mode keeps all. */
+export function filterRows(rows, { search = "", crop = "", mode = "" } = {}) {
   const q = search.trim().toLowerCase()
   return (rows || []).filter((row) => {
     if (crop && row.plantName !== crop) return false
     if (q && !`${row.plantName} ${row.subtypeName}`.toLowerCase().includes(q)) return false
-    if (capacity === "short") return cells(row).some((cell) => Number(cell.net) < 0)
-    if (capacity === "overdue") return hasOverdue(row)
-    if (capacity === "free") return cells(row).some((cell) => Number(cell.net) > 0)
-    if (capacity === "stock") return Number(row.stock?.inShed) > 0
+    if (mode) return modeCards(row, mode).length > 0
     return true
   })
 }
@@ -164,7 +169,7 @@ function name(row) {
 function sortValue(row, sort, columns) {
   if (sort.key === "name") return name(row)
   if (sort.key === "stock") return Number(row.stock?.inShed) || 0
-  if (sort.key === "total") return Number(row.totals?.ready) || 0
+  if (sort.key === "total") return sort.mode ? modeTotal(row, sort.mode) : Number(row.totals?.ready) || 0
   const column = columns.find((c) => c.key === sort.key)
   return column ? Number(cellFor(row, column)?.net) || 0 : 0
 }

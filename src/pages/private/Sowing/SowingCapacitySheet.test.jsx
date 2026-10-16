@@ -108,12 +108,13 @@ test("shows one tab per slot length and the 1-day board first", async () => {
   expect(screen.getByRole("tab", { name: /1-Day slots \(1\)/ })).toBeInTheDocument()
   expect(screen.getByRole("tab", { name: /7-Day slots \(1\)/ })).toBeInTheDocument()
   expect(screen.queryByText("Taiwan 786")).not.toBeInTheDocument()
-  expect(screen.getAllByText("+900 free")).toHaveLength(3)
   const cards = screen.getAllByTestId("date-card").map((card) => card.textContent)
-  expect(cards).toHaveLength(3)
-  expect(cards[0]).toMatch(/^Now · 16 Oct300\+100 free200 booked/)
-  expect(cards[1]).toMatch(/^17 OctSat900\+900 free/)
-  expect(cards[2]).toMatch(/^20 OctTue400\+400 free/)
+  expect(cards).toEqual([
+    "Now · 16 Oct100free300 ready · 200 booked",
+    "17 OctSat900free900 ready · 0 booked",
+    "20 OctTue400free400 ready · 0 booked",
+  ])
+  expect(screen.getByRole("columnheader", { name: /Total free/ })).toBeInTheDocument()
   expect(mockRequest).toHaveBeenCalledWith({}, { group: 1 })
 })
 
@@ -142,18 +143,33 @@ test("crops without sowing get a batch-wise shed stock tab", async () => {
   expect(screen.queryByText("Taiwan 786")).not.toBeInTheDocument()
 })
 
-test("7-day board folds overdue into today, expands sheds and opens orders", async () => {
+test("excess shows only free dates; gap toggle shows only short ones", async () => {
   render(
     <MemoryRouter initialEntries={["/u/sowing-capacity?tab=7d"]}>
       <SowingCapacitySheet />
     </MemoryRouter>
   )
+  await screen.findByText("Taiwan 786")
+  expect(screen.getAllByTestId("date-card").map((card) => card.textContent)).toEqual([
+    "19–25 Oct7 days1,500free6,500 ready · 5,000 booked",
+  ])
+  fireEvent.click(screen.getByRole("button", { name: "Gap (short)" }))
+  expect(screen.getAllByTestId("date-card").map((card) => card.textContent)).toEqual([
+    "Now · 12–18 Oct1,200short11,100 ready · 12,300 bookedincl. 5,100 overdue",
+  ])
+  expect(screen.getByRole("columnheader", { name: /Total short/ })).toBeInTheDocument()
+})
+
+test("7-day gap board folds overdue into now, expands sheds and opens orders", async () => {
+  render(
+    <MemoryRouter initialEntries={["/u/sowing-capacity?tab=7d&show=gap"]}>
+      <SowingCapacitySheet />
+    </MemoryRouter>
+  )
   const name = await screen.findByText("Taiwan 786")
   expect(screen.getByText("Papaya")).toBeInTheDocument()
-  expect(screen.getAllByText("-1,200 short")).toHaveLength(3)
   expect(screen.getByText("incl. 5,100 overdue")).toBeInTheDocument()
   expect(screen.getByText("Now · 12–18 Oct")).toBeInTheDocument()
-  expect(screen.getAllByTestId("date-card")).toHaveLength(2)
   expect(screen.getByText("5,200 ready now")).toBeInTheDocument()
 
   fireEvent.click(name)

@@ -5,6 +5,9 @@ import {
   exportSheet,
   filterRows,
   groupByCrop,
+  modeAmount,
+  modeCards,
+  modeTotal,
   slotTabs,
   sortRows,
   stockBatchSheet,
@@ -128,10 +131,20 @@ test("3-day groups use the API's now cell and group crops in sorted order", () =
   ])
 })
 
+test("excess / gap modes keep only free or only short dates", () => {
+  expect(modeCards(papaya, "excess").map((c) => c.key)).toEqual(["2026-10-19", "2026-10-26"])
+  expect(modeCards(papaya, "gap").map((c) => [c.key, modeAmount(c, "gap")])).toEqual([["now", 1200]])
+  expect(modeTotal(papaya, "excess")).toBe(1500 + 2800)
+  expect(modeTotal(tomato, "gap")).toBe(0)
+  expect(filterRows([papaya, tomato], { mode: "gap" }).map((r) => r.plantName)).toEqual(["Papaya"])
+  expect(filterRows([papaya, tomato], { mode: "excess" }).map((r) => r.plantName)).toEqual(["Papaya", "Tomato"])
+  expect(sortRows([tomato, papaya], { key: "total", dir: "desc", mode: "excess" }, []).map((r) => r.plantName)).toEqual([
+    "Papaya",
+    "Tomato",
+  ])
+})
+
 test("filters and urgent-first sort", () => {
-  expect(filterRows([papaya, tomato], { capacity: "short" }).map((r) => r.plantName)).toEqual(["Papaya"])
-  expect(filterRows([papaya, tomato], { capacity: "overdue" }).map((r) => r.plantName)).toEqual(["Papaya"])
-  expect(filterRows([papaya, tomato], { capacity: "stock" }).map((r) => r.plantName)).toEqual(["Papaya"])
   expect(filterRows([papaya, tomato], { search: "us 4" }).map((r) => r.plantName)).toEqual(["Tomato"])
   expect(sortRows([tomato, papaya], { key: "urgent" }, []).map((r) => r.plantName)).toEqual(["Papaya", "Tomato"])
   expect(sortRows([papaya, tomato], { key: "name", dir: "desc" }, []).map((r) => r.plantName)).toEqual(["Tomato", "Papaya"])

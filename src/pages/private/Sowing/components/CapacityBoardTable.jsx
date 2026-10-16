@@ -18,13 +18,13 @@ import HistoryIcon from "@mui/icons-material/History"
 import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight"
 import { dayLabel, fmt, signed } from "../capacitySheetUtils"
 import {
-  boardColumns,
   cellLabel,
-  columnTotals,
   groupByCrop,
   hasOverdue,
   isUrgent,
-  rowCards
+  modeAmount,
+  modeCards,
+  modeTotal
 } from "../capacityBoardUtils"
 
 const C = {
@@ -37,8 +37,6 @@ const C = {
   greenBg: "#ecfdf5",
   greenLine: "#a7f3d0",
   red: "#be123c",
-  redBg: "#fff1f2",
-  redLine: "#fecdd3",
   amberBg: "#fffbeb",
   amberLine: "#fcd34d"
 }
@@ -60,34 +58,6 @@ const stickyLeft = {
 }
 
 const sum = (rows, pick) => rows.reduce((acc, row) => acc + (Number(pick(row)) || 0), 0)
-
-function NetChip({ net, booked }) {
-  const n = Number(net) || 0
-  if (n === 0 && !Number(booked)) return null
-  const tone =
-    n < 0
-      ? { color: C.red, bg: C.redBg, border: C.redLine, text: `${fmt(n)} short` }
-      : n > 0
-      ? { color: C.green, bg: C.greenBg, border: C.greenLine, text: `${signed(n)} free` }
-      : { color: C.muted, bg: "#f1f5f9", border: C.line, text: "Matched" }
-  return (
-    <Box
-      component="span"
-      sx={{
-        px: 0.6,
-        py: 0.05,
-        borderRadius: 1,
-        fontSize: 10.5,
-        fontWeight: 800,
-        whiteSpace: "nowrap",
-        color: tone.color,
-        bgcolor: tone.bg,
-        border: `1px solid ${tone.border}`
-      }}>
-      {tone.text}
-    </Box>
-  )
-}
 
 function TipRow({ label, value, color }) {
   return (
@@ -128,16 +98,15 @@ function CellTip({ cell, title }) {
   )
 }
 
-function cardTone(cell) {
-  const net = Number(cell.net) || 0
-  if (net < 0) return C.red
-  if (net > 0) return "#10b981"
-  return C.line
+const MODE_TONE = {
+  excess: { color: C.green, bar: "#10b981", word: "free" },
+  gap: { color: C.red, bar: "#f43f5e", word: "short" }
 }
 
-/** One date for one variety: date on top, ready plants, free/short chip, booked. */
-function DateCard({ cell, onOpen }) {
+/** One date for one variety: date on top, the free (excess) or short (gap) plants, then ready / booked. */
+function DateCard({ cell, mode, onOpen }) {
   const { range, sub } = cellLabel(cell)
+  const tone = MODE_TONE[mode]
   const ready = Number(cell.ready) || 0
   const booked = Number(cell.booked) || 0
   const overdue = cell.overdue
@@ -159,7 +128,7 @@ function DateCard({ cell, onOpen }) {
           borderRadius: 1.5,
           bgcolor: cell.isNow ? C.amberBg : "#fff",
           border: `1px solid ${cell.isNow ? C.amberLine : C.line}`,
-          borderTop: `3px solid ${cardTone(cell)}`,
+          borderTop: `3px solid ${tone.bar}`,
           cursor: slotIds.length ? "pointer" : "default",
           "&:hover": { boxShadow: "0 2px 8px rgba(15,23,42,0.08)" }
         }}>
@@ -173,16 +142,17 @@ function DateCard({ cell, onOpen }) {
             <Typography sx={{ fontSize: 10.5, color: C.faint }}>{sub}</Typography>
           ) : null}
         </Stack>
-        <Typography
-          sx={{ fontSize: 16, fontWeight: 900, color: ready ? C.ink : C.faint, lineHeight: 1.25 }}>
-          {fmt(ready)}
-        </Typography>
-        <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
-          <NetChip net={cell.net} booked={booked} />
-          {booked ? (
-            <Typography sx={{ fontSize: 10.5, color: C.muted }}>{fmt(booked)} booked</Typography>
-          ) : null}
+        <Stack direction="row" spacing={0.5} alignItems="baseline">
+          <Typography sx={{ fontSize: 16, fontWeight: 900, color: tone.color, lineHeight: 1.25 }}>
+            {fmt(modeAmount(cell, mode))}
+          </Typography>
+          <Typography sx={{ fontSize: 11, fontWeight: 700, color: tone.color }}>
+            {tone.word}
+          </Typography>
         </Stack>
+        <Typography sx={{ fontSize: 10.5, color: C.muted }} noWrap>
+          {fmt(ready)} ready · {fmt(booked)} booked
+        </Typography>
         {cell.isNow && (Number(overdue?.booked) > 0 || Number(overdue?.unsold) > 0) ? (
           <Stack direction="row" spacing={0.3} alignItems="center" sx={{ mt: 0.25, color: C.red }}>
             <HistoryIcon sx={{ fontSize: 12 }} />
@@ -195,46 +165,6 @@ function DateCard({ cell, onOpen }) {
         ) : null}
       </Box>
     </Tooltip>
-  )
-}
-
-/** Date-wise sums for several varieties (crop header and footer), only dates with plants. */
-function TotalCards({ rows, dense }) {
-  const columns = boardColumns(rows)
-  const totals = columnTotals(rows, columns)
-  const cards = columns
-    .map((column, i) => ({ column, total: totals[i] }))
-    .filter(({ total }) => total.ready || total.booked)
-  if (!cards.length) return null
-  return (
-    <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
-      {cards.map(({ column, total }) => {
-        const now = column.key === "now"
-        return (
-          <Box
-            key={column.key}
-            sx={{
-              px: 0.8,
-              py: dense ? 0.25 : 0.4,
-              borderRadius: 1.25,
-              bgcolor: now ? "#fef3c7" : "#fff",
-              border: `1px solid ${now ? C.amberLine : C.line}`
-            }}>
-            <Stack direction="row" spacing={0.6} alignItems="center">
-              <Typography
-                sx={{ fontSize: 11, fontWeight: 800, color: now ? "#92400e" : C.muted }}
-                noWrap>
-                {now ? "Now" : column.range}
-              </Typography>
-              <Typography sx={{ fontSize: 12.5, fontWeight: 900, color: C.ink }}>
-                {fmt(total.ready)}
-              </Typography>
-              <NetChip net={total.net} booked={total.booked} />
-            </Stack>
-          </Box>
-        )
-      })}
-    </Stack>
   )
 }
 
@@ -376,12 +306,12 @@ function ShedBatches({ stock }) {
   )
 }
 
-function CropRow({ crop, rows }) {
+function CropRow({ crop, rows, mode }) {
   const urgent = rows.filter(isUrgent).length
   const bg = "#f1f5f9"
   return (
     <TableRow>
-      <TableCell sx={{ ...cellSx, ...stickyLeft, bgcolor: bg }}>
+      <TableCell sx={{ ...cellSx, ...stickyLeft, bgcolor: bg, py: 0.6 }}>
         <Typography
           sx={{
             fontSize: 13.5,
@@ -397,24 +327,30 @@ function CropRow({ crop, rows }) {
           {urgent ? ` · ${urgent} urgent` : ""}
         </Typography>
       </TableCell>
-      <TableCell align="right" sx={{ ...cellSx, bgcolor: bg, fontWeight: 800, color: C.green }}>
-        {sum(rows, (row) => row.stock?.inShed) ? fmt(sum(rows, (row) => row.stock?.inShed)) : ""}
-      </TableCell>
-      <TableCell sx={{ ...cellSx, bgcolor: bg }}>
-        <TotalCards rows={rows} dense />
-      </TableCell>
       <TableCell
         align="right"
-        sx={{ ...cellSx, bgcolor: "#e2e8f0", fontWeight: 800, color: C.ink }}>
-        {fmt(sum(rows, (row) => row.totals?.ready))}
+        sx={{ ...cellSx, bgcolor: bg, py: 0.6, fontWeight: 800, color: C.green }}>
+        {sum(rows, (row) => row.stock?.inShed) ? fmt(sum(rows, (row) => row.stock?.inShed)) : ""}
+      </TableCell>
+      <TableCell sx={{ ...cellSx, bgcolor: bg, py: 0.6 }} />
+      <TableCell
+        align="right"
+        sx={{
+          ...cellSx,
+          bgcolor: "#e2e8f0",
+          py: 0.6,
+          fontWeight: 800,
+          color: MODE_TONE[mode].color
+        }}>
+        {fmt(sum(rows, (row) => modeTotal(row, mode)))}
       </TableCell>
     </TableRow>
   )
 }
 
-function VarietyRow({ row, open, onToggle, onOpen }) {
+function VarietyRow({ row, mode, open, onToggle, onOpen }) {
   const urgent = isUrgent(row)
-  const cards = rowCards(row)
+  const cards = modeCards(row, mode)
   const batches = row.stock?.batches?.length || 0
   const bg = open ? "#f8fafc" : "#fff"
   return (
@@ -462,29 +398,44 @@ function VarietyRow({ row, open, onToggle, onOpen }) {
         {cards.length ? (
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
             {cards.map((cell) => (
-              <DateCard key={cell.key} cell={cell} onOpen={onOpen} />
+              <DateCard key={cell.key} cell={cell} mode={mode} onOpen={onOpen} />
             ))}
           </Stack>
         ) : (
           <Typography sx={{ fontSize: 12, color: C.faint, py: 0.5 }}>
-            No plants due in the next slots
+            {mode === "gap" ? "Not short on any date" : "Nothing free on any date"}
           </Typography>
         )}
       </TableCell>
       <TableCell
         align="right"
-        sx={{ ...cellSx, bgcolor: "#f8fafc", fontWeight: 800, fontSize: 14, color: C.ink }}>
-        {fmt(row.totals?.ready)}
+        sx={{
+          ...cellSx,
+          bgcolor: "#f8fafc",
+          fontWeight: 800,
+          fontSize: 14,
+          color: MODE_TONE[mode].color
+        }}>
+        {fmt(modeTotal(row, mode))}
       </TableCell>
     </TableRow>
   )
 }
 
 /**
- * Crop → variety board. Each variety lists only its own dates with plants, packed left
- * (Now + overdue first), so there are no empty boxes.
+ * Crop → variety board. Each variety lists only its own dates, packed left (Now + overdue first):
+ * mode "excess" shows dates with free plants, mode "gap" only dates that are short.
  */
-export default function CapacityBoardTable({ rows, sort, onSort, expanded, onToggle, onOpen }) {
+export default function CapacityBoardTable({
+  rows,
+  mode = "excess",
+  sort,
+  onSort,
+  expanded,
+  onToggle,
+  onOpen
+}) {
+  const gap = mode === "gap"
   const crops = groupByCrop(rows)
   return (
     <Box sx={{ overflow: "auto", maxHeight: "calc(100vh - 300px)" }}>
@@ -506,8 +457,12 @@ export default function CapacityBoardTable({ rows, sort, onSort, expanded, onTog
             </HeadCell>
             <HeadCell sort={sort} onSort={onSort} sx={{ width: "100%" }}>
               <HeadText
-                title="Ready plants by date"
-                sub="Now + overdue first, then only dates with plants"
+                title={gap ? "Short plants by date" : "Free plants by date"}
+                sub={
+                  gap
+                    ? "Booked more than ready — sow or move orders"
+                    : "Sowed and not booked yet — free to sell"
+                }
               />
             </HeadCell>
             <HeadCell
@@ -516,14 +471,14 @@ export default function CapacityBoardTable({ rows, sort, onSort, expanded, onTog
               onSort={onSort}
               align="right"
               sx={{ bgcolor: "#f1f5f9" }}>
-              <HeadText title="Total ready" />
+              <HeadText title={gap ? "Total short" : "Total free"} />
             </HeadCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {crops.map((group) => (
             <React.Fragment key={group.crop}>
-              <CropRow crop={group.crop} rows={group.rows} />
+              <CropRow crop={group.crop} rows={group.rows} mode={mode} />
               {group.rows.map((row) => {
                 const key = `${row.plantId}-${row.subtypeId}`
                 const open = expanded.has(key)
@@ -531,6 +486,7 @@ export default function CapacityBoardTable({ rows, sort, onSort, expanded, onTog
                   <React.Fragment key={key}>
                     <VarietyRow
                       row={row}
+                      mode={mode}
                       open={open}
                       onToggle={() => onToggle(key)}
                       onOpen={onOpen}
@@ -562,13 +518,11 @@ export default function CapacityBoardTable({ rows, sort, onSort, expanded, onTog
               <TableCell align="right" sx={{ ...cellSx, fontWeight: 800, color: C.green }}>
                 {fmt(sum(rows, (row) => row.stock?.inShed))}
               </TableCell>
-              <TableCell sx={cellSx}>
-                <TotalCards rows={rows} dense />
-              </TableCell>
+              <TableCell sx={cellSx} />
               <TableCell
                 align="right"
-                sx={{ ...cellSx, fontWeight: 800, fontSize: 14, color: C.ink }}>
-                {fmt(sum(rows, (row) => row.totals?.ready))}
+                sx={{ ...cellSx, fontWeight: 800, fontSize: 14, color: MODE_TONE[mode].color }}>
+                {fmt(sum(rows, (row) => modeTotal(row, mode)))}
               </TableCell>
             </TableRow>
           </TableFooter>
