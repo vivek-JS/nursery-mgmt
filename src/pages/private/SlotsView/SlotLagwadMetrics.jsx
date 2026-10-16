@@ -278,7 +278,7 @@ const SlotLagwadMetrics = ({
   const mortalityCell = {
     key: "mortality",
     definitionKey: "lagwadMortality",
-    label: "Exp. mort.",
+    label: "Exp. mortality",
     sub: mortality > 0 && onSlotChanged ? "tap → transfer" : lagwadSowingMode ? "reserve" : "—",
     value: mortalityShown,
     className:
@@ -286,7 +286,7 @@ const SlotLagwadMetrics = ({
         ? "bg-rose-50 border-rose-200 hover:bg-rose-100 cursor-pointer"
         : "bg-rose-50 border-rose-200",
     valueClass: "text-rose-800",
-    title: D.lagwadMortality.mr,
+    title: D.lagwadMortality.en,
     clickable: mortality > 0 && Boolean(onSlotChanged),
     onClick: openTransfer,
   }

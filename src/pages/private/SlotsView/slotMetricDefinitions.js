@@ -1,4 +1,4 @@
-/** Marathi label on the tile, plus the Marathi explanation. */
+/** Marathi label on the tile, plus the Marathi explanation (`en`, when set, is shown instead). */
 export const SLOT_METRIC_DEFINITIONS = {
   monthAvailable: {
     title: "Available for booking",
@@ -124,5 +124,6 @@ export const SLOT_METRIC_DEFINITIONS = {
     title: "Expected mortality",
     label: "अपेक्षित मृत्यू",
     mr: "मरतील असे गृहित धरून राखून ठेवलेली रोपे. पेरणीच्या किमान १० टक्के; ऑर्डरसाठी जास्त पेरली असल्यास ऑर्डरच्या २० टक्क्यांपर्यंत जास्तीची रोपे इथे धरली जातात. ही रोपे विक्रीसाठी दिली जात नाहीत. ती रोपे जगली तर ही संख्या तयार रोपांत हलवता येते.",
+    en: "Plants held back because they are expected to die. At least 10% of what was sown; when extra was sown for orders, that extra (up to 20% of the order plants) is held here too. These plants are never offered for sale or booking. If they survive, they can be transferred to ready.",
   },
 }
