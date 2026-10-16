@@ -503,6 +503,17 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
   const closeSlotOrdersDrawer = () => setSlotOrdersDrawer(null)
 
+  const openSlotById = (slotId, statKey) => {
+    for (const [month, list] of Object.entries(slotsByMonth)) {
+      const found = (list || []).find((s) => String(s?._id) === String(slotId))
+      if (found) {
+        setSlotOrdersDrawer({ slot: found, monthName: month, statKey })
+        return
+      }
+    }
+    Toast.info("That slot is not loaded on this page")
+  }
+
   const openStockHistory = (e, slot) => {
     if (e) e.stopPropagation()
     setSelectedSlotForTrail(slot)
@@ -1819,6 +1830,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         canRollPastDue={canRollPastDue}
         onOpenPendingRoll={openPendingRollModal}
         onPastDueRolled={fetchPlantsSlots}
+        onOpenSlot={openSlotById}
       />
 
       <PastDueRollModal

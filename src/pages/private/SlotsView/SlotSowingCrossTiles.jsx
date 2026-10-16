@@ -1,7 +1,11 @@
 import React from "react"
 import { Tooltip } from "@mui/material"
-import { ArrowRightLeft, Sprout } from "lucide-react"
-import { getSowedForOtherDeliveryPlants, isSlotSowingAllowed } from "./slotMetrics"
+import { ArrowRightLeft, ArrowUpRight, Sprout } from "lucide-react"
+import {
+  getCoverMovedOutPlants,
+  getSowedForOtherDeliveryPlants,
+  isSlotSowingAllowed,
+} from "./slotMetrics"
 
 /** Only orders the server listed as sowed on another slot — same rows the drawer shows. */
 const sowedOnOtherSlotPlants = (slot) => {
@@ -24,7 +28,8 @@ const SlotSowingCrossTiles = ({
 
   const onOtherSlot = sowedOnOtherSlotPlants(slot)
   const otherSowing = getSowedForOtherDeliveryPlants(slot)
-  if (onOtherSlot <= 0 && otherSowing <= 0) return null
+  const movedOut = getCoverMovedOutPlants(slot)
+  if (onOtherSlot <= 0 && otherSowing <= 0 && movedOut <= 0) return null
 
   const labelSize = variant === "detail" ? "text-sm" : "text-[10px]"
   const valueSize = variant === "detail" ? "text-xl" : "text-sm"
@@ -59,6 +64,19 @@ const SlotSowingCrossTiles = ({
           valueClass: "text-violet-900",
           icon: Sprout,
           iconClass: "text-violet-600",
+        }
+      : null,
+    movedOut > 0
+      ? {
+          key: "coverMovedOut",
+          label: "Given to other slot",
+          sub: "covers their orders",
+          hint: "Sowing from this slot moved to cover orders booked on another slot. Click to see orders.",
+          value: movedOut,
+          className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
+          valueClass: "text-amber-900",
+          icon: ArrowUpRight,
+          iconClass: "text-amber-600",
         }
       : null,
   ].filter(Boolean)

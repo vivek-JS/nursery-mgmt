@@ -428,6 +428,10 @@ export const getSowingFromOtherSlotOrders = (slot) =>
 
 export const hasSowingFromOtherSlot = (slot) => getSowingFromOtherSlotPlants(slot) > 0
 
+/** Sowing from this slot moved to cover orders booked on another slot. */
+export const getCoverMovedOutPlants = (slot) =>
+  Math.max(0, Number(slot?.coverMovedOutDetail?.plants ?? slot?.coverMovedOutPlants) || 0)
+
 /** Plants reserved for covered orders (90% lagwad on ready slot). */
 export const getOrderReservedPlants = (slot) =>
   Math.max(0, Number(slot?.orderReservedPlants) || 0)
@@ -663,6 +667,8 @@ export const getSlotStatPlantsTotal = (slot, statKey) => {
       return getSowingFromOtherSlotPlants(slot)
     case "sowedForOtherDelivery":
       return getSowedForOtherDeliveryPlants(slot)
+    case "coverMovedOut":
+      return getCoverMovedOutPlants(slot)
     case "sowingGap":
       return getDisplaySowingGap(slot, Boolean(slot?.sowingAllowed))
     default:

@@ -153,6 +153,12 @@ export const SLOT_STAT_ORDER_VIEWS = {
       "Plants sowed on this ready slot for orders booked on other delivery dates",
     accent: "#7c3aed"
   },
+  coverMovedOut: {
+    kind: "movedOut",
+    title: "Given to other slot",
+    subtitle: "Sowing from this slot moved to cover orders booked on another slot",
+    accent: "#d97706"
+  },
   sowingGap: {
     kind: "sowingGap",
     title: "Sowing gap & order cover",
@@ -246,8 +252,34 @@ function resolveSowingFromOtherSections(slot) {
       plants: d.plants,
       tone: "teal",
       showSowingHint: true,
+      linkSlot: "from",
     },
   ]
+}
+
+function resolveCoverMovedOutSections(slot) {
+  const orders = slot?.coverMovedOutDetail?.orders || []
+  const byTarget = new Map()
+  for (const row of orders) {
+    const key = row.toSlotId || row.toSlotLabel || "other"
+    if (!byTarget.has(key)) {
+      byTarget.set(key, {
+        id: `moved-${key}`,
+        label: `To ${row.toSlotLabel || "other slot"}`,
+        subtitle: "Orders booked there — covered from this slot's sowing",
+        orders: [],
+        orderCount: 0,
+        plants: 0,
+        tone: "amber",
+        linkSlot: "to"
+      })
+    }
+    const sec = byTarget.get(key)
+    sec.orders.push(row)
+    sec.orderCount += 1
+    sec.plants += Number(row.plants) || 0
+  }
+  return [...byTarget.values()]
 }
 
 function resolveCrossSlotSections(slot, statKey) {
@@ -278,7 +310,7 @@ function resolveCrossSlotSections(slot, statKey) {
   ]
 }
 
-function PastDueOrdersPanel({ sections, emptyMessage = "No orders in this view." }) {
+function PastDueOrdersPanel({ sections, emptyMessage = "No orders in this view.", onOpenSlot }) {
   const navigate = useNavigate()
 
   if (!sections.length) {
@@ -352,8 +384,26 @@ function PastDueOrdersPanel({ sections, emptyMessage = "No orders in this view."
                       {sec.showSowingHint && row.fromSlotLabel ? (
                         <p className="text-[10px] text-teal-700">Sowed on {row.fromSlotLabel}</p>
                       ) : null}
-                      {sec.showSowingHint && row.requestNumber ? (
+                      {sec.linkSlot === "to" && row.toSlotLabel ? (
+                        <p className="text-[10px] text-amber-800">Booked on {row.toSlotLabel}</p>
+                      ) : null}
+                      {row.sowingNote ? (
+                        <p className="text-[10px] text-gray-500">{row.sowingNote}</p>
+                      ) : sec.showSowingHint && row.requestNumber ? (
                         <p className="text-[10px] text-gray-500">{row.requestNumber}</p>
+                      ) : null}
+                      {onOpenSlot && sec.linkSlot && row[`${sec.linkSlot}SlotId`] ? (
+                        <button
+                          type="button"
+                          className="mt-0.5 text-[11px] font-semibold text-blue-600 hover:underline"
+                          onClick={() =>
+                            onOpenSlot(
+                              row[`${sec.linkSlot}SlotId`],
+                              sec.linkSlot === "from" ? "coverMovedOut" : "sowingFromOtherSlot"
+                            )
+                          }>
+                          Open slot {row[`${sec.linkSlot}SlotLabel`] || ""} →
+                        </button>
                       ) : null}
                     </div>
                     <p className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
@@ -471,6 +521,7 @@ const SlotOrdersDrawer = ({
   sowingAllowed = false,
   canRollPastDue = false,
   onOpenPendingRoll,
+  onOpenSlot,
 }) => {
   const view = SLOT_STAT_ORDER_VIEWS[statKey] || SLOT_STAT_ORDER_VIEWS.booked
 
@@ -504,6 +555,11 @@ const SlotOrdersDrawer = ({
     [slot, view.kind]
   )
 
+  const movedOutSections = useMemo(
+    () => (slot && view.kind === "movedOut" ? resolveCoverMovedOutSections(slot) : []),
+    [slot, view.kind]
+  )
+
   const sowedOtherDeliverySections = useMemo(
     () =>
       slot && view.kind === "sowedOtherDelivery"
@@ -531,6 +587,13 @@ const SlotOrdersDrawer = ({
         orders: uncovered + covered,
         plants:
           (detail?.uncovered?.plants ?? 0) + (detail?.coveredTotal?.plants ?? 0),
+      }
+    }
+    if (view.kind === "movedOut") {
+      const bucket = slot.coverMovedOutDetail
+      return {
+        orders: bucket?.orderCount ?? 0,
+        plants: bucket?.plants ?? 0,
       }
     }
     if (view.kind === "sowingOther") {
@@ -642,7 +705,7 @@ const SlotOrdersDrawer = ({
         </Box>
 
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1.5 }}>
-          {headerCounts && (view.kind === "pastDue" || view.kind === "crossSlot" || view.kind === "sowingOther" || view.kind === "sowingGap" || view.kind === "sowedOtherDelivery") ? (
+          {headerCounts && (view.kind === "pastDue" || view.kind === "crossSlot" || view.kind === "sowingOther" || view.kind === "sowingGap" || view.kind === "sowedOtherDelivery" || view.kind === "movedOut") ? (
             <>
               <Chip
                 size="small"
@@ -705,7 +768,13 @@ const SlotOrdersDrawer = ({
         ) : view.kind === "crossSlot" ? (
           <PastDueOrdersPanel sections={crossSlotSections} />
         ) : view.kind === "sowingOther" ? (
-          <PastDueOrdersPanel sections={sowingOtherSections} />
+          <PastDueOrdersPanel sections={sowingOtherSections} onOpenSlot={onOpenSlot} />
+        ) : view.kind === "movedOut" ? (
+          <PastDueOrdersPanel
+            sections={movedOutSections}
+            onOpenSlot={onOpenSlot}
+            emptyMessage="No sowing from this slot was moved to another slot."
+          />
         ) : view.kind === "sowingGap" ? (
           <PastDueOrdersPanel
             sections={sowingGapSections}
