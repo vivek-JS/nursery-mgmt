@@ -1,11 +1,38 @@
+import { NetworkManager } from "network/core"
 import {
   autoFillPicks,
+  fetchExcessWithFallback,
   groupExcessEntries,
   picksMapToList,
   summarizePicks,
 } from "./ExcessBatchCoverDialog"
 
 jest.mock("network/core", () => ({ NetworkManager: jest.fn(), API: { sowing: {} } }))
+
+function mockWindows(freeByWindow) {
+  const request = jest.fn(async (_body, params) => ({
+    data: {
+      success: true,
+      data: { windowDays: params.windowDays, totalFree: freeByWindow[params.windowDays] ?? 0, entries: [] },
+    },
+  }))
+  NetworkManager.mockReturnValue({ request })
+  return request
+}
+
+test("fallback stays at ±5 days when that covers the order", async () => {
+  const request = mockWindows({ 5: 12000, 15: 40000 })
+  const res = await fetchExcessWithFallback({ plantId: "p", subtypeId: "s", deliveryDate: "2026-11-10", need: 10000 })
+  expect(res).toMatchObject({ windowDays: 5, widened: false, nearFree: 12000 })
+  expect(request).toHaveBeenCalledTimes(1)
+})
+
+test("fallback widens to ±15 days when ±5 is not enough", async () => {
+  mockWindows({ 5: 3000, 15: 40000 })
+  const res = await fetchExcessWithFallback({ plantId: "p", subtypeId: "s", deliveryDate: "2026-11-10", need: 10000 })
+  expect(res).toMatchObject({ windowDays: 15, widened: true, nearFree: 3000 })
+  expect(res.preview.totalFree).toBe(40000)
+})
 
 const base = {
   slotId: "slot1",

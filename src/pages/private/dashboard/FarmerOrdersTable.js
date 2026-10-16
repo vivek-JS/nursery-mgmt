@@ -144,7 +144,7 @@ import OrderRaisingIntakePanel from "./OrderRaisingIntakePanel"
 import OrderSowingDetailsPanel from "./OrderSowingDetailsPanel"
 import ExcessBatchCoverDialog, {
   SOW_LABEL,
-  fetchExcessBatches,
+  fetchExcessWithFallback,
   fmtNum
 } from "../order/ExcessBatchCoverDialog"
 import {
@@ -7705,6 +7705,10 @@ const mapSlotForUi = (slotData) => {
           openFarmReadyWhatsappForRows([rowForWatiDialog])
         }
 
+        if (!isAgriSalesOrder) {
+          offerExcessCoverAfterSave(row, dataToSend, deliveryDateChanged)
+        }
+
         window.setTimeout(() => refreshComponent(), 500)
       }
     } catch (error) {
@@ -7809,11 +7813,12 @@ const mapSlotForUi = (slotData) => {
     setSelectedRow(null)
   }
 
-  const isAcceptExcessCandidate = (row, newStatus) => {
+  const isSowingCoverCandidate = (row) => {
     const d = row?.details
-    if (newStatus !== "ACCEPTED" || row?.orderStatus !== "PENDING" || !d) return false
-    if (row.isAgriSalesOrder || d.isRamAgriProduct || d.dealerOrder || d.productMappingId) return false
-    if (d.sowingDone || !d.plantID || !d.plantSubtypeID || !d.deliveryDate) return false
+    if (!d || row.isAgriSalesOrder || d.isRamAgriProduct || d.dealerOrder || d.productMappingId) {
+      return false
+    }
+    if (!d.plantID || !d.plantSubtypeID) return false
     return (
       Boolean(d.sowingAllowed) ||
       plants.some(
@@ -7822,26 +7827,103 @@ const mapSlotForUi = (slotData) => {
     )
   }
 
+  const isAcceptExcessCandidate = (row, newStatus) =>
+    newStatus === "ACCEPTED" &&
+    row?.orderStatus === "PENDING" &&
+    !row?.details?.sowingDone &&
+    Boolean(row?.details?.deliveryDate) &&
+    isSowingCoverCandidate(row)
+
+  const orderPlantsNeed = (d) => (Number(d?.numberOfPlants) || 0) + (Number(d?.additionalPlants) || 0)
+
+  const loadExcessForRow = async (row, deliveryDate) => {
+    const d = row.details
+    setpatchLoading(true)
+    try {
+      return await fetchExcessWithFallback({
+        plantId: d.plantID,
+        subtypeId: d.plantSubtypeID,
+        deliveryDate,
+        need: orderPlantsNeed(d)
+      })
+    } catch (err) {
+      console.error("Excess sowing check failed:", err)
+      return null
+    } finally {
+      setpatchLoading(false)
+    }
+  }
+
+  const openAcceptCover = (row, result, mode) =>
+    setAcceptCover({
+      open: true,
+      mode,
+      row,
+      preview: result.preview,
+      need: orderPlantsNeed(row.details),
+      windowDays: result.windowDays,
+      widened: result.widened,
+      nearFree: result.nearFree,
+      saving: false
+    })
+
+  const CANCEL_LIKE_STATUSES = ["CANCELLED", "REJECTED", "TEMPORARY_CANCELLED"]
+  const NO_COVER_AFTER_SAVE_STATUSES = [
+    ...CANCEL_LIKE_STATUSES,
+    "DISPATCH_PROCESS",
+    "DISPATCHED",
+    "COMPLETED"
+  ]
+
+  /** After a revive to ACCEPTED or a delivery date change, offer cover from excess. */
+  const offerExcessCoverAfterSave = async (row, patch, deliveryChanged) => {
+    const d = row?.details
+    if (!isSowingCoverCandidate(row)) return
+    const prevStatus = String(row?.orderStatus || "").toUpperCase()
+    const nextStatus = String(patch?.orderStatus || prevStatus).toUpperCase()
+    const revived = nextStatus === "ACCEPTED" && CANCEL_LIKE_STATUSES.includes(prevStatus)
+    if (!revived && !deliveryChanged) return
+    if (NO_COVER_AFTER_SAVE_STATUSES.includes(nextStatus)) return
+
+    const currentSlotId = String(d?.bookingSlot?.slotId || d?.bookingSlot?._id || "")
+    const slotChanged = Boolean(patch?.bookingSlot) && String(patch.bookingSlot) !== currentSlotId
+    const coveredFromExcess = Boolean(d?.sowingCoverSources?.length) && !d?.sowingCoverReversedAt
+    const unsowedNow = !d?.sowingDone || (coveredFromExcess && (slotChanged || revived))
+    if (!unsowedNow) return
+
+    const deliveryDate = deliveryChanged && patch?.deliveryDate ? patch.deliveryDate : d?.deliveryDate
+    if (!deliveryDate) return
+    const result = await loadExcessForRow(row, deliveryDate)
+    if (result) openAcceptCover(row, result, "afterSave")
+  }
+
   const closeAcceptCover = () =>
     setAcceptCover({ open: false, row: null, preview: null, need: 0, saving: false })
 
   const acceptAfterCoverChoice = (row, extra = {}) =>
     pacthOrders({ id: row?.details?.orderid, orderStatus: "ACCEPTED", ...extra }, row)
 
-  const handleAcceptCover = async (picks) => {
-    const { row } = acceptCover
+  const handleAcceptCover = async (picks, _rowPicks, windowDays) => {
+    const { row, mode } = acceptCover
     if (!row || !picks?.length) return
     setAcceptCover((s) => ({ ...s, saving: true }))
     try {
       const instance = NetworkManager(API.sowing.COVER_ORDER_FROM_BATCHES)
       const res = await instance.request(
-        { picks: picks.map((p) => ({ batchId: p.batchId, slotId: p.slotId, plants: p.plants })) },
+        {
+          picks: picks.map((p) => ({ batchId: p.batchId, slotId: p.slotId, plants: p.plants })),
+          windowDays: windowDays || acceptCover.windowDays || 5
+        },
         [row.details.orderid]
       )
       if (!res?.data?.success) throw new Error(res?.data?.message || "Cover failed")
       Toast.success(res.data.message || "Order covered from excess sowing")
       closeAcceptCover()
-      await acceptAfterCoverChoice(row)
+      if (mode === "afterSave") {
+        refreshComponent()
+      } else {
+        await acceptAfterCoverChoice(row)
+      }
     } catch (err) {
       Toast.error(err?.response?.data?.message || err?.message || "Cover failed")
       setAcceptCover((s) => ({ ...s, saving: false }))
@@ -7849,11 +7931,18 @@ const mapSlotForUi = (slotData) => {
   }
 
   const handleAcceptSow = async (totalFree) => {
-    const { row } = acceptCover
+    const { row, mode, windowDays } = acceptCover
     if (!row) return
     closeAcceptCover()
+    if (mode === "afterSave") {
+      Toast.info(`Order #${row.order ?? row?.details?.orderId ?? ""}: new sowing needs to be created`)
+      return
+    }
     await acceptAfterCoverChoice(row, {
-      orderRemarks: `Excess ${fmtNum(totalFree)} within ±5d shown at accept; chose "${SOW_LABEL}"`
+      orderRemarks:
+        totalFree > 0
+          ? `Excess ${fmtNum(totalFree)} within ±${windowDays || 5}d shown at accept; chose "${SOW_LABEL}"`
+          : `No excess within ±${windowDays || 15}d at accept; new sowing needed`
     })
   }
 
@@ -7989,24 +8078,9 @@ const mapSlotForUi = (slotData) => {
     }
 
     if (isAcceptExcessCandidate(row, newStatus)) {
-      const d = row.details
-      const need = (Number(d.numberOfPlants) || 0) + (Number(d.additionalPlants) || 0)
-      let preview = null
-      setpatchLoading(true)
-      try {
-        preview = await fetchExcessBatches({
-          plantId: d.plantID,
-          subtypeId: d.plantSubtypeID,
-          deliveryDate: d.deliveryDate,
-          need
-        })
-      } catch (err) {
-        console.error("Excess sowing check failed:", err)
-      } finally {
-        setpatchLoading(false)
-      }
-      if (Number(preview?.totalFree) > 0) {
-        setAcceptCover({ open: true, row, preview, need, saving: false })
+      const result = await loadExcessForRow(row, row.details.deliveryDate)
+      if (result) {
+        openAcceptCover(row, result, "accept")
         return
       }
     }
@@ -13631,6 +13705,8 @@ const mapSlotForUi = (slotData) => {
         preview={acceptCover.preview}
         loading={acceptCover.saving}
         need={acceptCover.need}
+        widened={Boolean(acceptCover.widened)}
+        nearFree={acceptCover.nearFree || 0}
         onCover={handleAcceptCover}
         onSow={handleAcceptSow}
       />

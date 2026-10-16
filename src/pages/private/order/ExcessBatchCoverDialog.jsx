@@ -32,7 +32,7 @@ export function offsetChipLabel(off) {
 
 function toYmd(value) {
   if (!value) return ""
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return ""
   const y = d.getFullYear()
@@ -52,6 +52,36 @@ export async function fetchExcessBatches({ plantId, subtypeId, deliveryDate, nee
     throw new Error(res?.data?.message || "Failed to load excess sowing")
   }
   return res.data.data || null
+}
+
+export const NEAR_WINDOW_DAYS = 5
+export const WIDE_WINDOW_DAYS = 15
+
+/**
+ * Excess near delivery (±5d); when that cannot cover the whole order, widen to ±15d.
+ * Returns { preview, windowDays, widened, nearFree }.
+ */
+export async function fetchExcessWithFallback({ plantId, subtypeId, deliveryDate, need }) {
+  const needQty = Math.max(0, Math.floor(Number(need) || 0))
+  const near = await fetchExcessBatches({
+    plantId,
+    subtypeId,
+    deliveryDate,
+    need: needQty,
+    windowDays: NEAR_WINDOW_DAYS
+  })
+  const nearFree = Number(near?.totalFree) || 0
+  if (needQty > 0 && nearFree >= needQty) {
+    return { preview: near, windowDays: NEAR_WINDOW_DAYS, widened: false, nearFree }
+  }
+  const wide = await fetchExcessBatches({
+    plantId,
+    subtypeId,
+    deliveryDate,
+    need: needQty,
+    windowDays: WIDE_WINDOW_DAYS
+  })
+  return { preview: wide, windowDays: WIDE_WINDOW_DAYS, widened: true, nearFree }
 }
 
 /**
@@ -150,6 +180,8 @@ export default function ExcessBatchCoverDialog({
   initialPicks = null,
   onCover,
   onSow,
+  widened = false,
+  nearFree = 0,
 }) {
   const rows = useMemo(() => groupExcessEntries(preview?.entries || []), [preview])
   const totalFree = Number(preview?.totalFree) || 0
@@ -201,7 +233,9 @@ export default function ExcessBatchCoverDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ fontWeight: 900, pb: 1 }}>
-        Excess sowing available (±{windowDays} days)
+        {totalFree > 0 || loading
+          ? `Excess sowing available (±${windowDays} days)`
+          : "Excess sowing check"}
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={1.5}>
@@ -224,7 +258,23 @@ export default function ExcessBatchCoverDialog({
             )}
           </Stack>
 
-          {isFull ? (
+          {widened && !loading && (
+            <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+              {nearFree > 0
+                ? `Only ${fmtNum(nearFree)} excess within ±${NEAR_WINDOW_DAYS} days of delivery`
+                : `No excess within ±${NEAR_WINDOW_DAYS} days of delivery`}
+              {totalFree > 0
+                ? ` — showing sowing entries within ±${windowDays} days (day-wise). Select entries to cover.`
+                : "."}
+            </Alert>
+          )}
+
+          {!loading && totalFree <= 0 ? (
+            <Alert severity="error" sx={{ py: 0.5 }}>
+              No excess sowing within ±{windowDays} days.{" "}
+              <b>New sowing needs to be created for this order.</b>
+            </Alert>
+          ) : isFull ? (
             <Alert severity="success" sx={{ py: 0.5 }}>
               Choose one: cover this order from the sowing below (adds up to {fmtNum(needQty)}{" "}
               plants, order is marked <b>Sow completed</b>), or <b>{SOW_LABEL}</b>.
@@ -232,7 +282,7 @@ export default function ExcessBatchCoverDialog({
           ) : (
             <Alert severity="warning" sx={{ py: 0.5 }}>
               Only {fmtNum(totalFree)} of {fmtNum(needQty)} available ({pct}%). Cover needs 100%
-              — confirm <b>{SOW_LABEL}</b>.
+              — new sowing needs to be created: <b>{SOW_LABEL}</b>.
             </Alert>
           )}
 
@@ -240,11 +290,7 @@ export default function ExcessBatchCoverDialog({
             <Box display="flex" justifyContent="center" py={3}>
               <CircularProgress size={28} />
             </Box>
-          ) : rows.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              No free excess within ±{windowDays} days.
-            </Typography>
-          ) : (
+          ) : rows.length === 0 ? null : (
             <Stack spacing={0.75}>
               {rows.map((r) => {
                 const qty = Math.max(0, Math.floor(Number(picks[r.key]) || 0))
@@ -331,7 +377,7 @@ export default function ExcessBatchCoverDialog({
             variant="contained"
             color="success"
             disabled={!canCover}
-            onClick={() => onCover?.(picksMapToList(picks, rows), picks)}
+            onClick={() => onCover?.(picksMapToList(picks, rows), picks, windowDays)}
           >
             {COVER_LABEL} ({fmtNum(selected)})
           </Button>
