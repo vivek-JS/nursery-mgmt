@@ -91,8 +91,10 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
       gap: acc.gap + (Number(pack.slot?.gap) || 0),
       booked: acc.booked + (Number(pack.slot?.booked) || 0),
       sowed: acc.sowed + (Number(pack.slot?.sowed) || 0),
+      survivors: acc.survivors + (Number(pack.slot?.survivors) || 0),
+      expectedMortality: acc.expectedMortality + (Number(pack.slot?.expectedMortality) || 0),
     }),
-    { canBook: 0, gap: 0, booked: 0, sowed: 0 }
+    { canBook: 0, gap: 0, booked: 0, sowed: 0, survivors: 0, expectedMortality: 0 }
   )
   const stats = packs.length > 1 ? totals : slot || totals
   const status = STATUS_STYLE[slot?.status] || STATUS_STYLE.fulfilled
@@ -226,9 +228,17 @@ export default function SowingCapacityDrawer({ detail, onClose }) {
               <Stat label="Gap" value={stats.gap} color="#e11d48" />
               <Stat label="Booked" value={stats.booked} />
               <Stat label="Sowed" value={stats.sowed} color="#059669" />
+              {Number(stats.survivors) > 0 ? (
+                <>
+                  <Stat label="Survivors 90%" value={stats.survivors} color="#047857" />
+                  <Stat label="Mortality 10%" value={stats.expectedMortality} color="#b45309" />
+                </>
+              ) : null}
             </Stack>
             <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-              Can book is excess minus gap. A minus means the gap is higher and more sowing is needed.
+              Excess is survivors (90% of sowed) minus plants covering orders; the other 10% is kept as
+              expected mortality. Can book is excess minus gap. A minus means the gap is higher and more
+              sowing is needed.
             </Typography>
 
             {focus !== "canBook" ? (
