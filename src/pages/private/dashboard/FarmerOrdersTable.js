@@ -14,6 +14,8 @@ import {
   Filter,
   ArrowUpDown,
   FileImage,
+  Star,
+  Truck,
 } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
@@ -267,6 +269,20 @@ function computeBillablePlantsForAmount({
   const ret = Number(returnedPlants) || 0
   const dmg = Number(damagedPlants) || 0
   return Math.max(0, gross - ret - dmg)
+}
+
+/** Shed fully loaded this order on its vehicle (order.vehicleLoaded). */
+const VehicleLoadedIcon = ({ details, size = 12 }) => {
+  if (!details?.vehicleLoaded) return null
+  const at = details.vehicleLoadedAt ? moment(details.vehicleLoadedAt).format("DD/MM/YYYY HH:mm") : ""
+  const qty = Number(details.vehicleLoadedQuantity) || 0
+  return (
+    <span
+      className="inline-flex items-center"
+      title={`Vehicle loaded${qty ? ` · ${qty} plants` : ""}${at ? ` · ${at}` : ""}`}>
+      <Truck size={size} color="#15803d" />
+    </span>
+  )
 }
 
 /** Maps orderStatus to CSS class suffix: READY_FOR_DISPATCH → ready-for-dispatch (all underscores → hyphens). */
@@ -3360,6 +3376,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 whatsappAcceptedMessageKey,
                 whatsappDispatchSentAt,
                 whatsappDispatchMessageKey,
+                vehicleLoaded,
+                vehicleLoadedAt,
+                vehicleLoadedQuantity,
                 whatsappFarmReadySentAt,
                 whatsappFarmReadyMessageKey,
                 farmReadyWhatsappConfirmedAt,
@@ -3508,6 +3527,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
                 whatsappDispatchSentAt: whatsappDispatchSentAt || null,
                 whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
+                vehicleLoaded: Boolean(vehicleLoaded),
+                vehicleLoadedAt: vehicleLoadedAt || null,
+                vehicleLoadedQuantity: vehicleLoadedQuantity || 0,
                 whatsappFarmReadySentAt: whatsappFarmReadySentAt || null,
                 whatsappFarmReadyMessageKey: whatsappFarmReadyMessageKey || null,
                 farmReadyWhatsappConfirmedAt: farmReadyWhatsappConfirmedAt || null,
@@ -6486,6 +6508,9 @@ const mapSlotForUi = (slotData) => {
           whatsappAcceptedMessageKey,
           whatsappDispatchSentAt,
           whatsappDispatchMessageKey,
+          vehicleLoaded,
+          vehicleLoadedAt,
+          vehicleLoadedQuantity,
           whatsappFarmReadySentAt,
           whatsappFarmReadyMessageKey,
           farmReadyWhatsappConfirmedAt,
@@ -6638,6 +6663,9 @@ const mapSlotForUi = (slotData) => {
             whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
             whatsappDispatchSentAt: whatsappDispatchSentAt || null,
             whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
+            vehicleLoaded: Boolean(vehicleLoaded),
+            vehicleLoadedAt: vehicleLoadedAt || null,
+            vehicleLoadedQuantity: vehicleLoadedQuantity || 0,
             whatsappFarmReadySentAt: whatsappFarmReadySentAt || null,
             whatsappFarmReadyMessageKey: whatsappFarmReadyMessageKey || null,
             farmReadyWhatsappConfirmedAt: farmReadyWhatsappConfirmedAt || null,
@@ -9928,6 +9956,10 @@ const mapSlotForUi = (slotData) => {
                         }`}>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? formatAgriDisplayOrderKey(row) : row.order}</span>
+                          {row.details?.farmer?.isPremium && (
+                            <Star size={12} color="#F5B301" fill="#F5B301" />
+                          )}
+                          <VehicleLoadedIcon details={row.details} />
                           {!showAgriSalesOrders && isRaisingSeedOrder(row) && (
                             <span
                               className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide bg-emerald-500 text-white shadow-sm"
@@ -10093,6 +10125,9 @@ const mapSlotForUi = (slotData) => {
                               <div className="text-[11px] font-medium inline-flex flex-wrap items-baseline gap-x-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 max-w-full">
                                 <span className="text-sky-600 font-semibold shrink-0">Booking:</span>
                                 <span className="text-sky-900">{row.details.farmer?.name || "Unknown"}</span>
+                                {row.details.farmer?.isPremium && (
+                                  <Star size={11} color="#F5B301" fill="#F5B301" className="self-center" />
+                                )}
                               </div>
                               {formatBookForLocation(row.details.orderFor) ? (
                                 <div className="text-[10px] text-gray-600 leading-tight">
@@ -10101,8 +10136,11 @@ const mapSlotForUi = (slotData) => {
                               ) : null}
                             </div>
                           ) : (
-                            <span className="text-[12px] font-semibold text-gray-900">
+                            <span className="text-[12px] font-semibold text-gray-900 inline-flex items-center gap-1">
                               {row.farmerName}
+                              {row.details?.farmer?.isPremium && (
+                                <Star size={12} color="#F5B301" fill="#F5B301" />
+                              )}
                             </span>
                           )}
                         </div>
@@ -10563,6 +10601,10 @@ const mapSlotForUi = (slotData) => {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-semibold text-gray-900 text-sm">Order #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? formatAgriDisplayOrderKey(row) : row.order}</h3>
+                                  {row.details?.farmer?.isPremium && (
+                                    <Star size={12} color="#F5B301" fill="#F5B301" />
+                                  )}
+                                  <VehicleLoadedIcon details={row.details} />
                                   {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.linkedNurseryOrderCode && (
                                     <button
                                       type="button"
@@ -10612,12 +10654,20 @@ const mapSlotForUi = (slotData) => {
                                       <span className="inline-flex items-center gap-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-900">
                                         <span className="text-sky-600 font-semibold">Booking:</span>
                                         <span>{row.details.farmer?.name || "Unknown"}</span>
+                                        {row.details.farmer?.isPremium && (
+                                          <Star size={11} color="#F5B301" fill="#F5B301" />
+                                        )}
                                       </span>
                                     </>
                                   ) : (
-                                    <span className={`text-xs font-medium farmer-name-highlight`}>
-                                      {row.farmerName}
-                                    </span>
+                                    <>
+                                      <span className={`text-xs font-medium farmer-name-highlight`}>
+                                        {row.farmerName}
+                                      </span>
+                                      {row.details?.farmer?.isPremium && (
+                                        <Star size={12} color="#F5B301" fill="#F5B301" />
+                                      )}
+                                    </>
                                   )}
                                 </div>
                                 {row.details?.salesPerson && (
@@ -11092,7 +11142,19 @@ const mapSlotForUi = (slotData) => {
             <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold">Order #{selectedOrder.order}</h2>
+                  <h2 className="text-xl font-bold inline-flex items-center gap-1.5">
+                    Order #{selectedOrder.order}
+                    {selectedOrder.details?.farmer?.isPremium && (
+                      <Star size={18} color="#F5B301" fill="#F5B301" />
+                    )}
+                    {selectedOrder.details?.vehicleLoaded && (
+                      <span
+                        className="inline-flex items-center rounded bg-white/90 p-0.5"
+                        title="Vehicle loaded">
+                        <Truck size={16} color="#15803d" />
+                      </span>
+                    )}
+                  </h2>
                   {(selectedOrder.isAgriSalesOrder || selectedOrder.details?.isRamAgriProduct) && selectedOrder.details?.linkedNurseryOrderCode && (
                     <button
                       type="button"

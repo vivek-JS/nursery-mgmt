@@ -1417,6 +1417,7 @@ export const API = {
     CREATE_WHATSAPP_HISTORY: new APIRouter("farmer/whatsapp-history", HTTP_METHODS.POST),
     GET_FARMER_BY_ID: new APIRouter("farmer/get/:id", HTTP_METHODS.GET),
     GET_FARMER_ORDERS: new APIRouter("farmer/farmers/:farmerId/orders", HTTP_METHODS.GET),
+    SET_FARMER_PREMIUM: new APIRouter("farmer/:id/premium", HTTP_METHODS.PATCH),
   },
   FARMER_LIST: {
     GET_ALL_LISTS: new APIRouter("farmer-list", HTTP_METHODS.GET),

@@ -94,6 +94,7 @@ const ExcelUpload = () => {
     "SALES",
     "OFFICE_STAFF",
     "PRIMARY",
+    "SECONDARY",
     "DRIVER",
     "LABORATORY_MANAGER",
     "DEALER",

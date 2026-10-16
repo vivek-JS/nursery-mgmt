@@ -34,7 +34,7 @@ import {
   TablePagination,
   Tooltip
 } from "@mui/material"
-import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX, List, CheckCircle, Users, UserPlus, Link2, Landmark } from "lucide-react"
+import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX, List, CheckCircle, Users, UserPlus, Link2, Landmark, Star } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import LocationSelector from "components/LocationSelector"
 import { fetchFarmerPlantLedger, normalizeFarmerIdForLedger } from "features/accountant-dashboard/paymentsApi"
@@ -798,6 +798,9 @@ const FarmerComponent = () => {
                         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                           <User size={18} />
                           <Typography>{name}</Typography>
+                          {isFarmer && row.isPremium && (
+                            <Star size={16} color="#F5B301" fill="#F5B301" />
+                          )}
                         </Box>
                       </TableCell>
                       <TableCell>

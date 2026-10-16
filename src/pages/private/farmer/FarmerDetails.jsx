@@ -39,12 +39,14 @@ import {
   Group as GroupIcon,
   WhatsApp as WhatsAppIcon,
   Refresh as RefreshIcon,
-  AccountBalance as AccountBalanceIcon
+  AccountBalance as AccountBalanceIcon,
+  Star as StarIcon,
+  StarBorder as StarBorderIcon
 } from "@mui/icons-material"
 import { API, NetworkManager } from "network/core"
 import { LedgerPanel } from "features/accountant-dashboard/LedgerPanel"
 import { fetchFarmerPlantLedger, normalizeFarmerIdForLedger } from "features/accountant-dashboard/paymentsApi"
-import { useHasPaymentAccess, useHasPaymentsAccess } from "utils/roleUtils"
+import { useHasPaymentAccess, useHasPaymentsAccess, useIsSuperAdmin } from "utils/roleUtils"
 import { Toast } from "helpers/toasts/toastHelper"
 
 // ================================================================
@@ -244,6 +246,8 @@ const FarmerDetails = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"))
   const hasLedgerUi = useHasPaymentsAccess()
   const hasPaymentAccess = useHasPaymentAccess()
+  const isSuperAdmin = useIsSuperAdmin()
+  const [savingPremium, setSavingPremium] = useState(false)
 
   const [farmer, setFarmer] = useState(null)
   const [orders, setOrders] = useState([])
@@ -308,6 +312,21 @@ const FarmerDetails = () => {
       setError(err?.response?.data?.message || "Failed to load farmer details")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const togglePremium = async () => {
+    if (!farmer || savingPremium) return
+    const next = !farmer.isPremium
+    setSavingPremium(true)
+    try {
+      const instance = NetworkManager(API.FARMER.SET_FARMER_PREMIUM)
+      await instance.request({ isPremium: next }, { pathParams: [farmer._id || id] })
+      setFarmer((f) => (f ? { ...f, isPremium: next } : f))
+    } catch (err) {
+      Toast.error(err?.response?.data?.message || "Failed to update")
+    } finally {
+      setSavingPremium(false)
     }
   }
 
@@ -410,9 +429,26 @@ const FarmerDetails = () => {
         >
           Farmers
         </Button>
-        <Typography variant="h5" sx={{ fontWeight: 700, color: C.textPrimary, flex: 1 }}>
-          {farmer.name}
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flex: 1, minWidth: 0 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700, color: C.textPrimary }}>
+            {farmer.name}
+          </Typography>
+          {isSuperAdmin ? (
+            <Tooltip title={farmer.isPremium ? "Remove star" : "Mark star"}>
+              <span>
+                <IconButton size="small" onClick={togglePremium} disabled={savingPremium}>
+                  {farmer.isPremium ? (
+                    <StarIcon sx={{ color: "#F5B301" }} />
+                  ) : (
+                    <StarBorderIcon sx={{ color: C.textMuted }} />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+          ) : (
+            farmer.isPremium && <StarIcon sx={{ color: "#F5B301" }} />
+          )}
+        </Box>
         {farmer.opt_in && (
           <Chip
             icon={<WhatsAppIcon sx={{ fontSize: 16, color: "#25D366 !important" }} />}
@@ -686,9 +722,12 @@ const FarmerDetails = () => {
                           sx={{ "&:last-child td": { borderBottom: 0 }, cursor: "default" }}
                         >
                           <TableCell sx={{ py: 1.5 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 600, color: C.textPrimary, fontFamily: "monospace" }}>
-                              #{String(order.orderId || order._id).slice(-6)}
-                            </Typography>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: C.textPrimary, fontFamily: "monospace" }}>
+                                #{String(order.orderId || order._id).slice(-6)}
+                              </Typography>
+                              {farmer.isPremium && <StarIcon sx={{ fontSize: 14, color: "#F5B301" }} />}
+                            </Box>
                           </TableCell>
                           <TableCell sx={{ py: 1.5 }}>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
