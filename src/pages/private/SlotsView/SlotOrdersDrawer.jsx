@@ -26,6 +26,7 @@ import {
   getSowedForOtherDeliveryPlants,
 } from "./slotMetrics"
 import { resolveSowingGapSections, resolveSowedForOtherDeliverySections } from "./sowingGapSections"
+import CrossSlotOrderCard, { fmtWindow } from "./CrossSlotOrderCard"
 
 export const SLOT_ORDER_FILTERS = {
   ALL_ACTIVE: "all_active",
@@ -245,8 +246,10 @@ function resolveSowingFromOtherSections(slot) {
   return [
     {
       id: "sowingFromOther",
-      label: "Sowing on other slot",
-      subtitle: "Orders on this delivery window — sowing completed on another ready slot",
+      label: "Sowed on another slot",
+      subtitle: d.orders.some((o) => o.fromExcess)
+        ? "Booked on this window — covered from another slot's excess sowing"
+        : "Booked on this window — sowing completed on another ready slot",
       orders: d.orders,
       orderCount: d.orderCount,
       plants: d.plants,
@@ -265,8 +268,8 @@ function resolveCoverMovedOutSections(slot) {
     if (!byTarget.has(key)) {
       byTarget.set(key, {
         id: `moved-${key}`,
-        label: `To ${row.toSlotLabel || "other slot"}`,
-        subtitle: "Orders booked there — covered from this slot's sowing",
+        label: `Given to ${fmtWindow(row.toSlotLabel)}`,
+        subtitle: "Orders booked there — covered from this slot's excess sowing",
         orders: [],
         orderCount: 0,
         plants: 0,
@@ -365,6 +368,18 @@ function PastDueOrdersPanel({ sections, emptyMessage = "No orders in this view."
                       <p className="text-xs text-gray-500 mt-0.5">{sec.subtitle}</p>
                     ) : null}
                   </li>
+                ) : sec.linkSlot ? (
+                  sec.orders.map((row) => (
+                    <CrossSlotOrderCard
+                      key={`${row._id}-${row.requestNumber || ""}`}
+                      row={row}
+                      side={sec.linkSlot}
+                      onOpenSlot={onOpenSlot}
+                      onOpenOrder={(r) =>
+                        navigate(`/u/dashboard?search=${encodeURIComponent(r.orderId || "")}`)
+                      }
+                    />
+                  ))
                 ) : (
                   sec.orders.map((row) => (
                   <li
@@ -384,26 +399,8 @@ function PastDueOrdersPanel({ sections, emptyMessage = "No orders in this view."
                       {sec.showSowingHint && row.fromSlotLabel ? (
                         <p className="text-[10px] text-teal-700">Sowed on {row.fromSlotLabel}</p>
                       ) : null}
-                      {sec.linkSlot === "to" && row.toSlotLabel ? (
-                        <p className="text-[10px] text-amber-800">Booked on {row.toSlotLabel}</p>
-                      ) : null}
-                      {row.sowingNote ? (
-                        <p className="text-[10px] text-gray-500">{row.sowingNote}</p>
-                      ) : sec.showSowingHint && row.requestNumber ? (
+                      {sec.showSowingHint && row.requestNumber ? (
                         <p className="text-[10px] text-gray-500">{row.requestNumber}</p>
-                      ) : null}
-                      {onOpenSlot && sec.linkSlot && row[`${sec.linkSlot}SlotId`] ? (
-                        <button
-                          type="button"
-                          className="mt-0.5 text-[11px] font-semibold text-blue-600 hover:underline"
-                          onClick={() =>
-                            onOpenSlot(
-                              row[`${sec.linkSlot}SlotId`],
-                              sec.linkSlot === "from" ? "coverMovedOut" : "sowingFromOtherSlot"
-                            )
-                          }>
-                          Open slot {row[`${sec.linkSlot}SlotLabel`] || ""} →
-                        </button>
                       ) : null}
                     </div>
                     <p className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">

@@ -43,8 +43,10 @@ const SlotSowingCrossTiles = ({
     onOtherSlot > 0
       ? {
           key: "sowingFromOtherSlot",
-          label: "Sowing on other slot",
-          sub: "covered elsewhere",
+          label: "Sowed on other slot",
+          sub: slot?.sowingFromOtherSlotDetail?.orders?.some((o) => o.fromExcess)
+            ? "covered from excess"
+            : "covered elsewhere",
           hint: "Orders on this delivery date — sowing done on another ready slot. Click to see list.",
           value: onOtherSlot,
           className: "bg-sky-50 border-sky-200 hover:bg-sky-100",
@@ -70,7 +72,7 @@ const SlotSowingCrossTiles = ({
       ? {
           key: "coverMovedOut",
           label: "Given to other slot",
-          sub: "covers their orders",
+          sub: "excess covers their orders",
           hint: "Sowing from this slot moved to cover orders booked on another slot. Click to see orders.",
           value: movedOut,
           className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
