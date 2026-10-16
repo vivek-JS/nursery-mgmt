@@ -42,12 +42,18 @@ function toYmd(value) {
 }
 
 /** GET /sowing/excess-batches — free excess per sowing batch within delivery ±windowDays. */
-export async function fetchExcessBatches({ plantId, subtypeId, deliveryDate, need, windowDays = 5 }) {
+export async function fetchExcessBatches({
+  plantId,
+  subtypeId,
+  deliveryDate,
+  need,
+  windowDays = 5,
+  releaseOrderId = null
+}) {
   const instance = NetworkManager(API.sowing.GET_EXCESS_BATCHES)
-  const res = await instance.request(
-    {},
-    { plantId, subtypeId, deliveryDate: toYmd(deliveryDate), need, windowDays }
-  )
+  const query = { plantId, subtypeId, deliveryDate: toYmd(deliveryDate), need, windowDays }
+  if (releaseOrderId) query.releaseOrderId = releaseOrderId
+  const res = await instance.request({}, query)
   if (!res?.data?.success) {
     throw new Error(res?.data?.message || "Failed to load excess sowing")
   }
@@ -61,17 +67,24 @@ export const WIDE_WINDOW_DAYS = 15
  * Excess near delivery (±5d); when that cannot cover the whole order, widen to ±15d.
  * Returns { preview, windowDays, widened, nearFree }.
  */
-export async function fetchExcessWithFallback({ plantId, subtypeId, deliveryDate, need }) {
+export async function fetchExcessWithFallback({
+  plantId,
+  subtypeId,
+  deliveryDate,
+  need,
+  releaseOrderId = null
+}) {
   const needQty = Math.max(0, Math.floor(Number(need) || 0))
   const near = await fetchExcessBatches({
     plantId,
     subtypeId,
     deliveryDate,
     need: needQty,
-    windowDays: NEAR_WINDOW_DAYS
+    windowDays: NEAR_WINDOW_DAYS,
+    releaseOrderId
   })
   const nearFree = Number(near?.totalFree) || 0
-  if (needQty > 0 && nearFree >= needQty) {
+  if ((needQty > 0 && nearFree >= needQty) || near?.ownSow?.withinTolerance) {
     return { preview: near, windowDays: NEAR_WINDOW_DAYS, widened: false, nearFree }
   }
   const wide = await fetchExcessBatches({
@@ -79,7 +92,8 @@ export async function fetchExcessWithFallback({ plantId, subtypeId, deliveryDate
     subtypeId,
     deliveryDate,
     need: needQty,
-    windowDays: WIDE_WINDOW_DAYS
+    windowDays: WIDE_WINDOW_DAYS,
+    releaseOrderId
   })
   return { preview: wide, windowDays: WIDE_WINDOW_DAYS, widened: true, nearFree }
 }
@@ -182,8 +196,24 @@ export default function ExcessBatchCoverDialog({
   onSow,
   widened = false,
   nearFree = 0,
+  newSowingPossible,
+  newSowingReadyBy,
+  plantReadyDays,
+  coverLabel = COVER_LABEL,
+  sowLabel = SOW_LABEL,
 }) {
   const rows = useMemo(() => groupExcessEntries(preview?.entries || []), [preview])
+  const sowPossible = (newSowingPossible ?? preview?.newSowingPossible) !== false
+  const readyDays = plantReadyDays ?? preview?.plantReadyDays
+  const readyBy = newSowingReadyBy ?? preview?.newSowingReadyBy
+  const newSowingNote = sowPossible ? (
+    <b>New sowing needs to be created for this order.</b>
+  ) : (
+    <b>
+      Not enough time for a new sowing
+      {readyDays ? ` (needs ${readyDays} days, earliest ${readyBy || "—"})` : ""}.
+    </b>
+  )
   const totalFree = Number(preview?.totalFree) || 0
   const needQty = Math.max(0, Math.floor(Number(need) || 0))
   const isFull = needQty > 0 && totalFree >= needQty
@@ -271,18 +301,17 @@ export default function ExcessBatchCoverDialog({
 
           {!loading && totalFree <= 0 ? (
             <Alert severity="error" sx={{ py: 0.5 }}>
-              No excess sowing within ±{windowDays} days.{" "}
-              <b>New sowing needs to be created for this order.</b>
+              No excess sowing within ±{windowDays} days. {newSowingNote}
             </Alert>
           ) : isFull ? (
             <Alert severity="success" sx={{ py: 0.5 }}>
               Choose one: cover this order from the sowing below (adds up to {fmtNum(needQty)}{" "}
-              plants, order is marked <b>Sow completed</b>), or <b>{SOW_LABEL}</b>.
+              plants, order is marked <b>Sow completed</b>), or <b>{sowLabel}</b>.
             </Alert>
           ) : (
             <Alert severity="warning" sx={{ py: 0.5 }}>
               Only {fmtNum(totalFree)} of {fmtNum(needQty)} available ({pct}%). Cover needs 100%
-              — new sowing needs to be created: <b>{SOW_LABEL}</b>.
+              — {newSowingNote}
             </Alert>
           )}
 
@@ -370,7 +399,7 @@ export default function ExcessBatchCoverDialog({
       <DialogActions sx={{ px: 2, py: 1.25, gap: 1, flexWrap: "wrap" }}>
         <Button onClick={onClose}>Back</Button>
         <Button variant="outlined" color="warning" onClick={() => onSow?.(totalFree)}>
-          {SOW_LABEL}
+          {sowLabel}
         </Button>
         {isFull && (
           <Button
@@ -379,7 +408,7 @@ export default function ExcessBatchCoverDialog({
             disabled={!canCover}
             onClick={() => onCover?.(picksMapToList(picks, rows), picks, windowDays)}
           >
-            {COVER_LABEL} ({fmtNum(selected)})
+            {coverLabel} ({fmtNum(selected)})
           </Button>
         )}
       </DialogActions>

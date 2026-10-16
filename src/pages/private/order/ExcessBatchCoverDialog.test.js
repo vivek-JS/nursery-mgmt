@@ -1,5 +1,7 @@
+import React from "react"
+import { render, screen } from "@testing-library/react"
 import { NetworkManager } from "network/core"
-import {
+import ExcessBatchCoverDialog, {
   autoFillPicks,
   fetchExcessWithFallback,
   groupExcessEntries,
@@ -32,6 +34,45 @@ test("fallback widens to ±15 days when ±5 is not enough", async () => {
   const res = await fetchExcessWithFallback({ plantId: "p", subtypeId: "s", deliveryDate: "2026-11-10", need: 10000 })
   expect(res).toMatchObject({ windowDays: 15, widened: true, nearFree: 3000 })
   expect(res.preview.totalFree).toBe(40000)
+})
+
+test("own sowing within tolerance skips the ±15 call and sends releaseOrderId", async () => {
+  const request = jest.fn(async () => ({
+    data: { success: true, data: { totalFree: 0, entries: [], ownSow: { withinTolerance: true } } },
+  }))
+  NetworkManager.mockReturnValue({ request })
+  const res = await fetchExcessWithFallback({
+    plantId: "p",
+    subtypeId: "s",
+    deliveryDate: "2026-11-10",
+    need: 1500,
+    releaseOrderId: "o1",
+  })
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(request.mock.calls[0][1]).toMatchObject({ releaseOrderId: "o1", windowDays: 5 })
+  expect(res.preview.ownSow.withinTolerance).toBe(true)
+})
+
+test("no excess: new sowing message when there is time, else not-enough-time note", () => {
+  const preview = { windowDays: 15, totalFree: 0, entries: [] }
+  const { rerender } = render(
+    <ExcessBatchCoverDialog
+      open
+      preview={{ ...preview, newSowingPossible: true }}
+      need={1500}
+      sowLabel="Change date only"
+    />
+  )
+  expect(screen.getByText(/New sowing needs to be created/)).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Change date only" })).toBeInTheDocument()
+  rerender(
+    <ExcessBatchCoverDialog
+      open
+      preview={{ ...preview, newSowingPossible: false, plantReadyDays: 45, newSowingReadyBy: "30-11-2026" }}
+      need={1500}
+    />
+  )
+  expect(screen.getByText(/Not enough time for a new sowing \(needs 45 days, earliest 30-11-2026\)/)).toBeInTheDocument()
 })
 
 const base = {
