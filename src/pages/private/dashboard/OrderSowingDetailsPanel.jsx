@@ -8,6 +8,7 @@ import {
 } from "@mui/material"
 import OrderSowForm from "./OrderSowForm"
 import OrderCoverExcessSection from "./OrderCoverExcessSection"
+import { summarizePicks } from "../order/ExcessBatchCoverDialog"
 
 function formatDoneAt(value) {
   if (!value) return "—"
@@ -69,15 +70,13 @@ export default function OrderSowingDetailsPanel({
           />
         )}
       </Stack>
-      {coverSources.map((s, idx) => {
+      {summarizePicks(coverSources).map((s) => {
         const off = Number(s.offsetDays) || 0
         const offLabel = off === 0 ? "delivery" : off > 0 ? `+${off}d` : `${off}d`
         return (
-          <Typography key={s.batchId || idx} variant="caption" sx={{ display: "block" }}>
-            Ready {s.plantReadyDate || "—"} ({offLabel})
-            {s.sowingDate ? ` · sowed ${s.sowingDate}` : ""}
-            {s.shedName ? ` · ${s.shedName}` : ""}
-            {s.requestNumber ? ` · ${s.requestNumber}` : ""} ·{" "}
+          <Typography key={s.key} variant="caption" sx={{ display: "block" }}>
+            Sowed {s.sowingDate || "—"} · ready {s.plantReadyDate || "—"} ({offLabel})
+            {s.shedName ? ` · ${s.shedName}` : ""} ·{" "}
             <strong>{Number(s.plants || 0).toLocaleString("en-IN")} plants</strong>
           </Typography>
         )

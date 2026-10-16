@@ -17,7 +17,8 @@ import {
 } from "@mui/material"
 import { NetworkManager, API } from "network/core"
 
-export const SOW_LABEL = "याची sowing करू"
+export const SOW_LABEL = "या order ची पूर्ण sowing करू"
+export const COVER_LABEL = "Excess मधून cover करू"
 
 export function fmtNum(n) {
   return Number(n || 0).toLocaleString("en-IN")
@@ -53,43 +54,92 @@ export async function fetchExcessBatches({ plantId, subtypeId, deliveryDate, nee
   return res.data.data || null
 }
 
-/** Nearest-first auto fill up to need. Returns { [batchId]: plants }. */
-export function autoFillPicks(entries = [], need = 0) {
+/**
+ * One row per sowing date: batches of the same slot, sowing date, ready date and shed
+ * are merged. Batch order inside a row is kept (oldest first) for splitting picks.
+ */
+export function groupExcessEntries(entries = []) {
+  const byKey = new Map()
+  for (const e of entries) {
+    const key = [e.slotId, e.sowingDate, e.plantReadyDate, e.shedName].join("|")
+    let row = byKey.get(key)
+    if (!row) {
+      row = {
+        key,
+        slotId: String(e.slotId),
+        sowingDate: e.sowingDate || "",
+        plantReadyDate: e.plantReadyDate || "",
+        offsetDays: Number(e.offsetDays) || 0,
+        shedName: e.shedName || "",
+        freePlants: 0,
+        batches: [],
+      }
+      byKey.set(key, row)
+    }
+    row.freePlants += Math.max(0, Number(e.freePlants) || 0)
+    row.batches.push(e)
+  }
+  return [...byKey.values()]
+}
+
+/** Nearest-first auto fill up to need. Returns { [rowKey]: plants }. */
+export function autoFillPicks(rows = [], need = 0) {
   const next = {}
   let left = Math.max(0, Math.floor(Number(need) || 0))
-  for (const e of entries) {
+  for (const r of rows) {
     if (left <= 0) break
-    const take = Math.min(left, Math.max(0, Number(e.freePlants) || 0))
+    const take = Math.min(left, Math.max(0, Number(r.freePlants) || 0))
     if (take > 0) {
-      next[e.batchId] = take
+      next[r.key] = take
       left -= take
     }
   }
   return next
 }
 
-export function picksMapToList(picks = {}, entries = []) {
-  const byBatch = new Map(entries.map((e) => [String(e.batchId), e]))
-  return Object.entries(picks)
-    .map(([batchId, plants]) => {
-      const e = byBatch.get(String(batchId))
-      return e
-        ? {
-            batchId: String(batchId),
-            slotId: String(e.slotId),
-            plants: Math.max(0, Math.floor(Number(plants) || 0)),
-            plantReadyDate: e.plantReadyDate,
-            offsetDays: e.offsetDays,
-          }
-        : null
-    })
-    .filter((p) => p && p.plants > 0)
+/** Row picks → per-batch picks for the API (each row split across its batches in order). */
+export function picksMapToList(picks = {}, rows = []) {
+  const byKey = new Map(rows.map((r) => [r.key, r]))
+  const list = []
+  for (const [key, raw] of Object.entries(picks)) {
+    const row = byKey.get(key)
+    let left = Math.max(0, Math.floor(Number(raw) || 0))
+    if (!row || left <= 0) continue
+    for (const b of row.batches) {
+      if (left <= 0) break
+      const take = Math.min(left, Math.max(0, Number(b.freePlants) || 0))
+      if (take <= 0) continue
+      list.push({
+        batchId: String(b.batchId),
+        slotId: String(b.slotId),
+        plants: take,
+        sowingDate: row.sowingDate,
+        plantReadyDate: row.plantReadyDate,
+        offsetDays: row.offsetDays,
+        shedName: row.shedName,
+      })
+      left -= take
+    }
+  }
+  return list
+}
+
+/** Per-batch picks → one line per sowing date (for summaries). */
+export function summarizePicks(picks = []) {
+  const byKey = new Map()
+  for (const p of picks) {
+    const key = [p.sowingDate, p.plantReadyDate, p.shedName].join("|")
+    const prev = byKey.get(key)
+    if (prev) prev.plants += Number(p.plants) || 0
+    else byKey.set(key, { ...p, key, plants: Number(p.plants) || 0 })
+  }
+  return [...byKey.values()]
 }
 
 /**
  * Booking-time popup: excess from sowing batches within delivery ±5 days.
- * Full mode → pick batches summing to need, then Cover order or याची sowing करू.
- * Partial mode → read-only list, only याची sowing करू.
+ * Full mode → pick sowing dates summing to need, then cover or SOW_LABEL.
+ * Partial mode → read-only list, only SOW_LABEL.
  */
 export default function ExcessBatchCoverDialog({
   open,
@@ -101,7 +151,7 @@ export default function ExcessBatchCoverDialog({
   onCover,
   onSow,
 }) {
-  const entries = useMemo(() => preview?.entries || [], [preview])
+  const rows = useMemo(() => groupExcessEntries(preview?.entries || []), [preview])
   const totalFree = Number(preview?.totalFree) || 0
   const needQty = Math.max(0, Math.floor(Number(need) || 0))
   const isFull = needQty > 0 && totalFree >= needQty
@@ -111,8 +161,8 @@ export default function ExcessBatchCoverDialog({
   useEffect(() => {
     if (!open) return
     if (initialPicks && Object.keys(initialPicks).length) setPicks(initialPicks)
-    else setPicks(isFull ? autoFillPicks(entries, needQty) : {})
-  }, [open, entries, needQty, isFull, initialPicks])
+    else setPicks(isFull ? autoFillPicks(rows, needQty) : {})
+  }, [open, rows, needQty, isFull, initialPicks])
 
   const selected = useMemo(
     () =>
@@ -120,28 +170,28 @@ export default function ExcessBatchCoverDialog({
     [picks]
   )
 
-  const setQty = (entry, raw) => {
+  const setQty = (row, raw) => {
     const next = { ...picks }
     const n = Math.max(0, Math.floor(Number(raw) || 0))
-    const capped = Math.min(n, Number(entry.freePlants) || 0)
-    if (capped <= 0) delete next[entry.batchId]
-    else next[entry.batchId] = capped
+    const capped = Math.min(n, Number(row.freePlants) || 0)
+    if (capped <= 0) delete next[row.key]
+    else next[row.key] = capped
     setPicks(next)
   }
 
-  const toggle = (entry, checked) => {
+  const toggle = (row, checked) => {
     const next = { ...picks }
     if (!checked) {
-      delete next[entry.batchId]
+      delete next[row.key]
       setPicks(next)
       return
     }
     const others = Object.entries(next).reduce(
-      (s, [k, v]) => (k === entry.batchId ? s : s + Math.max(0, Number(v) || 0)),
+      (s, [k, v]) => (k === row.key ? s : s + Math.max(0, Number(v) || 0)),
       0
     )
-    const take = Math.min(Number(entry.freePlants) || 0, Math.max(0, needQty - others))
-    if (take > 0) next[entry.batchId] = take
+    const take = Math.min(Number(row.freePlants) || 0, Math.max(0, needQty - others))
+    if (take > 0) next[row.key] = take
     setPicks(next)
   }
 
@@ -176,13 +226,13 @@ export default function ExcessBatchCoverDialog({
 
           {isFull ? (
             <Alert severity="success" sx={{ py: 0.5 }}>
-              Pick sowing entries that add up to {fmtNum(needQty)} plants. The order will be
-              linked to them and marked <b>Sow completed</b>.
+              Choose one: cover this order from the sowing below (adds up to {fmtNum(needQty)}{" "}
+              plants, order is marked <b>Sow completed</b>), or <b>{SOW_LABEL}</b>.
             </Alert>
           ) : (
             <Alert severity="warning" sx={{ py: 0.5 }}>
               Only {fmtNum(totalFree)} of {fmtNum(needQty)} available ({pct}%). Cover needs 100%
-              — this order will go through sowing.
+              — confirm <b>{SOW_LABEL}</b>.
             </Alert>
           )}
 
@@ -190,19 +240,19 @@ export default function ExcessBatchCoverDialog({
             <Box display="flex" justifyContent="center" py={3}>
               <CircularProgress size={28} />
             </Box>
-          ) : entries.length === 0 ? (
+          ) : rows.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
               No free excess within ±{windowDays} days.
             </Typography>
           ) : (
             <Stack spacing={0.75}>
-              {entries.map((e) => {
-                const qty = Math.max(0, Math.floor(Number(picks[e.batchId]) || 0))
+              {rows.map((r) => {
+                const qty = Math.max(0, Math.floor(Number(picks[r.key]) || 0))
                 const checked = qty > 0
-                const off = Number(e.offsetDays) || 0
+                const off = r.offsetDays
                 return (
                   <Paper
-                    key={e.batchId}
+                    key={r.key}
                     variant="outlined"
                     sx={{
                       p: 1,
@@ -221,7 +271,7 @@ export default function ExcessBatchCoverDialog({
                           <Checkbox
                             size="small"
                             checked={checked}
-                            onChange={(ev) => toggle(e, ev.target.checked)}
+                            onChange={(ev) => toggle(r, ev.target.checked)}
                           />
                         )}
                         <Chip
@@ -232,12 +282,11 @@ export default function ExcessBatchCoverDialog({
                         />
                         <Box minWidth={0}>
                           <Typography fontWeight={800} fontSize="0.88rem">
-                            Ready {e.plantReadyDate || "—"}
-                            {e.sowingDate ? ` · sowed ${e.sowingDate}` : ""}
+                            Sowed {r.sowingDate || "—"}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {[e.shedName, e.requestNumber].filter(Boolean).join(" · ") || "—"}
-                            {` · free ${fmtNum(e.freePlants)}`}
+                            {[`ready ${r.plantReadyDate || "—"}`, r.shedName].filter(Boolean).join(" · ")}
+                            {` · free ${fmtNum(r.freePlants)}`}
                           </Typography>
                         </Box>
                       </Stack>
@@ -247,15 +296,15 @@ export default function ExcessBatchCoverDialog({
                           type="number"
                           label="Take"
                           value={qty || ""}
-                          onChange={(ev) => setQty(e, ev.target.value)}
-                          inputProps={{ min: 0, max: e.freePlants, step: 1 }}
-                          sx={{ width: 110 }}
+                          onChange={(ev) => setQty(r, ev.target.value)}
+                          inputProps={{ min: 0, max: r.freePlants, step: 1 }}
+                          sx={{ width: 120 }}
                         />
                       ) : (
                         <Chip
                           size="small"
                           variant="outlined"
-                          label={fmtNum(e.freePlants)}
+                          label={fmtNum(r.freePlants)}
                           sx={{ fontWeight: 800 }}
                         />
                       )}
@@ -273,7 +322,7 @@ export default function ExcessBatchCoverDialog({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.25, gap: 1, flexWrap: "wrap" }}>
-        {!isFull && <Button onClick={onClose}>Back</Button>}
+        <Button onClick={onClose}>Back</Button>
         <Button variant="outlined" color="warning" onClick={() => onSow?.(totalFree)}>
           {SOW_LABEL}
         </Button>
@@ -282,9 +331,9 @@ export default function ExcessBatchCoverDialog({
             variant="contained"
             color="success"
             disabled={!canCover}
-            onClick={() => onCover?.(picksMapToList(picks, entries), picks)}
+            onClick={() => onCover?.(picksMapToList(picks, rows), picks)}
           >
-            Cover order ({fmtNum(selected)})
+            {COVER_LABEL} ({fmtNum(selected)})
           </Button>
         )}
       </DialogActions>

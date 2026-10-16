@@ -29,7 +29,8 @@ import {
   FormControl,
   Badge,
   Popover,
-  Paper
+  Paper,
+  Stack
 } from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "lib/muiLocalizationProvider"
@@ -64,9 +65,11 @@ import moment from "moment"
 import { resolveEffectiveRate, mapSubtypeOption } from "utils/resolveEffectiveRate"
 import ExcessBatchCoverDialog, {
   SOW_LABEL,
+  COVER_LABEL,
   fetchExcessBatches,
   fmtNum as fmtCoverNum,
   offsetChipLabel,
+  summarizePicks,
 } from "./ExcessBatchCoverDialog"
 import LocationSelector from "components/LocationSelector"
 import SearchableSelect from "components/FormField/SearchableSelect"
@@ -491,7 +494,7 @@ const AddOrderForm = ({
   const [excessPreview, setExcessPreview] = useState(null)
   const [excessLoading, setExcessLoading] = useState(false)
   const [excessDialogOpen, setExcessDialogOpen] = useState(false)
-  /** { decision: "COVER" | "SOW", picks?: [{ batchId, slotId, plants, plantReadyDate, offsetDays }], picksMap?, offered? } */
+  /** { decision: "COVER" | "SOW", picks?: [{ batchId, slotId, plants, sowingDate, plantReadyDate, offsetDays, shedName }], picksMap? (by sowing-date row), offered? } */
   const [sowingCoverChoice, setSowingCoverChoice] = useState(null)
   const excessPreviewRef = useRef(null)
   const sowingCoverChoiceRef = useRef(null)
@@ -4886,15 +4889,20 @@ const AddOrderForm = ({
                   const isFull = totalFree >= excessCoverNeed
                   const pct = excessCoverNeed > 0 ? Math.round((totalFree / excessCoverNeed) * 100) : 0
                   const choice = sowingCoverChoice
+                  const isCover = choice?.decision === "COVER"
+                  const isSow = choice?.decision === "SOW"
+                  const coverDates = isCover
+                    ? summarizePicks(choice.picks || [])
+                        .map((g) => `${g.sowingDate || g.plantReadyDate || "—"} (${fmtCoverNum(g.plants)})`)
+                        .join(", ")
+                    : ""
                   return (
                     <Grid item xs={12}>
                       <Box
-                        onClick={() => setExcessDialogOpen(true)}
                         sx={{
                           p: 1.25,
                           borderRadius: 1.5,
-                          cursor: "pointer",
-                          border: `1px solid ${isFull ? "#16a34a" : "#f59e0b"}`,
+                          border: `${choice ? 1 : 2}px solid ${isFull ? "#16a34a" : "#f59e0b"}`,
                           bgcolor: isFull ? "#f0fdf4" : "#fffbeb",
                           display: "flex",
                           alignItems: "center",
@@ -4905,27 +4913,37 @@ const AddOrderForm = ({
                         <Box minWidth={0}>
                           <Typography variant="body2" fontWeight={800} color={isFull ? "#166534" : "#92400e"}>
                             {isFull
-                              ? `${fmtCoverNum(totalFree)} excess plants ready within ±5 days. Cover this order`
+                              ? `${fmtCoverNum(totalFree)} excess plants ready within ±5 days`
                               : `${fmtCoverNum(totalFree)} excess plants within ±5 days (${pct}%)`}
                           </Typography>
-                          {choice && (
+                          {choice ? (
                             <Typography variant="caption" color="text.secondary">
-                              {choice.decision === "COVER"
-                                ? `Selected: cover from ${choice.picks?.length || 0} sowing entr${choice.picks?.length === 1 ? "y" : "ies"} → Sow completed`
+                              {isCover
+                                ? `Selected: cover from sowed ${coverDates} → Sow completed`
                                 : `Selected: ${SOW_LABEL} (goes to sowing)`}
+                            </Typography>
+                          ) : (
+                            <Typography variant="caption" color="error.main" fontWeight={700}>
+                              Required: choose {isFull ? `${COVER_LABEL} or ` : ""}{SOW_LABEL}
                             </Typography>
                           )}
                         </Box>
-                        <Button
-                          size="small"
-                          variant={isFull ? "contained" : "outlined"}
-                          color={isFull ? "success" : "warning"}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setExcessDialogOpen(true)
-                          }}>
-                          {choice ? "Change" : "View"}
-                        </Button>
+                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                          <Button
+                            size="small"
+                            variant={isCover || (!choice && isFull) ? "contained" : "outlined"}
+                            color={isFull ? "success" : "inherit"}
+                            onClick={() => setExcessDialogOpen(true)}>
+                            {isCover ? "Change" : isFull ? `View · ${COVER_LABEL}` : "View"}
+                          </Button>
+                          <Button
+                            size="small"
+                            variant={isSow ? "contained" : "outlined"}
+                            color="warning"
+                            onClick={() => handleExcessSow(totalFree)}>
+                            {isSow ? `✓ ${SOW_LABEL}` : SOW_LABEL}
+                          </Button>
+                        </Stack>
                       </Box>
                     </Grid>
                   )
@@ -5828,10 +5846,10 @@ const AddOrderForm = ({
                     <Typography variant="body2" sx={{ fontWeight: 700, color: "#166534" }}>
                       ✅ Will be marked sow completed from:
                     </Typography>
-                    {sowingCoverChoice.picks.map((p) => (
-                      <Typography key={p.batchId} variant="caption" sx={{ display: "block" }}>
-                        Ready {p.plantReadyDate || "—"} ({offsetChipLabel(p.offsetDays)}) ·{" "}
-                        {fmtCoverNum(p.plants)} plants
+                    {summarizePicks(sowingCoverChoice.picks).map((p) => (
+                      <Typography key={p.key} variant="caption" sx={{ display: "block" }}>
+                        Sowed {p.sowingDate || "—"} · ready {p.plantReadyDate || "—"} (
+                        {offsetChipLabel(p.offsetDays)}) · {fmtCoverNum(p.plants)} plants
                       </Typography>
                     ))}
                   </Box>
