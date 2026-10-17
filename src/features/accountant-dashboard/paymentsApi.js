@@ -275,12 +275,19 @@ export async function createFarmerOrderTransferRequest({
   return res.data?.data ?? res.data
 }
 
-export async function transferFarmerPlantOrderPayment({ sourceOrderId, targetOrderId, paymentId, message }) {
+export async function transferFarmerPlantOrderPayment({
+  sourceOrderId,
+  targetOrderId,
+  paymentId,
+  message,
+  amount
+}) {
   const payload = buildFarmerPlantOrderPaymentTransferPayload({
     sourceOrderId,
     targetOrderId,
     paymentId,
-    message
+    message,
+    amount
   })
   const instance = NetworkManager(API.ORDER.TRANSFER_FARMER_PLANT_ORDER_PAYMENT)
   const res = await instance.request(payload)

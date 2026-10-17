@@ -56,6 +56,7 @@ export default function PaymentTransferDialog({
   const [targetOrder, setTargetOrder] = useState(null)
 
   const [message, setMessage] = useState("")
+  const [amount, setAmount] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
   const sourceTimerRef = useRef(null)
@@ -73,6 +74,7 @@ export default function PaymentTransferDialog({
     setTargetResults([])
     setTargetOrder(null)
     setMessage("")
+    setAmount("")
     setSubmitting(false)
     setSourceDetailsLoading(false)
   }, [])
@@ -236,12 +238,29 @@ export default function PaymentTransferDialog({
   }
 
   const collected = transferableFarmerPlantPayments(sourceDetails?.payments)
+  const selectedPayment = collected.find((p) => String(p._id) === selectedPaymentId) || null
+  const lineAmount = selectedPayment ? Math.abs(Number(selectedPayment.paidAmount) || 0) : 0
+
+  useEffect(() => {
+    setAmount(lineAmount > 0 ? String(lineAmount) : "")
+  }, [selectedPaymentId, lineAmount])
+
+  const amountNum = Math.round(Number(amount) * 100) / 100
+  const amountError = !selectedPayment
+    ? ""
+    : String(amount).trim() === "" || !Number.isFinite(amountNum) || !(amountNum > 0)
+      ? "Enter an amount greater than zero"
+      : amountNum > lineAmount
+        ? `Cannot exceed ${fmt(lineAmount)}`
+        : ""
+  const isPartial = !amountError && amountNum > 0 && amountNum < lineAmount
+
   const canSubmit =
     sourceOrder?._id &&
     targetOrder?._id &&
     String(sourceOrder._id) !== String(targetOrder._id) &&
-    selectedPaymentId &&
-    collected.some((p) => String(p._id) === selectedPaymentId) &&
+    selectedPayment &&
+    !amountError &&
     !submitting
 
   const handleSubmit = async () => {
@@ -252,10 +271,11 @@ export default function PaymentTransferDialog({
         sourceOrderId: sourceOrder._id,
         targetOrderId: targetOrder._id,
         paymentId: selectedPaymentId,
-        message: message.trim() || undefined
+        message: message.trim() || undefined,
+        amount: amountNum
       })
       Toast.success(
-        "पेमेंट यशस्वीपणे transfer झाले — लक्ष्य ऑर्डरवर जमा झाले. · Payment transferred to the target order."
+        `${fmt(amountNum)} यशस्वीपणे transfer झाले — लक्ष्य ऑर्डरवर जमा झाले. · ${fmt(amountNum)} transferred to the target order.`
       )
       try {
         if (typeof onSuccess === "function") onSuccess()
@@ -295,12 +315,13 @@ export default function PaymentTransferDialog({
             महत्त्वाचे — कृपया पुन्हा तपासा
           </Typography>
           <Typography variant="body2" component="div" sx={{ lineHeight: 1.55 }}>
-            एक <strong>Collected</strong> पेमेंट स्रोत ऑर्डरवरून <strong>दुसऱ्या कोणत्याही</strong> शेतकऱ्याच्या प्लांट
+            एक <strong>Collected</strong> पेमेंट (पूर्ण किंवा काही रक्कम) स्रोत ऑर्डरवरून <strong>दुसऱ्या कोणत्याही</strong> शेतकऱ्याच्या प्लांट
             ऑर्डरवर transfer करू शकता (स्रोत व लक्ष्य वेगळे शेतकरी असले तरी चालेल). रद्द ऑर्डरवरील Collected पेमेंटही इथून
             transfer करता येईल. <strong>Wallet</strong> किंवा <strong>bulk</strong> लिंक केलेल्या पेमेंट इथून transfer करता येत नाहीत.
           </Typography>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-            Transfer one collected line to any other farmer plant order. Wallet / bulk-linked lines are not listed here.
+            Transfer one collected line (full or a part of it) to any other farmer plant order. Wallet / bulk-linked lines
+            are not listed here.
           </Typography>
         </Alert>
 
@@ -453,6 +474,31 @@ export default function PaymentTransferDialog({
               </Button>
             ))}
         </Box>
+
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+          3. Amount to transfer
+        </Typography>
+        <TextField
+          size="small"
+          fullWidth
+          type="number"
+          label="Amount (₹)"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          disabled={submitting || !selectedPayment}
+          error={Boolean(amountError)}
+          helperText={
+            amountError ||
+            (selectedPayment
+              ? isPartial
+                ? `Only ${fmt(amountNum)} moves to the target. ${fmt(lineAmount - amountNum)} stays on this payment line.`
+                : `Full payment line ${fmt(lineAmount)} will be moved.`
+              : "Select a payment entry first")
+          }
+          inputProps={{ min: 0, max: lineAmount || undefined, step: "0.01" }}
+          onWheel={(e) => e.target.blur()}
+          sx={{ mb: 2 }}
+        />
 
         <TextField
           size="small"

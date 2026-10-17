@@ -43,6 +43,20 @@ describe("farmerPlantPaymentTransfer.utils", () => {
       })
     })
 
+    it("includes a rounded partial amount and rejects non-positive amounts", () => {
+      const base = { sourceOrderId: OID_A, targetOrderId: OID_B, paymentId: OID_PAY }
+      expect(buildFarmerPlantOrderPaymentTransferPayload({ ...base, amount: "1500.456" }).amount).toBe(
+        1500.46
+      )
+      expect(buildFarmerPlantOrderPaymentTransferPayload({ ...base, amount: "" }).amount).toBeUndefined()
+      expect(() => buildFarmerPlantOrderPaymentTransferPayload({ ...base, amount: 0 })).toThrow(
+        /greater than zero/
+      )
+      expect(() => buildFarmerPlantOrderPaymentTransferPayload({ ...base, amount: "abc" })).toThrow(
+        /greater than zero/
+      )
+    })
+
     it("omits message when blank", () => {
       const payload = buildFarmerPlantOrderPaymentTransferPayload({
         sourceOrderId: OID_A,

@@ -69,7 +69,8 @@ export function buildFarmerPlantOrderPaymentTransferPayload({
   sourceOrderId,
   targetOrderId,
   paymentId,
-  message
+  message,
+  amount
 }) {
   const payload = {
     sourceOrderId: normalizeMongoObjectId(sourceOrderId, "Source order"),
@@ -81,6 +82,13 @@ export function buildFarmerPlantOrderPaymentTransferPayload({
   }
   const msg = message != null ? String(message).trim() : ""
   if (msg) payload.message = msg
+  if (amount != null && String(amount).trim() !== "") {
+    const amt = Math.round(Number(amount) * 100) / 100
+    if (!Number.isFinite(amt) || !(amt > 0)) {
+      throw new Error("Transfer amount must be greater than zero")
+    }
+    payload.amount = amt
+  }
   return payload
 }
 
