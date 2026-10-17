@@ -38,7 +38,7 @@ import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX, List, Ch
 import { API, NetworkManager } from "network/core"
 import LocationSelector from "components/LocationSelector"
 import { fetchFarmerPlantLedger, normalizeFarmerIdForLedger } from "features/accountant-dashboard/paymentsApi"
-import { useHasPaymentAccess, useHasPaymentsAccess } from "utils/roleUtils"
+import { useHasPaymentAccess, useHasPaymentsAccess, useIsSuperAdmin } from "utils/roleUtils"
 import { Toast } from "helpers/toasts/toastHelper"
 
 const FarmerComponent = () => {
@@ -46,6 +46,7 @@ const FarmerComponent = () => {
   const navigate = useNavigate()
   const hasLedgerUi = useHasPaymentsAccess()
   const hasPaymentAccess = useHasPaymentAccess()
+  const isSuperAdmin = useIsSuperAdmin()
   const [activeTab, setActiveTab] = useState(0)
   const [farmers, setFarmers] = useState([])
   const [leads, setLeads] = useState([])
@@ -798,7 +799,7 @@ const FarmerComponent = () => {
                         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                           <User size={18} />
                           <Typography>{name}</Typography>
-                          {isFarmer && row.isPremium && (
+                          {isSuperAdmin && isFarmer && row.isPremium && (
                             <Star size={16} color="#F5B301" fill="#F5B301" />
                           )}
                         </Box>

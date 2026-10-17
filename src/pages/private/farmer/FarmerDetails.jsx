@@ -445,9 +445,7 @@ const FarmerDetails = () => {
                 </IconButton>
               </span>
             </Tooltip>
-          ) : (
-            farmer.isPremium && <StarIcon sx={{ color: "#F5B301" }} />
-          )}
+          ) : null}
         </Box>
         {farmer.opt_in && (
           <Chip
@@ -726,7 +724,7 @@ const FarmerDetails = () => {
                               <Typography variant="body2" sx={{ fontWeight: 600, color: C.textPrimary, fontFamily: "monospace" }}>
                                 #{String(order.orderId || order._id).slice(-6)}
                               </Typography>
-                              {farmer.isPremium && <StarIcon sx={{ fontSize: 14, color: "#F5B301" }} />}
+                              {isSuperAdmin && farmer.isPremium && <StarIcon sx={{ fontSize: 14, color: "#F5B301" }} />}
                             </Box>
                           </TableCell>
                           <TableCell sx={{ py: 1.5 }}>

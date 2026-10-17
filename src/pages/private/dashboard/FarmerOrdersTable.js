@@ -10193,7 +10193,7 @@ const mapSlotForUi = (slotData) => {
                         }`}>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? formatAgriDisplayOrderKey(row) : row.order}</span>
-                          {row.details?.farmer?.isPremium && (
+                          {isSuperAdmin && row.details?.farmer?.isPremium && (
                             <Star size={12} color="#F5B301" fill="#F5B301" />
                           )}
                           <VehicleLoadedIcon details={row.details} />
@@ -10374,7 +10374,7 @@ const mapSlotForUi = (slotData) => {
                               <div className="text-[11px] font-medium inline-flex flex-wrap items-baseline gap-x-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 max-w-full">
                                 <span className="text-sky-600 font-semibold shrink-0">Booking:</span>
                                 <span className="text-sky-900">{row.details.farmer?.name || "Unknown"}</span>
-                                {row.details.farmer?.isPremium && (
+                                {isSuperAdmin && row.details.farmer?.isPremium && (
                                   <Star size={11} color="#F5B301" fill="#F5B301" className="self-center" />
                                 )}
                               </div>
@@ -10387,7 +10387,7 @@ const mapSlotForUi = (slotData) => {
                           ) : (
                             <span className="text-[12px] font-semibold text-gray-900 inline-flex items-center gap-1">
                               {row.farmerName}
-                              {row.details?.farmer?.isPremium && (
+                              {isSuperAdmin && row.details?.farmer?.isPremium && (
                                 <Star size={12} color="#F5B301" fill="#F5B301" />
                               )}
                             </span>
@@ -10850,7 +10850,7 @@ const mapSlotForUi = (slotData) => {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-semibold text-gray-900 text-sm">Order #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? formatAgriDisplayOrderKey(row) : row.order}</h3>
-                                  {row.details?.farmer?.isPremium && (
+                                  {isSuperAdmin && row.details?.farmer?.isPremium && (
                                     <Star size={12} color="#F5B301" fill="#F5B301" />
                                   )}
                                   <VehicleLoadedIcon details={row.details} />
@@ -10911,7 +10911,7 @@ const mapSlotForUi = (slotData) => {
                                       <span className="inline-flex items-center gap-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-900">
                                         <span className="text-sky-600 font-semibold">Booking:</span>
                                         <span>{row.details.farmer?.name || "Unknown"}</span>
-                                        {row.details.farmer?.isPremium && (
+                                        {isSuperAdmin && row.details.farmer?.isPremium && (
                                           <Star size={11} color="#F5B301" fill="#F5B301" />
                                         )}
                                       </span>
@@ -10921,7 +10921,7 @@ const mapSlotForUi = (slotData) => {
                                       <span className={`text-xs font-medium farmer-name-highlight`}>
                                         {row.farmerName}
                                       </span>
-                                      {row.details?.farmer?.isPremium && (
+                                      {isSuperAdmin && row.details?.farmer?.isPremium && (
                                         <Star size={12} color="#F5B301" fill="#F5B301" />
                                       )}
                                     </>
@@ -11401,7 +11401,7 @@ const mapSlotForUi = (slotData) => {
                 <div>
                   <h2 className="text-xl font-bold inline-flex items-center gap-1.5">
                     Order #{selectedOrder.order}
-                    {selectedOrder.details?.farmer?.isPremium && (
+                    {isSuperAdmin && selectedOrder.details?.farmer?.isPremium && (
                       <Star size={18} color="#F5B301" fill="#F5B301" />
                     )}
                     {selectedOrder.details?.vehicleLoaded && (
