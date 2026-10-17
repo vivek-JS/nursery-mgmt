@@ -219,10 +219,10 @@ const OrderEditPanel = ({
     selectedOrder?.quantity
   ])
 
-  const handleSave = () => {
+  const handleSave = (override = null) => {
     const result = validateOrderEditSave({
       selectedOrder,
-      updatedObject,
+      updatedObject: override ? { ...(updatedObject || {}), ...override } : updatedObject,
       quantityDeltaInput,
       editBaseQuantity,
       canEditOrderPlantQuantity,
@@ -396,7 +396,7 @@ const OrderEditPanel = ({
               color="secondary"
               startIcon={patchLoading ? <CircularProgress size={16} color="inherit" /> : <Save size={16} />}
               disabled={!orderEditHasChanges || patchLoading}
-              onClick={handleSave}
+              onClick={() => handleSave()}
               sx={{ fontWeight: 700 }}>
               Save
             </Button>
@@ -621,6 +621,17 @@ const OrderEditPanel = ({
                   <Stack spacing={1.5}>
                     {slots.filter(isSlotEndOnOrAfterToday).map((slot) => {
                       const selected = String(slot.value) === selectedSlotId
+                      const saveSlot = (ev) => {
+                        ev.stopPropagation()
+                        const date =
+                          selected && updatedObject?.deliveryDate
+                            ? updatedObject.deliveryDate
+                            : initialDeliveryDateFromSlotStart(slot.startDay)
+                        if (!date) return
+                        const next = { bookingSlot: slot.value, deliveryDate: date }
+                        setUpdatedObject((prev) => ({ ...(prev || {}), ...next }))
+                        handleSave(next)
+                      }
                       return (
                         <Paper
                           key={slot.value}
@@ -652,12 +663,35 @@ const OrderEditPanel = ({
                             bgcolor: selected ? "primary.50" : "background.paper",
                             transition: "border-color 0.15s"
                           }}>
-                          <Typography variant="subtitle2" fontWeight={700}>
-                            {slot.label}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {slot.available?.toLocaleString("en-IN")} plants available
-                          </Typography>
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            justifyContent="space-between"
+                            spacing={1}>
+                            <Box minWidth={0}>
+                              <Typography variant="subtitle2" fontWeight={700}>
+                                {slot.label}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {slot.available?.toLocaleString("en-IN")} plants available
+                              </Typography>
+                            </Box>
+                            <Button
+                              size="small"
+                              variant={selected ? "contained" : "outlined"}
+                              startIcon={
+                                patchLoading && selected ? (
+                                  <CircularProgress size={14} color="inherit" />
+                                ) : (
+                                  <Save size={14} />
+                                )
+                              }
+                              disabled={patchLoading}
+                              onClick={saveSlot}
+                              sx={{ flexShrink: 0, fontWeight: 700, textTransform: "none" }}>
+                              Save
+                            </Button>
+                          </Stack>
                           {selected && (
                             <SlotDatePicker
                               slot={slot}

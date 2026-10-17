@@ -13773,7 +13773,11 @@ const mapSlotForUi = (slotData) => {
         onCover={handleAcceptCover}
         onSow={handleAcceptSow}
         {...(acceptCover.mode === "beforeDeliveryChange"
-          ? { coverLabel: "Cover and change date", sowLabel: "Change date only" }
+          ? {
+              coverLabel: "Cover and change date",
+              sowLabel: "Change date only",
+              blockWhenNoSowing: true
+            }
           : {})}
       />
       <Dialog

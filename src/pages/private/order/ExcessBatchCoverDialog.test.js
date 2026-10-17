@@ -72,7 +72,26 @@ test("no excess: new sowing message when there is time, else not-enough-time not
       need={1500}
     />
   )
-  expect(screen.getByText(/Not enough time for a new sowing \(needs 45 days, earliest 30-11-2026\)/)).toBeInTheDocument()
+  expect(
+    screen.getByText(/Not enough time for a new sowing — it needs 45 days \(earliest ready 30-11-2026\)/)
+  ).toBeInTheDocument()
+  expect(screen.queryByText(/cannot be changed to this date/)).not.toBeInTheDocument()
+})
+
+test("delivery change is blocked when excess is short and a new sowing is not possible", () => {
+  render(
+    <ExcessBatchCoverDialog
+      open
+      preview={{ windowDays: 15, totalFree: 400, entries: [], newSowingPossible: false, plantReadyDays: 45 }}
+      need={1500}
+      sowLabel="Change date only"
+      blockWhenNoSowing
+    />
+  )
+  expect(screen.getByText("Delivery date cannot be changed")).toBeInTheDocument()
+  expect(screen.getByText(/cannot be changed to this date/)).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Change date only" })).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Pick another date" })).toBeInTheDocument()
 })
 
 const base = {
