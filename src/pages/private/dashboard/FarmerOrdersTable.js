@@ -10467,17 +10467,23 @@ const mapSlotForUi = (slotData) => {
                           </>
                         ) : (
                           <>
-                            <div className="text-xs font-bold text-gray-900">
-                              {(row.totalPlants ?? row.quantity)?.toLocaleString()}
-                            </div>
+                            {row["remaining Plants"] < (row.totalPlants ?? row.quantity) ? (
+                              <>
+                                <div className="text-xs font-bold text-orange-600">
+                                  Rem: {row["remaining Plants"]?.toLocaleString()}
+                                </div>
+                                <div className="text-[10px] text-gray-500 mt-0.5">
+                                  Total: {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-xs font-bold text-gray-900">
+                                {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                              </div>
+                            )}
                             {row.additionalPlants > 0 && (
                               <div className="text-[10px] text-brand-600 mt-0.5">
                                 B:{row.basePlants?.toLocaleString()} +{row.additionalPlants?.toLocaleString()}
-                              </div>
-                            )}
-                            {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
-                              <div className="text-[10px] text-orange-600 mt-0.5 font-medium">
-                                Rem: {row["remaining Plants"]?.toLocaleString()}
                               </div>
                             )}
                           </>
@@ -11095,18 +11101,24 @@ const mapSlotForUi = (slotData) => {
                                   </>
                                 ) : (
                                   <>
-                                    <div className="text-sm font-medium text-gray-900">
-                                      {(row.totalPlants ?? row.quantity)?.toLocaleString()}
-                                    </div>
+                                    {row["remaining Plants"] < (row.totalPlants ?? row.quantity) ? (
+                                      <>
+                                        <div className="text-sm font-medium text-orange-600">
+                                          Remaining: {row["remaining Plants"]?.toLocaleString()}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">
+                                          Total: {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="text-sm font-medium text-gray-900">
+                                        {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                                      </div>
+                                    )}
                                     {row.additionalPlants > 0 && (
                                       <div className="text-xs text-brand-600 mt-0.5">
                                         Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
                                         {row.additionalPlants?.toLocaleString()}
-                                      </div>
-                                    )}
-                                    {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
-                                      <div className="text-xs text-orange-600 mt-0.5">
-                                        Remaining: {row["remaining Plants"]?.toLocaleString()}
                                       </div>
                                     )}
                                   </>
