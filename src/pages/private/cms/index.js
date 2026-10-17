@@ -10,6 +10,7 @@ import PollyHouseTable from "./PollyHouseTable"
 import SlotConfigurationTable from "./SlotConfigurationTable"
 import NurserySiteTable from "./NurserySiteTable"
 import InvoiceSequencePanel from "./InvoiceSequencePanel"
+import FreightRateManager from "./freightRates/FreightRateManager"
 // import DriverTable from "./tables/DriverTable"
 const DispatchManagement = () => {
   const [activeTab, setActiveTab] = useState(0)
@@ -25,7 +26,7 @@ const DispatchManagement = () => {
       </div>
 
       <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-        <Tabs value={activeTab} onChange={handleTabChange}>
+        <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable" scrollButtons="auto">
           <Tab label="Fleet" />
           <Tab label="Shades" />
           <Tab label="Tray" />
@@ -34,6 +35,7 @@ const DispatchManagement = () => {
           <Tab label="Slot Configuration" />
           <Tab label="Nursery sites" />
           <Tab label="Challan invoices" />
+          <Tab label="Freight rates" />
         </Tabs>
       </Box>
 
@@ -57,6 +59,7 @@ const DispatchManagement = () => {
         {activeTab === 5 && <SlotConfigurationTable />}
         {activeTab === 6 && <NurserySiteTable />}
         {activeTab === 7 && <InvoiceSequencePanel />}
+        {activeTab === 8 && <FreightRateManager />}
       </div>
     </div>
   )

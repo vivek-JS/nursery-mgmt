@@ -1174,6 +1174,13 @@ export const API = {
     UPDATE: new APIRouter("vehicle-drivers/update", HTTP_METHODS.PATCH),
     DELETE: new APIRouter("vehicle-drivers/delete", HTTP_METHODS.DEL)
   },
+  FREIGHT_RATE: {
+    LIST: new APIRouter("freight-rates", HTTP_METHODS.GET),
+    CREATE: new APIRouter("freight-rates", HTTP_METHODS.POST),
+    UPDATE: new APIRouter("freight-rates/:id", HTTP_METHODS.PATCH),
+    DELETE: new APIRouter("freight-rates/:id", HTTP_METHODS.DEL),
+    RESTORE_DEFAULTS: new APIRouter("freight-rates/restore-defaults", HTTP_METHODS.POST)
+  },
   NURSERY_SITE: {
     LIST: new APIRouter("nursery-sites", HTTP_METHODS.GET),
     CREATE: new APIRouter("nursery-sites", HTTP_METHODS.POST),
