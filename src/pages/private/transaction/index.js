@@ -12,6 +12,7 @@ import { LocalizationProvider } from "lib/muiLocalizationProvider"
 // import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker"
 import { DateRangePicker } from "@mui/x-date-pickers-pro"
 import { getDynamicStyle } from "utils/gridUtils"
+import { downloadCsvResponseAsXlsx } from "utils/exportExcel"
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf"
 import Invoice from "../dashboard/Invoice"
 
@@ -93,17 +94,11 @@ function Transactions() {
         endDate: endDate
       }
     )
-    const url = window.URL.createObjectURL(new Blob([result?.data], { type: "text/csv" }))
-    const link = document.createElement("a")
-    link.href = url
-    link.setAttribute(
-      "download",
-      `${moment(value[0]?.$d).format("DD-MM-YYYY")}-${moment(value[1]?.$d).format(
-        "DD-MM-YYYY"
-      )}.csv`
+    await downloadCsvResponseAsXlsx(
+      `${moment(value[0]?.$d).format("DD-MM-YYYY")}-${moment(value[1]?.$d).format("DD-MM-YYYY")}`,
+      result?.data,
+      { stamp: false }
     )
-    document.body.appendChild(link)
-    link.click()
   }
   return (
     <div>

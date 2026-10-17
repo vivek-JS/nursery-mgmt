@@ -29,12 +29,11 @@ function escapeCsvCell(val) {
 }
 
 function formatInDate(d) {
-  if (!d) return "N/A"
-  try {
-    return new Date(d).toLocaleDateString("en-IN")
-  } catch {
-    return "N/A"
-  }
+  if (!d) return ""
+  const date = new Date(d)
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })
 }
 
 /** Manual/sticker DC label — same resolution as FarmerOrdersTable badges. */

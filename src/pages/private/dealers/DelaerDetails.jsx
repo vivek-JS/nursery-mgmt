@@ -64,6 +64,7 @@ import {
 } from "@mui/icons-material"
 import DealerPDFExport from "./DealerPDFExport"
 import PlantTypeWithSubtypesCard from "./PlantTypeWithSubtypesCard"
+import { downloadCsvResponseAsXlsx } from "utils/exportExcel"
 
 // ================================================================
 // MOBILE THEME COLORS
@@ -317,15 +318,7 @@ const DealerDetails = () => {
       const instance = NetworkManager(API.USER.EXPORT_DEALER_WALLET_TRANSACTIONS_CSV)
       const queryParams = { ...(transactionType && { type: transactionType }) }
       const response = await instance.request({}, [id], { params: queryParams })
-      const blob = new Blob([response.data], { type: "text/csv" })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.setAttribute("download", `${dealer?.name || "dealer"}_wallet_transactions_${new Date().toISOString().split("T")[0]}.csv`)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
+      await downloadCsvResponseAsXlsx(`${dealer?.name || "dealer"}_wallet_transactions`, response.data)
     } catch (err) {
       console.error("Error exporting CSV:", err)
     }

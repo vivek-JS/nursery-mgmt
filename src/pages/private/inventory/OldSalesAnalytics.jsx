@@ -62,6 +62,7 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API, APIConfig, NetworkManager } from "../../../network/core";
 import { CookieKeys } from "../../../constants/cookieKeys";
+import { downloadCsvResponseAsXlsx } from "../../../utils/exportExcel";
 import MessageSquareIcon from "@mui/icons-material/Message";
 
 const COLORS = ["#6366F1", "#22C55E", "#F97316", "#06B6D4", "#A855F7", "#EF4444"];
@@ -1025,12 +1026,7 @@ const OldSalesAnalytics = () => {
         responseType: "blob",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      const blob = new Blob([response.data], { type: "text/csv" });
-      const link = document.createElement("a");
-      link.href = window.URL.createObjectURL(blob);
-      link.download = `old-sales-${Date.now()}.csv`;
-      link.click();
-      window.URL.revokeObjectURL(link.href);
+      await downloadCsvResponseAsXlsx(`old-sales-${Date.now()}`, response.data, { stamp: false });
     } catch (error) {
       console.error("CSV export failed:", error);
     } finally {
@@ -1048,12 +1044,7 @@ const OldSalesAnalytics = () => {
         responseType: "blob",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      const blob = new Blob([response.data], { type: "text/csv" });
-      const link = document.createElement("a");
-      link.href = window.URL.createObjectURL(blob);
-      link.download = `old-sales-farmers-${Date.now()}.csv`;
-      link.click();
-      window.URL.revokeObjectURL(link.href);
+      await downloadCsvResponseAsXlsx(`old-sales-farmers-${Date.now()}`, response.data, { stamp: false });
     } catch (error) {
       console.error("Farmers export failed:", error);
     } finally {

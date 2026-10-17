@@ -1,7 +1,7 @@
-import * as XLSX from "xlsx"
 import moment from "moment"
 import { advanceFilterSummary } from "./deliveryReportConstants"
 import { downloadCsv } from "../adminStats/misExportUtils"
+import { downloadSheetsXlsx } from "utils/exportExcel"
 
 export const EXPORT_COLUMNS = [
   { key: "orderId", label: "Order ID" },
@@ -127,21 +127,17 @@ function buildSummarySheet(filters, summary, orderCount) {
 export function downloadDeliveryReportExcel({ filters, summary, orders }) {
   const plant = (filters.plantName || "plant").replace(/\s+/g, "-")
   const stamp = moment().format("YYYY-MM-DD")
-  const filename = `delivery-report-${plant}-${stamp}.xlsx`
-
-  const wb = XLSX.utils.book_new()
-
-  const summaryAoA = buildSummarySheet(filters, summary, orders?.length || 0)
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoA), "Summary")
-
   const orderRows = (orders || []).map(mapOrderExportRow)
-  const orderSheet = XLSX.utils.json_to_sheet(orderRows, {
-    header: EXPORT_COLUMNS.map((c) => c.key),
-  })
-  XLSX.utils.book_append_sheet(wb, orderSheet, "Orders")
-
-  const headerRow = EXPORT_COLUMNS.map((c) => c.label)
-  orderSheet["!cols"] = headerRow.map((label) => ({ wch: Math.max(label.length + 2, 12) }))
-
-  XLSX.writeFile(wb, filename)
+  downloadSheetsXlsx(
+    `delivery-report-${plant}-${stamp}`,
+    [
+      { title: "Summary", headers: [], rows: buildSummarySheet(filters, summary, orders?.length || 0) },
+      {
+        title: "Orders",
+        headers: EXPORT_COLUMNS.map((c) => c.label),
+        rows: orderRows.map((row) => EXPORT_COLUMNS.map((c) => row[c.key])),
+      },
+    ],
+    { stamp: false }
+  )
 }

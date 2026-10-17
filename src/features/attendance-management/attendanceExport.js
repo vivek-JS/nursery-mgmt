@@ -1,6 +1,7 @@
 import axios from "axios"
 import { APIConfig } from "network/config/serverConfig"
 import { CookieKeys } from "constants/cookieKeys"
+import { downloadCsvResponseAsXlsx } from "utils/exportExcel"
 
 export async function downloadAttendanceCsv(params = {}) {
   const base = String(APIConfig.BASE_URL || "").replace(/\/+$/u, "")
@@ -11,11 +12,7 @@ export async function downloadAttendanceCsv(params = {}) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
 
-  const blob = new Blob([response.data], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = `attendance-${params.date || "export"}-${Date.now()}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  await downloadCsvResponseAsXlsx(`attendance-${params.date || "export"}-${Date.now()}`, response.data, {
+    stamp: false,
+  })
 }

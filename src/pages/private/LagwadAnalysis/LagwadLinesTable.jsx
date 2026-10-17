@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react"
 import moment from "moment"
-import * as XLSX from "xlsx"
 import { Tooltip } from "@mui/material"
 import {
   ArrowDown,
@@ -18,6 +17,7 @@ import DestroyPlantsDialog from "./DestroyPlantsDialog"
 import DestroyLogDialog from "./DestroyLogDialog"
 import DestroyRemainingDialog from "./DestroyRemainingDialog"
 import { fmt, getReadyStatusUi, tooltipSlotProps } from "./lagwadAnalysisUi"
+import { downloadSheetsXlsx } from "utils/exportExcel"
 
 const PAGE_SIZES = [25, 50, 100, 0]
 
@@ -179,29 +179,50 @@ const LagwadLinesTable = ({ lines, slotLabelById, onChanged }) => {
     )
 
   const exportExcel = () => {
-    const data = sorted.map((l, i) => ({
-      "#": i + 1,
-      Batch: l.batchNumber ?? "",
-      Size: l.size ?? "",
-      Shed: l.pollyhouse ?? "",
-      "Lagwad date": dayLabel(lagwadValue(l)),
-      "Ready date": dayLabel(readyValue(l)),
-      Trays: num(l.numberOfTrays),
-      Cavity: num(l.cavity),
-      Gross: num(l.totalQuantity),
-      Sold: soldOf(l),
-      Destroyed: destroyedOf(l),
-      "In shed": num(l.availableQuantity),
-      "Sell 90%": num(l.sell90),
-      "Mort 10%": num(l.mort10),
-      "Overdue days": num(l.overdueDays),
-      Status: getReadyStatusUi(l).label,
-      Slot: l.slotLabelResolved
-    }))
-    const ws = XLSX.utils.json_to_sheet(data)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Lagwad")
-    XLSX.writeFile(wb, `lagwad-analysis-${moment().format("YYYY-MM-DD")}.xlsx`)
+    const excelDay = (ts) => (ts == null ? "" : moment(ts).format("DD-MM-YYYY"))
+    downloadSheetsXlsx("lagwad-analysis", [
+      {
+        title: "Lagwad",
+        headers: [
+          "#",
+          "Batch",
+          "Size",
+          "Shed",
+          "Lagwad date",
+          "Ready date",
+          "Trays",
+          "Cavity",
+          "Gross",
+          "Sold",
+          "Destroyed",
+          "In shed",
+          "Sell 90%",
+          "Mort 10%",
+          "Overdue days",
+          "Status",
+          "Slot"
+        ],
+        rows: sorted.map((l, i) => [
+          i + 1,
+          l.batchNumber ?? "",
+          l.size ?? "",
+          l.pollyhouse ?? "",
+          excelDay(lagwadValue(l)),
+          excelDay(readyValue(l)),
+          num(l.numberOfTrays),
+          num(l.cavity),
+          num(l.totalQuantity),
+          soldOf(l),
+          destroyedOf(l),
+          num(l.availableQuantity),
+          num(l.sell90),
+          num(l.mort10),
+          num(l.overdueDays),
+          getReadyStatusUi(l).label,
+          l.slotLabelResolved
+        ])
+      }
+    ])
   }
 
   if (!rows.length) {
