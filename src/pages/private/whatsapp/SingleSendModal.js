@@ -169,7 +169,6 @@ const SingleSendModal = ({ open, onClose, template }) => {
         whatsappNumber: formattedPhone,
         languageCode: template.language?.value || "mr",
         broadcastName: `Single_${Date.now()}`,
-        channelNumber: "917276386452",
         parameters: parameters
       }
 

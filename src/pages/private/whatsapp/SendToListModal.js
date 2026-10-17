@@ -81,7 +81,6 @@ const SendToListModal = ({ open, onClose, listId, listName, templates = [], onSe
         templateName: selectedTemplate.elementName || selectedTemplate.name,
         broadcastName: `List_${listName}_${Date.now()}`,
         languageCode: getLanguageCode(selectedTemplate),
-        channelNumber: "917276386452",
         parameters,
         contacts: watiContacts
       })

@@ -23,6 +23,7 @@ import {
 } from "utils/dispatchPdfHelpers"
 import moment from "moment"
 import OrderCompleteDialog from "./OrderCompleteDialog"
+import CompletedDeliveryViewDialog from "./CompletedDeliveryViewDialog"
 import { ensureDispatchDcNumbers } from "../DispatchedVehicles/dispatchDocumentActions"
 import { canShowInvoice } from "../DispatchedVehicles/dispatchVehiclesUtils"
 import { useInvoiceAadharPrompt } from "../DispatchedVehicles/useInvoiceAadharPrompt"
@@ -49,6 +50,7 @@ const DispatchAccordion = ({
   const [dcInvoiceSavingByOrder, setDcInvoiceSavingByOrder] = useState({})
   const [loading, setLoading] = useState(false)
   const [orderCompleteOpen, setOrderCompleteOpen] = useState(false)
+  const [completeViewOpen, setCompleteViewOpen] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
   const [orderDcPdfBusy, setOrderDcPdfBusy] = useState({})
   const { prompt: promptInvoiceAadhar, dialog: invoiceAadharDialog } = useInvoiceAadharPrompt()
@@ -1041,11 +1043,19 @@ const DispatchAccordion = ({
                   )}
                 </div>
                 {isDelivered && (
-                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
                     <div className="flex items-center gap-2 text-green-800">
                       <CheckCircle size={16} />
                       <span className="text-sm font-medium">This dispatch has been delivered and is completed.</span>
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setCompleteViewOpen(true)
+                      }}
+                      className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg border border-green-600 bg-white text-green-700 hover:bg-green-100">
+                      View Complete Form
+                    </button>
                   </div>
                 )}
               </div>
@@ -1516,6 +1526,11 @@ const DispatchAccordion = ({
       onSuccess={() => {
         onRefresh?.()
       }}
+    />
+    <CompletedDeliveryViewDialog
+      open={completeViewOpen}
+      onClose={() => setCompleteViewOpen(false)}
+      dispatch={dispatch}
     />
     {invoiceAadharDialog}
     {duplicateInvoiceDialog}

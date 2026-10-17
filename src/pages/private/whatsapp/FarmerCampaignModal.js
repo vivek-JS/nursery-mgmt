@@ -803,7 +803,6 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         templateName: template.elementName || template.name || template.templateName,
         broadcastName,
         languageCode: getLanguageCode(template),
-        channelNumber: "917276386452",
         contacts
       }
 

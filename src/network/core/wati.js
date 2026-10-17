@@ -45,7 +45,7 @@ export const sendTemplateMessage = async (messageData) => {
       languageCode: messageData.languageCode || "en",
       parameters: messageData.parameters || [],
       broadcastName: messageData.broadcastName || `Single_Send_${Date.now()}`,
-      channelNumber: messageData.channelNumber || "917276386452"
+      channelNumber: messageData.channelNumber
     })
     const out = fromBackendResponse(response)
     if (out.success) return out
@@ -68,7 +68,7 @@ export const sendTemplateMessages = async (messageData) => {
       languageCode: messageData.languageCode || "en",
       parameters: messageData.parameters || [],
       contacts: messageData.contacts || [],
-      channelNumber: messageData.channelNumber || "917276386452"
+      channelNumber: messageData.channelNumber
     })
     const out = fromBackendResponse(response)
     if (out.success) return out

@@ -1,5 +1,5 @@
 import { Dialog } from "@mui/material"
-import React from "react"
+import React, { useEffect, useState } from "react"
 import {
   getPlantLineItemsFromOrder,
   plantLineItemsTotalAmount,
@@ -55,6 +55,14 @@ function getInvoicePayments(order) {
 }
 
 const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
+  const defaultRemark = String(
+    dispatchData?.trip?.tripRemark ?? dispatchData?.tripRemark ?? ""
+  )
+  const [remark, setRemark] = useState(defaultRemark)
+  useEffect(() => {
+    if (open) setRemark(defaultRemark)
+  }, [open, defaultRemark])
+
   if (!dispatchData) return null
   const orders = Array.isArray(dispatchData.orderIds) ? dispatchData.orderIds : []
   const today = new Date().toLocaleDateString("mr-IN")
@@ -129,6 +137,14 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
       String(completeBatch?.batchNumber ?? order?.batchNumber ?? order?.details?.batchNumber ?? "").trim() ||
       "—"
     const shedLabel = String(completeBatch?.pollyhouse ?? "").trim()
+
+    const freightRemark = String(order?.freight?.remark ?? order?.details?.freight?.remark ?? "").trim()
+    const returnReason = String(order?.returnReason ?? order?.details?.returnReason ?? "").trim()
+    const remarkRows = [
+      remark.trim() && ["शेरा", remark.trim()],
+      returned > 0 && returnReason && ["परत कारण", returnReason],
+      freightRemark && ["वाहतूक शेरा", freightRemark],
+    ].filter(Boolean)
 
     const infoRows = [
       ["चालक", dispatchData.driverName, "वाहन", dispatchData.vehicleName],
@@ -412,6 +428,35 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
               </tbody>
             </table>
           </div>
+
+          {remarkRows.length > 0 ? (
+            <div style={{ borderRadius: "1.5mm", overflow: "hidden", border: `1px solid ${BORDER}` }}>
+              <div style={sectionHeader}>शेरा / Remark</div>
+              {remarkRows.map(([label, text], i) => (
+                <div
+                  key={label}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "24mm 1fr",
+                    borderBottom: i < remarkRows.length - 1 ? `1px solid ${BORDER}` : "none",
+                  }}
+                >
+                  <div style={{ ...pageCell({ fontWeight: "700", color: "#000" }), border: "none" }}>
+                    {label}
+                  </div>
+                  <div
+                    style={{
+                      ...pageCell({ whiteSpace: "pre-wrap", color: "#000" }),
+                      border: "none",
+                      borderLeft: `1px solid ${BORDER}`,
+                    }}
+                  >
+                    {text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     )
@@ -464,6 +509,17 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             ✕
           </button>
+        </div>
+
+        <div className="border-b bg-white px-4 py-2">
+          <label className="text-xs font-medium text-gray-700">Remark (printed on every page)</label>
+          <textarea
+            rows={2}
+            value={remark}
+            onChange={(e) => setRemark(e.target.value)}
+            placeholder="Optional remark for this print"
+            className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-gray-500 focus:outline-none"
+          />
         </div>
 
         <div className="overflow-y-auto bg-gray-100 p-4 space-y-4">

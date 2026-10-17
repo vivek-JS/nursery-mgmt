@@ -233,7 +233,6 @@ const ExcelSendModal = ({ open, onClose, templates = [], onListCreated }) => {
         templateName: selectedTemplate.elementName || selectedTemplate.name,
         broadcastName: `Excel_${listName}_${Date.now()}`,
         languageCode: getLanguageCode(selectedTemplate),
-        channelNumber: "917276386452",
         parameters,
         contacts: watiContacts
       })

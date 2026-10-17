@@ -8,6 +8,7 @@ import DeliveryChallanPDF from "../dashboard/DeliveryChallan";
 import RamBiotechInvoicePDF from "../dashboard/RamBiotechInvoicePDF";
 import CollectSlipPDF from "../dashboard/CollectSlipPDF";
 import OrderCompleteDialog from "../dashboard/OrderCompleteDialog";
+import CompletedDeliveryViewDialog from "../dashboard/CompletedDeliveryViewDialog";
 import DispatchedVehiclesTable from "./DispatchedVehiclesTable";
 import DispatchedVehiclesStats from "./DispatchedVehiclesStats";
 import DispatchDateFilter from "./DispatchDateFilter";
@@ -44,6 +45,7 @@ export default function DispatchedVehiclesPage() {
   const [endDate, setEndDate] = useState(initialRange.endDate);
   const [viewMode, setViewMode] = useState("table");
   const [pdfBusyId, setPdfBusyId] = useState(null);
+  const [completeViewDispatch, setCompleteViewDispatch] = useState(null);
   const pageRef = useRef(1);
   const loadMoreInFlightRef = useRef(false);
 
@@ -330,6 +332,7 @@ export default function DispatchedVehiclesPage() {
             onOpenForm={dialogs.openForm}
             onCollectSlip={dialogs.openCollectSlip}
             onCompleteOrder={dialogs.openCompleteOrder}
+            onViewCompleteForm={setCompleteViewDispatch}
             onDeleteDispatch={dialogs.deleteDispatch}
           />
           <InfiniteScrollSentinel
@@ -446,6 +449,12 @@ export default function DispatchedVehiclesPage() {
           onSuccess={() => void refreshList()}
         />
       )}
+
+      <CompletedDeliveryViewDialog
+        open={Boolean(completeViewDispatch)}
+        onClose={() => setCompleteViewDispatch(null)}
+        dispatch={completeViewDispatch}
+      />
     </div>
   );
 }

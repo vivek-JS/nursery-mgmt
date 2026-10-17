@@ -42,6 +42,7 @@ export default function DispatchedVehiclesTable({
   onOpenForm,
   onCollectSlip,
   onCompleteOrder,
+  onViewCompleteForm,
   onDeleteDispatch,
 }) {
   const [expandedId, setExpandedId] = useState(null);
@@ -301,7 +302,15 @@ export default function DispatchedVehiclesTable({
                                   <Trash2 size={10} /> Delete
                                 </ActionBtn>
                               </>
-                            ) : null}
+                            ) : (
+                              <ActionBtn
+                                onClick={() => onViewCompleteForm?.(dispatch)}
+                                className="border-green-300 text-green-800 hover:bg-green-50"
+                                title="View the submitted complete form (read-only) and print"
+                              >
+                                <CheckCircle size={10} /> View Complete Form
+                              </ActionBtn>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -315,6 +324,7 @@ export default function DispatchedVehiclesTable({
                               onCompleteOrder={
                                 !isDelivered ? () => onCompleteOrder?.(dispatch) : null
                               }
+                              onViewCompleteForm={() => onViewCompleteForm?.(dispatch)}
                             />
                           </td>
                         </tr>
@@ -331,7 +341,7 @@ export default function DispatchedVehiclesTable({
   );
 }
 
-function ExpandedDispatchDetail({ row, dispatch, onOpenForm, onCompleteOrder }) {
+function ExpandedDispatchDetail({ row, dispatch, onOpenForm, onCompleteOrder, onViewCompleteForm }) {
   const notes = [
     row.routeNotes && `Route: ${row.routeNotes}`,
     row.driverRemark && `Driver: ${row.driverRemark}`,
@@ -366,9 +376,18 @@ function ExpandedDispatchDetail({ row, dispatch, onOpenForm, onCompleteOrder }) 
               Complete Order
             </button>
           ) : (
-            <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-green-100 text-green-800 border border-green-200">
-              <CheckCircle size={12} /> Delivered
-            </span>
+            <>
+              <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-green-100 text-green-800 border border-green-200">
+                <CheckCircle size={12} /> Delivered
+              </span>
+              <button
+                type="button"
+                onClick={onViewCompleteForm}
+                className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg border border-green-600 text-green-700 bg-white hover:bg-green-50"
+              >
+                View Complete Form
+              </button>
+            </>
           )}
         </div>
       </div>

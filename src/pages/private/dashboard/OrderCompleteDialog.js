@@ -1495,8 +1495,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     return { orderUpdates }
   }
 
-  const buildInvoicePreviewDispatch = (previewFlag = true) =>
-    buildCompletePreviewDispatch(localDispatch, {
+  const buildInvoicePreviewDispatch = (previewFlag = true) => ({
+    ...buildCompletePreviewDispatch(localDispatch, {
       returnedPlants,
       damagedPlants,
       paymentDraftByOrder,
@@ -1511,7 +1511,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       getOrderPayments,
       getPaymentDraftsForOrder,
       previewFlag,
-    })
+    }),
+    tripRemark: tripData.remark || "",
+  })
 
   const handleOpenPrintPreview = () => {
     try {
