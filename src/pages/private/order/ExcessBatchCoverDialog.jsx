@@ -200,40 +200,53 @@ function ShortfallPanel({
   const tone = sowPossible && !plantsOnly ? SHORTFALL_TONES.sow : SHORTFALL_TONES.blocked
   const pct = needQty > 0 ? Math.round((totalFree / needQty) * 100) : 0
   const Icon = sowPossible && !plantsOnly ? Sprout : CalendarX
+  const none = totalFree <= 0
+
+  let title
+  let body
   if (plantsOnly) {
-    return (
-      <Box sx={{ p: 2, borderRadius: 2, border: "1px solid", borderColor: tone.border, bgcolor: tone.bg }}>
-        <Stack direction="row" spacing={1.5} alignItems="flex-start">
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              flexShrink: 0,
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: tone.iconBg,
-              color: tone.fg,
-            }}
-          >
-            <Icon size={20} />
-          </Box>
-          <Box minWidth={0}>
-            <Typography fontWeight={900} sx={{ color: tone.fg }}>
-              {totalFree <= 0
-                ? `No plants available within ±${windowDays} days of this date`
-                : `Only ${fmtNum(totalFree)} of ${fmtNum(needQty)} plants available (${pct}%)`}
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 0.5, color: "#334155" }}>
-              The delivery date can only move to a day where sowed plants are available for the
-              whole order. Choose another day below.
-            </Typography>
-          </Box>
-        </Stack>
-      </Box>
-    )
+    title = none
+      ? {
+          en: `No plants available within ±${windowDays} days of this date`,
+          mr: `या तारखेच्या ±${windowDays} दिवसांत रोपे उपलब्ध नाहीत`,
+        }
+      : {
+          en: `Only ${fmtNum(totalFree)} of ${fmtNum(needQty)} plants available (${pct}%)`,
+          mr: `${fmtNum(needQty)} पैकी फक्त ${fmtNum(totalFree)} रोपे उपलब्ध (${pct}%)`,
+        }
+    body = {
+      en: "The delivery date can only move to a day where sowed plants are ready for the whole order. Choose another day below.",
+      mr: "संपूर्ण order साठी रोपे तयार असतील त्याच दिवशी डिलिव्हरी तारीख बदलता येते. खालील दुसरा दिवस निवडा.",
+    }
+  } else {
+    title = none
+      ? {
+          en: `No excess sowing within ±${windowDays} days`,
+          mr: `±${windowDays} दिवसांत जास्तीची पेरणी उपलब्ध नाही`,
+        }
+      : {
+          en: `Only ${fmtNum(totalFree)} of ${fmtNum(needQty)} plants in excess (${pct}%)`,
+          mr: `${fmtNum(needQty)} पैकी फक्त ${fmtNum(totalFree)} जास्तीची रोपे (${pct}%)`,
+        }
+    body = sowPossible
+      ? {
+          en: `New sowing needs to be created for this order${
+            readyBy ? ` — a sowing started today is ready by ${readyBy}` : ""
+          }.`,
+          mr: `या order साठी नवीन पेरणी करावी लागेल${
+            readyBy ? ` — आज पेरणी केल्यास रोपे ${readyBy} ला तयार होतील` : ""
+          }.`,
+        }
+      : {
+          en: `Not enough time for a new sowing${
+            readyDays ? ` — it needs ${readyDays} days (earliest ready ${readyBy || "—"})` : ""
+          }.`,
+          mr: `नवीन पेरणीसाठी पुरेसा वेळ नाही${
+            readyDays ? ` — ${readyDays} दिवस लागतात (लवकरात लवकर ${readyBy || "—"} ला तयार)` : ""
+          }.`,
+        }
   }
+
   return (
     <Box
       sx={{
@@ -262,23 +275,26 @@ function ShortfallPanel({
         </Box>
         <Box minWidth={0}>
           <Typography fontWeight={900} sx={{ color: tone.fg }}>
-            {totalFree <= 0
-              ? `No excess sowing within ±${windowDays} days`
-              : `Only ${fmtNum(totalFree)} of ${fmtNum(needQty)} plants in excess (${pct}%)`}
+            {title.en}
           </Typography>
-          <Typography variant="body2" sx={{ mt: 0.5, color: "#334155" }}>
-            {sowPossible
-              ? `New sowing needs to be created for this order${
-                  readyBy ? ` — a sowing started today is ready by ${readyBy}` : ""
-                }.`
-              : `Not enough time for a new sowing${
-                  readyDays ? ` — it needs ${readyDays} days (earliest ready ${readyBy || "—"})` : ""
-                }.`}
+          <Typography fontWeight={800} fontSize="0.85rem" sx={{ color: tone.fg }}>
+            {title.mr}
           </Typography>
-          {blocked && (
-            <Typography variant="body2" fontWeight={800} sx={{ mt: 1, color: tone.fg }}>
-              The delivery date cannot be changed to this date. Choose another day below.
-            </Typography>
+          <Typography variant="body2" sx={{ mt: 0.75, color: "#334155" }}>
+            {body.en}
+          </Typography>
+          <Typography variant="body2" sx={{ color: "#334155" }}>
+            {body.mr}
+          </Typography>
+          {blocked && !plantsOnly && (
+            <>
+              <Typography variant="body2" fontWeight={800} sx={{ mt: 1, color: tone.fg }}>
+                The delivery date cannot be changed to this date. Choose another day below.
+              </Typography>
+              <Typography variant="body2" fontWeight={800} sx={{ color: tone.fg }}>
+                या तारखेला डिलिव्हरी बदलता येणार नाही. खालील दुसरा दिवस निवडा.
+              </Typography>
+            </>
           )}
         </Box>
       </Stack>
@@ -296,12 +312,17 @@ function dayLabel(ymd) {
 function SuggestedDays({ days = [], onPickDate, isDatePickable }) {
   return (
     <Box>
-      <Typography fontWeight={900} fontSize="0.9rem" sx={{ mb: 0.75 }}>
+      <Typography fontWeight={900} fontSize="0.9rem">
         Other days with enough excess
+      </Typography>
+      <Typography fontWeight={800} fontSize="0.82rem" color="text.secondary" sx={{ mb: 0.75 }}>
+        पुरेशी रोपे तयार असलेले इतर दिवस
       </Typography>
       {days.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
           No other day within ±45 days has enough excess for this order.
+          <br />
+          ±45 दिवसांत या order साठी पुरेशी रोपे असलेला दुसरा दिवस नाही.
         </Typography>
       ) : (
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
@@ -332,9 +353,8 @@ function SuggestedDays({ days = [], onPickDate, isDatePickable }) {
                       />
                     </Stack>
                     <Typography variant="caption" color="text.secondary">
-                      {fmtNum(d.freePlants)} excess · {d.entryCount} sowing entr
-                      {d.entryCount === 1 ? "y" : "ies"}
-                      {pickable ? "" : " · no slot"}
+                      {fmtNum(d.freePlants)} रोपे · {d.entryCount} पेरणी नोंदी
+                      {pickable ? "" : " · slot नाही"}
                     </Typography>
                   </Box>
                   <Button
@@ -442,15 +462,22 @@ export default function ExcessBatchCoverDialog({
           : totalFree > 0 || loading
             ? `Excess sowing available (±${windowDays} days)`
             : "Excess sowing check"}
+        <Typography component="div" fontWeight={800} fontSize="0.9rem" color="text.secondary">
+          {blocked
+            ? "डिलिव्हरी तारीख बदलता येणार नाही"
+            : totalFree > 0 || loading
+              ? `जास्तीची पेरणी उपलब्ध (±${windowDays} दिवस)`
+              : "जास्तीची पेरणी तपासणी"}
+        </Typography>
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={1.5}>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Chip size="small" label={`Need ${fmtNum(needQty)}`} sx={{ fontWeight: 800 }} />
+            <Chip size="small" label={`Need · गरज ${fmtNum(needQty)}`} sx={{ fontWeight: 800 }} />
             <Chip
               size="small"
               color={isFull ? "success" : "warning"}
-              label={`Available ${fmtNum(totalFree)}`}
+              label={`Available · उपलब्ध ${fmtNum(totalFree)}`}
               sx={{ fontWeight: 800 }}
             />
             {isFull && (
@@ -458,7 +485,7 @@ export default function ExcessBatchCoverDialog({
                 size="small"
                 variant={selected === needQty ? "filled" : "outlined"}
                 color={selected === needQty ? "success" : "default"}
-                label={`Selected ${fmtNum(selected)}`}
+                label={`Selected · निवडले ${fmtNum(selected)}`}
                 sx={{ fontWeight: 800 }}
               />
             )}
@@ -472,6 +499,12 @@ export default function ExcessBatchCoverDialog({
               {totalFree > 0
                 ? ` — showing sowing entries within ±${windowDays} days (day-wise). Select entries to cover.`
                 : "."}
+              <Box component="div" sx={{ mt: 0.25 }}>
+                {nearFree > 0
+                  ? `डिलिव्हरीच्या ±${NEAR_WINDOW_DAYS} दिवसांत फक्त ${fmtNum(nearFree)} जास्तीची रोपे`
+                  : `डिलिव्हरीच्या ±${NEAR_WINDOW_DAYS} दिवसांत जास्तीची रोपे नाहीत`}
+                {totalFree > 0 ? ` — ±${windowDays} दिवसांतील पेरणी नोंदी दाखवत आहोत.` : "."}
+              </Box>
             </Alert>
           )}
 
@@ -481,11 +514,19 @@ export default function ExcessBatchCoverDialog({
                 <>
                   Select the sowing entries for this order (adds up to {fmtNum(needQty)} plants),
                   then <b>{coverLabel}</b>.
+                  <Box component="div" sx={{ mt: 0.25 }}>
+                    या order साठी पेरणी नोंदी निवडा (एकूण {fmtNum(needQty)} रोपे), मग{" "}
+                    <b>{coverLabel}</b>.
+                  </Box>
                 </>
               ) : (
                 <>
                   Choose one: cover this order from the sowing below (adds up to {fmtNum(needQty)}{" "}
                   plants, order is marked <b>Sow completed</b>), or <b>{sowLabel}</b>.
+                  <Box component="div" sx={{ mt: 0.25 }}>
+                    खालील पेरणीतून हा order पूर्ण करा (एकूण {fmtNum(needQty)} रोपे, order{" "}
+                    <b>Sow completed</b> होईल), किंवा <b>{sowLabel}</b>.
+                  </Box>
                 </>
               )}
             </Alert>
@@ -516,6 +557,11 @@ export default function ExcessBatchCoverDialog({
             </Box>
           ) : rows.length === 0 ? null : (
             <Stack spacing={0.75}>
+              <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                Delivery is based on the ready date · ±days = ready date vs delivery
+                <br />
+                डिलिव्हरी रोपे तयार होण्याच्या तारखेवर ठरते · ±दिवस = तयार तारीख व डिलिव्हरीमधील फरक
+              </Typography>
               {rows.map((r) => {
                 const qty = Math.max(0, Math.floor(Number(picks[r.key]) || 0))
                 const checked = qty > 0
@@ -551,12 +597,40 @@ export default function ExcessBatchCoverDialog({
                           sx={{ fontWeight: 800, height: 22, minWidth: 52 }}
                         />
                         <Box minWidth={0}>
-                          <Typography fontWeight={800} fontSize="0.88rem">
-                            Sowed {r.sowingDate || "—"}
-                          </Typography>
+                          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                            <Box>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                fontWeight={700}
+                                display="block"
+                                lineHeight={1.2}
+                              >
+                                Sow date · पेरणी
+                              </Typography>
+                              <Typography fontWeight={800} fontSize="0.88rem">
+                                {r.sowingDate || "—"}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography
+                                variant="caption"
+                                fontWeight={800}
+                                display="block"
+                                lineHeight={1.2}
+                                sx={{ color: "#166534" }}
+                              >
+                                Ready date · तयार
+                              </Typography>
+                              <Typography fontWeight={900} fontSize="0.88rem" sx={{ color: "#166534" }}>
+                                {r.plantReadyDate || "—"}
+                              </Typography>
+                            </Box>
+                          </Stack>
                           <Typography variant="caption" color="text.secondary">
-                            {[`ready ${r.plantReadyDate || "—"}`, r.shedName].filter(Boolean).join(" · ")}
-                            {` · free ${fmtNum(r.freePlants)}`}
+                            {[r.shedName, `free · मोकळी ${fmtNum(r.freePlants)}`]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </Typography>
                         </Box>
                       </Stack>
@@ -586,7 +660,8 @@ export default function ExcessBatchCoverDialog({
           )}
           {isFull && selected !== needQty && selected > 0 && (
             <Typography variant="caption" color="error.main" fontWeight={700}>
-              Selected {fmtNum(selected)} — must equal {fmtNum(needQty)} to cover.
+              Selected {fmtNum(selected)} — must equal {fmtNum(needQty)} to cover. · निवडलेली रोपे{" "}
+              {fmtNum(needQty)} इतकी असावीत.
             </Typography>
           )}
         </Stack>
