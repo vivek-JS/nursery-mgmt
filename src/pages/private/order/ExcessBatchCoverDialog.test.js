@@ -94,6 +94,23 @@ test("delivery change is blocked when excess is short and a new sowing is not po
   expect(screen.getByRole("button", { name: "Pick another date" })).toBeInTheDocument()
 })
 
+test("sowed order: plants only — no skip button, blocked even when new sowing is possible", () => {
+  render(
+    <ExcessBatchCoverDialog
+      open
+      preview={{ windowDays: 15, totalFree: 0, entries: [], newSowingPossible: true, suggestedDays: [] }}
+      need={1500}
+      requireFullCover
+      blockWhenNoSowing
+      onPickDate={jest.fn()}
+    />
+  )
+  expect(screen.getByText("Delivery date cannot be changed")).toBeInTheDocument()
+  expect(screen.getByText(/No plants available within ±15 days/)).toBeInTheDocument()
+  expect(screen.queryByText(/New sowing needs to be created/)).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: /sowing करू/ })).not.toBeInTheDocument()
+})
+
 test("suggested days: Use picks the day, days without a slot are disabled", () => {
   const onPickDate = jest.fn()
   render(

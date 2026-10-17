@@ -13787,7 +13787,7 @@ const mapSlotForUi = (slotData) => {
         {...(acceptCover.mode === "beforeDeliveryChange"
           ? {
               coverLabel: "Cover and change date",
-              sowLabel: "Change date only",
+              requireFullCover: Boolean(acceptCover.preview?.ownSow?.sowed),
               blockWhenNoSowing: true,
               onPickDate: handlePickDeliveryDay,
               isDatePickable: (ymd) => Boolean(getSlotIdForDate(ymd))

@@ -187,10 +187,53 @@ const SHORTFALL_TONES = {
 }
 
 /** Excess cannot cover the order: new sowing needed, or not enough time to grow one. */
-function ShortfallPanel({ totalFree, needQty, windowDays, sowPossible, readyDays, readyBy, blocked }) {
-  const tone = sowPossible ? SHORTFALL_TONES.sow : SHORTFALL_TONES.blocked
+function ShortfallPanel({
+  totalFree,
+  needQty,
+  windowDays,
+  sowPossible,
+  readyDays,
+  readyBy,
+  blocked,
+  plantsOnly = false,
+}) {
+  const tone = sowPossible && !plantsOnly ? SHORTFALL_TONES.sow : SHORTFALL_TONES.blocked
   const pct = needQty > 0 ? Math.round((totalFree / needQty) * 100) : 0
-  const Icon = sowPossible ? Sprout : CalendarX
+  const Icon = sowPossible && !plantsOnly ? Sprout : CalendarX
+  if (plantsOnly) {
+    return (
+      <Box sx={{ p: 2, borderRadius: 2, border: "1px solid", borderColor: tone.border, bgcolor: tone.bg }}>
+        <Stack direction="row" spacing={1.5} alignItems="flex-start">
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              flexShrink: 0,
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              bgcolor: tone.iconBg,
+              color: tone.fg,
+            }}
+          >
+            <Icon size={20} />
+          </Box>
+          <Box minWidth={0}>
+            <Typography fontWeight={900} sx={{ color: tone.fg }}>
+              {totalFree <= 0
+                ? `No plants available within ±${windowDays} days of this date`
+                : `Only ${fmtNum(totalFree)} of ${fmtNum(needQty)} plants available (${pct}%)`}
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 0.5, color: "#334155" }}>
+              The delivery date can only move to a day where sowed plants are available for the
+              whole order. Choose another day below.
+            </Typography>
+          </Box>
+        </Stack>
+      </Box>
+    )
+  }
   return (
     <Box
       sx={{
@@ -336,6 +379,7 @@ export default function ExcessBatchCoverDialog({
   coverLabel = COVER_LABEL,
   sowLabel = SOW_LABEL,
   blockWhenNoSowing = false,
+  requireFullCover = false,
   onPickDate,
   isDatePickable,
 }) {
@@ -347,7 +391,8 @@ export default function ExcessBatchCoverDialog({
   const needQty = Math.max(0, Math.floor(Number(need) || 0))
   const isFull = needQty > 0 && totalFree >= needQty
   const windowDays = preview?.windowDays ?? 5
-  const blocked = blockWhenNoSowing && !loading && !isFull && !sowPossible
+  const blocked =
+    !loading && !isFull && (requireFullCover || (blockWhenNoSowing && !sowPossible))
   const [picks, setPicks] = useState({})
 
   useEffect(() => {
@@ -432,8 +477,17 @@ export default function ExcessBatchCoverDialog({
 
           {loading ? null : isFull ? (
             <Alert severity="success" sx={{ py: 0.5 }}>
-              Choose one: cover this order from the sowing below (adds up to {fmtNum(needQty)}{" "}
-              plants, order is marked <b>Sow completed</b>), or <b>{sowLabel}</b>.
+              {requireFullCover ? (
+                <>
+                  Select the sowing entries for this order (adds up to {fmtNum(needQty)} plants),
+                  then <b>{coverLabel}</b>.
+                </>
+              ) : (
+                <>
+                  Choose one: cover this order from the sowing below (adds up to {fmtNum(needQty)}{" "}
+                  plants, order is marked <b>Sow completed</b>), or <b>{sowLabel}</b>.
+                </>
+              )}
             </Alert>
           ) : (
             <ShortfallPanel
@@ -444,6 +498,7 @@ export default function ExcessBatchCoverDialog({
               readyDays={readyDays}
               readyBy={readyBy}
               blocked={blocked}
+              plantsOnly={requireFullCover}
             />
           )}
 
@@ -540,7 +595,7 @@ export default function ExcessBatchCoverDialog({
         <Button onClick={onClose} variant={blocked ? "contained" : "text"}>
           {blocked ? "Pick another date" : "Back"}
         </Button>
-        {!blocked && (
+        {!blocked && !requireFullCover && (
           <Button variant="outlined" color="warning" onClick={() => onSow?.(totalFree)}>
             {sowLabel}
           </Button>
