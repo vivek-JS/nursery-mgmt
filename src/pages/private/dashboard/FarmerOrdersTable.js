@@ -7315,7 +7315,11 @@ const mapSlotForUi = (slotData) => {
         const result = await loadExcessForRow(row, dataToSend.deliveryDate, {
           releaseOrderId: row.details.orderid
         })
-        if (result && !result.preview?.ownSow?.withinTolerance) {
+        if (!result) {
+          Toast.error("Could not check excess sowing for the new date. Order not updated — try again.")
+          return
+        }
+        if (!result.preview?.ownSow?.withinTolerance) {
           openAcceptCover(row, result, "beforeDeliveryChange", { pendingPatch: patchObj })
           return
         }
