@@ -891,6 +891,9 @@ function farmerOrderStatusSelectCurrentHint(orderStatus) {
   )
 }
 
+const ORDER_CELL_PILL =
+  "inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold leading-none whitespace-nowrap"
+
 /** Matches `<th>` count in farmer orders table (incl. Actions). */
 const getFarmerOrdersTableColumnCount = ({
   showAgriSalesOrders,
@@ -915,7 +918,7 @@ const getFarmerOrdersTableColumnCount = ({
   n += 8 // SR, Order, Farmer, Plant, Delivery, Qty, Rate, Amount
   if (!(showAgriSalesOrders && hidePaymentDetails)) n += 1
   if (showAgriSalesOrders) n += 1
-  n += 2 // Status + Actions
+  n += 3 // Status + Remark + Actions
   return n
 }
 
@@ -2402,10 +2405,9 @@ const FarmerOrdersTable = ({
   const [paymentCompleteDialog, setPaymentCompleteDialog] = useState(null)
   const paymentBankCheckOpenRef = useRef(false)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
-  const [dcInvoiceEditOpen, setDcInvoiceEditOpen] = useState(false)
-  const [dcInvoiceEditRow, setDcInvoiceEditRow] = useState(null)
-  const [dcInvoiceEditValue, setDcInvoiceEditValue] = useState("")
-  const [dcInvoiceEditSaving, setDcInvoiceEditSaving] = useState(false)
+  const [quickRemarkRow, setQuickRemarkRow] = useState(null)
+  const [quickRemarkText, setQuickRemarkText] = useState("")
+  const [quickRemarkSaving, setQuickRemarkSaving] = useState(false)
   const ordersTableScrollRef = useRef(null)
   const ordersTableViewportRef = useRef(null)
   const ordersScrollCleanupRef = useRef(null)
@@ -2660,79 +2662,46 @@ const FarmerOrdersTable = ({
     ? FARMER_ORDER_STATUS_ADMIN_EDIT_OPTIONS
     : FARMER_ORDER_STATUS_EDIT_OPTIONS
 
-  const canEditDcInvoiceLabelForRow = React.useCallback(
-    (row) => {
-      if (row?.isAgriSalesOrder || row?.details?.isRamAgriProduct) return false
-      /** Optional manual/sticker DC — editable even when official plant/subtype DC exists. */
-      return Boolean(canEditOrderCore || isDispatchManager)
-    },
-    [canEditOrderCore, isDispatchManager]
-  )
-
-  const openDcInvoiceLabelEdit = React.useCallback((row) => {
-    setDcInvoiceEditRow(row)
-    const rawManual =
-      row?.deliveryChallanInvoiceNumber ?? row?.details?.deliveryChallanInvoiceNumber
-    setDcInvoiceEditValue(
-      rawManual != null && String(rawManual).trim() !== "" ? String(rawManual).trim() : ""
-    )
-    setDcInvoiceEditOpen(true)
+  const closeQuickRemark = React.useCallback(() => {
+    setQuickRemarkRow(null)
+    setQuickRemarkText("")
   }, [])
 
-  const submitDcInvoiceLabelEdit = React.useCallback(async () => {
-    const row = dcInvoiceEditRow
-    if (!row) return
-    const id = row._id || row.details?.orderid || row.id
+  const submitQuickRemark = React.useCallback(async () => {
+    const row = quickRemarkRow
+    const text = quickRemarkText.trim()
+    if (!row || !text) return
+    const id = row.details?.orderid || row._id || row.id
     if (!id) {
       Toast.error("Missing order id")
       return
     }
-    setDcInvoiceEditSaving(true)
+    setQuickRemarkSaving(true)
     try {
-      const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
-      const trimmed = dcInvoiceEditValue.trim()
-      const payload = {
-        id,
-        deliveryChallanInvoiceNumber: trimmed === "" ? null : trimmed
-      }
-      const emps = await instance.request(payload)
-      if (emps?.error) {
-        Toast.error(emps.error)
+      const res = await NetworkManager(API.ORDER.UPDATE_ORDER).request({ id, orderRemarks: text })
+      if (res?.error || res?.data?.status !== "Success") {
+        Toast.error(res?.error || res?.data?.message || "Remark not saved")
         return
       }
-      if (emps?.data?.status !== "Success") {
-        Toast.error(emps?.data?.message || "Update failed")
-        return
-      }
-      const rejected = Array.isArray(emps?.data?.rejectedFields) ? emps.data.rejectedFields : []
-      const dcRejected = rejected.find((r) => r?.field === "deliveryChallanInvoiceNumber")
-      if (dcRejected) {
-        Toast.error(dcRejected.detail || dcRejected.reason || "DC label was not saved")
-        return
-      }
-      Toast.success("DC invoice label updated")
-      const nextVal = trimmed === "" ? null : trimmed
+      Toast.success("Remark added")
       setOrders((prev) =>
         (prev || []).map((o) => {
-          const oid = String(o?._id || o?.details?.orderid || o?.id || "")
+          const oid = String(o?.details?.orderid || o?._id || o?.id || "")
           if (String(id) !== oid) return o
           return {
             ...o,
-            deliveryChallanInvoiceNumber: nextVal,
             details: {
               ...o.details,
-              deliveryChallanInvoiceNumber: nextVal
+              orderRemarks: [...(o.details?.orderRemarks || []), text]
             }
           }
         })
       )
-      setDcInvoiceEditOpen(false)
-      setDcInvoiceEditRow(null)
-      setDcInvoiceEditValue("")
+      closeQuickRemark()
     } finally {
-      setDcInvoiceEditSaving(false)
+      setQuickRemarkSaving(false)
     }
-  }, [dcInvoiceEditRow, dcInvoiceEditValue])
+  }, [quickRemarkRow, quickRemarkText, closeQuickRemark])
 
   const resolvePlantCounts = React.useCallback((order) => {
     if (!order) {
@@ -10115,6 +10084,9 @@ const mapSlotForUi = (slotData) => {
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
                       Status
                     </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[160px] bg-gray-50">
+                      Remark
+                    </th>
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[96px] bg-gray-50">
                       Actions
                     </th>
@@ -10252,158 +10224,105 @@ const mapSlotForUi = (slotData) => {
                             ? "whitespace-normal align-top"
                             : "whitespace-nowrap"
                         }`}>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? formatAgriDisplayOrderKey(row) : row.order}</span>
-                          {isSuperAdmin && row.details?.farmer?.isPremium && (
-                            <Star size={12} color="#F5B301" fill="#F5B301" />
-                          )}
-                          <VehicleLoadedIcon details={row.details} />
-                          {!showAgriSalesOrders && isRaisingSeedOrder(row) && (
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide bg-emerald-500 text-white shadow-sm"
-                              title="Raising · farmer seed"
-                            >
-                              Raising
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-sm font-extrabold text-gray-900 tracking-tight">
+                              #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? formatAgriDisplayOrderKey(row) : row.order}
                             </span>
-                          )}
-                          {!showAgriSalesOrders && row.details?.sowingDone && (
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide bg-green-100 text-green-800 border border-green-300"
-                              title={
-                                row.details?.sowingCoverSources?.length
-                                  ? "Sow completed · covered from excess sowing"
-                                  : "Sow completed"
+                            {isSuperAdmin && row.details?.farmer?.isPremium && (
+                              <Star size={12} color="#F5B301" fill="#F5B301" />
+                            )}
+                            <VehicleLoadedIcon details={row.details} />
+                          </span>
+                          <span className="inline-flex items-center gap-0.5">
+                            {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
+                              <DownloadPDFButton order={row} />
+                            )}
+                            <FarmerOrderWhatsappRowActions
+                              row={row}
+                              whatsappMessagingEnabled={whatsappMessagingEnabled}
+                              whatsappUnlimitedResend={whatsappUnlimitedResend}
+                              onOpenFarmReadyWhatsapp={(orderRow) =>
+                                openFarmReadyWhatsappForRows([orderRow])
                               }
-                            >
-                              Sowed
-                            </span>
-                          )}
-                          {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.linkedNurseryOrderCode && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleCopyLinkedOrderCode(row.details.linkedNurseryOrderCode, e)}
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300"
-                              title="Copy linked regular order ID"
-                            >
-                              <FaCopy className="mr-1" />
-                              Linked #{row.details.linkedNurseryOrderCode}
-                            </button>
-                          )}
-                          {/* Split order badges */}
-                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
-                              title={splitOrderLineageTooltip(row) || `Split order — parent #${row.details?.splitHistory?.[0]?.relatedOrderNumber ?? "—"}`}
-                            >
-                              S{row.order}
-                            </span>
-                          )}
-                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && row.details?.splitHistory?.[0]?.relatedOrderNumber && (
-                            <span className="text-[10px] text-gray-500" title="Parent order ID">
-                              ← #{row.details.splitHistory[0].relatedOrderNumber}
-                            </span>
-                          )}
-                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && !row.details?.isSplit && Array.isArray(row.details?.splitOrderIds) && row.details.splitOrderIds.length > 0 && (
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-300"
-                              title={`Split into ${row.details.splitOrderIds.length} order(s)`}
-                            >
-                              ✂ {row.details.splitOrderIds.length} split
-                            </span>
-                          )}
-                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
-                            <>
-                              {(() => {
-                                const official = String(
-                                  row?.details?.officialDeliveryChallanNumber ||
-                                    row?.officialDeliveryChallanNumber ||
-                                    ""
-                                ).trim()
-                                const manual = String(
-                                  row?.deliveryChallanInvoiceNumber ??
-                                    row?.details?.deliveryChallanInvoiceNumber ??
-                                    ""
-                                ).trim()
-                                const canDcEdit = canEditDcInvoiceLabelForRow(row)
-
-                                if (canDcEdit) {
-                                  return (
-                                    <span className="inline-flex flex-wrap items-center gap-1">
-                                      {official ? (
-                                        <span
-                                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-900 text-white border border-emerald-950 font-mono tracking-tight"
-                                          title="Official system DC (plant/subtype). Manual sticker below is optional.">
-                                          Sys {official}
-                                        </span>
-                                      ) : null}
-                                      <span className="inline-flex items-center gap-0.5">
-                                        {manual ? (
-                                          <span
-                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-800 text-white border border-stone-900 font-mono tracking-tight"
-                                            title="Optional manual DC / sticker">
-                                            Man {manual}
-                                          </span>
-                                        ) : (
-                                          <span
-                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-600 border border-stone-300 font-mono tracking-tight"
-                                            title="Optional manual DC — click pencil">
-                                            Man —
-                                          </span>
-                                        )}
-                                        <button
-                                          type="button"
-                                          title="Edit optional manual DC / sticker"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            openDcInvoiceLabelEdit(row)
-                                          }}
-                                          className="p-0.5 rounded text-stone-600 hover:bg-stone-100">
-                                          <FaEdit className="w-3.5 h-3.5" />
-                                        </button>
-                                      </span>
-                                    </span>
-                                  )
-                                }
-                                if (official) {
-                                  return (
-                                    <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-900 text-white border border-emerald-950 font-mono tracking-tight"
-                                      title="Official system DC number (plant/subtype sequence)">
-                                      DC {official}
-                                    </span>
-                                  )
-                                }
-                                if (manual) {
-                                  return (
-                                    <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-800 text-white border border-stone-900 font-mono tracking-tight"
-                                      title="Manual DC label">
-                                      DC {manual}
-                                    </span>
-                                  )
-                                }
-                                return null
-                              })()}
-                            </>
-                          )}
-                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
-                            <DownloadPDFButton order={row} />
-                          )}
-                          <FarmerOrderWhatsappRowActions
-                            row={row}
-                            whatsappMessagingEnabled={whatsappMessagingEnabled}
-                            whatsappUnlimitedResend={whatsappUnlimitedResend}
-                            onOpenFarmReadyWhatsapp={(orderRow) =>
-                              openFarmReadyWhatsappForRows([orderRow])
-                            }
-                            onOpenWatiDialog={(mode, orderRow) => {
-                              setWatiFromRowSelection(false)
-                              setWatiDialogMode(mode)
-                              setWatiDialogOrder(orderRow)
-                              setWatiDialogOpen(true)
-                            }}
-                          />
+                              onOpenWatiDialog={(mode, orderRow) => {
+                                setWatiFromRowSelection(false)
+                                setWatiDialogMode(mode)
+                                setWatiDialogOrder(orderRow)
+                                setWatiDialogOpen(true)
+                              }}
+                            />
+                          </span>
                         </div>
+                        {(() => {
+                          const isAgri = row.isAgriSalesOrder || row.details?.isRamAgriProduct
+                          const dc = isAgri
+                            ? ""
+                            : String(
+                                row?.details?.officialDeliveryChallanNumber ||
+                                  row?.officialDeliveryChallanNumber ||
+                                  row?.deliveryChallanInvoiceNumber ||
+                                  row?.details?.deliveryChallanInvoiceNumber ||
+                                  ""
+                              ).trim()
+                          const splitCount = Array.isArray(row.details?.splitOrderIds)
+                            ? row.details.splitOrderIds.length
+                            : 0
+                          const parentOrder = row.details?.splitHistory?.[0]?.relatedOrderNumber
+                          const badges = [
+                            !showAgriSalesOrders && isRaisingSeedOrder(row) && (
+                              <span key="raising" className={`${ORDER_CELL_PILL} bg-emerald-500 text-white`} title="Raising · farmer seed">
+                                Raising
+                              </span>
+                            ),
+                            !showAgriSalesOrders && row.details?.sowingDone && (
+                              <span
+                                key="sowed"
+                                className={`${ORDER_CELL_PILL} bg-green-50 text-green-800 border border-green-200`}
+                                title={row.details?.sowingCoverSources?.length ? "Sow completed · covered from excess sowing" : "Sow completed"}>
+                                Sowed
+                              </span>
+                            ),
+                            isAgri && row.details?.linkedNurseryOrderCode && (
+                              <button
+                                key="linked"
+                                type="button"
+                                onClick={(e) => handleCopyLinkedOrderCode(row.details.linkedNurseryOrderCode, e)}
+                                className={`${ORDER_CELL_PILL} bg-indigo-50 text-indigo-700 border border-indigo-200`}
+                                title="Copy linked regular order ID">
+                                <FaCopy className="mr-1" />
+                                Linked #{row.details.linkedNurseryOrderCode}
+                              </button>
+                            ),
+                            !isAgri && row.details?.isSplit && (
+                              <span
+                                key="split"
+                                className={`${ORDER_CELL_PILL} bg-orange-50 text-orange-700 border border-orange-200`}
+                                title={splitOrderLineageTooltip(row) || `Split order — parent #${parentOrder ?? "—"}`}>
+                                Split{parentOrder ? ` ← #${parentOrder}` : ""}
+                              </span>
+                            ),
+                            !isAgri && !row.details?.isSplit && splitCount > 0 && (
+                              <span
+                                key="splitInto"
+                                className={`${ORDER_CELL_PILL} bg-blue-50 text-blue-700 border border-blue-200`}
+                                title={`Split into ${splitCount} order(s)`}>
+                                ✂ {splitCount} split
+                              </span>
+                            ),
+                            dc && (
+                              <span
+                                key="dc"
+                                className={`${ORDER_CELL_PILL} bg-slate-800 text-white font-mono tracking-tight`}
+                                title="Delivery challan number">
+                                DC {dc}
+                              </span>
+                            )
+                          ].filter(Boolean)
+                          return badges.length > 0 ? (
+                            <div className="mt-1 flex items-center gap-1 flex-wrap">{badges}</div>
+                          ) : null
+                        })()}
                         {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) &&
                           getLinkedNurseryOrderIdString(row) && (
                           <RamAgriLinkedPlantDeliveryNote
@@ -10411,14 +10330,13 @@ const mapSlotForUi = (slotData) => {
                             linkedPlantDispatchByNurseryId={linkedPlantDispatchByNurseryId}
                           />
                         )}
-                        <div className="mt-0.5 inline-flex items-center gap-1 flex-wrap">
-                          <span className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5">
-                            <span className="text-[10px] font-semibold text-sky-800">Booked</span>
-                            <span className="text-[10px] font-bold text-sky-900">{row.orderDate}</span>
+                        <div className="mt-1 flex items-center gap-1 flex-wrap text-[10px] text-gray-500">
+                          <span>
+                            Booked <span className="font-semibold text-gray-700">{row.orderDate}</span>
                           </span>
                           {row.details?.orderFor?.name ? (
                             <span
-                              className="inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-900"
+                              className={`${ORDER_CELL_PILL} bg-violet-50 text-violet-800 border border-violet-200`}
                               title={`Book-for order · Booking farmer: ${row.details.farmer?.name || "—"}`}>
                               Book for
                             </span>
@@ -10729,6 +10647,42 @@ const mapSlotForUi = (slotData) => {
                             )}
                           </div>
                         )}
+                      </td>
+                      <td className="px-2 py-2 align-top" onClick={(e) => e.stopPropagation()}>
+                        {(() => {
+                          const remarks = (row.details?.orderRemarks || []).filter(
+                            (r) => typeof r === "string" && r.trim()
+                          )
+                          const latest = remarks[remarks.length - 1]
+                          return (
+                            <div className="flex flex-col items-start gap-0.5 max-w-[200px]">
+                              {latest ? (
+                                <button
+                                  type="button"
+                                  title={remarks.map((r, i) => `${i + 1}. ${r}`).join("\n")}
+                                  onClick={() => setQuickRemarkRow(row)}
+                                  className="text-left text-[11px] leading-snug text-gray-800 line-clamp-2 hover:text-brand-700">
+                                  {latest}
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-gray-400">—</span>
+                              )}
+                              <span className="inline-flex items-center gap-1">
+                                {remarks.length > 1 && (
+                                  <span className="text-[10px] font-semibold text-gray-500">
+                                    {remarks.length} remarks
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setQuickRemarkRow(row)}
+                                  className="text-[10px] font-semibold text-brand-600 hover:text-brand-800 hover:underline">
+                                  + Add
+                                </button>
+                              </span>
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex flex-col gap-0.5 items-start">
@@ -11269,43 +11223,13 @@ const mapSlotForUi = (slotData) => {
                                   row?.details?.deliveryChallanInvoiceNumber ??
                                   ""
                               ).trim()
-                              const canDcEdit = canEditDcInvoiceLabelForRow(row)
-                              if (!official && !manual && !canDcEdit) return null
+                              const dc = official || manual
+                              if (!dc) return null
                               return (
-                              <div className="flex items-center justify-between gap-2 rounded-md border border-stone-300 bg-stone-900 px-2 py-1.5">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-300 shrink-0">
-                                  DC
-                                </span>
-                                <span className="flex items-center gap-1 min-w-0 justify-end flex-wrap">
-                                  {official ? (
-                                    <span className="text-xs font-mono font-bold text-white truncate max-w-[46%]" title="Official system DC">
-                                      Sys {official}
-                                    </span>
-                                  ) : null}
-                                  {official && (manual || canDcEdit) ? (
-                                    <span className="text-[9px] text-stone-500 shrink-0">·</span>
-                                  ) : null}
-                                  {manual ? (
-                                    <span className="text-xs font-mono font-bold text-amber-100 truncate max-w-[46%]" title="Optional manual DC">
-                                      Man {manual}
-                                    </span>
-                                  ) : canDcEdit ? (
-                                    <span className="text-[10px] text-stone-400 truncate">Man —</span>
-                                  ) : null}
-                                  {canDcEdit && (
-                                    <button
-                                      type="button"
-                                      title="Edit optional manual DC"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        openDcInvoiceLabelEdit(row)
-                                      }}
-                                      className="shrink-0 p-0.5 rounded text-stone-300 hover:text-white hover:bg-stone-700">
-                                      <FaEdit className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </span>
-                              </div>
+                                <div className="flex items-center justify-between gap-2 rounded-md bg-slate-800 px-2 py-1.5">
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-300">DC</span>
+                                  <span className="text-xs font-mono font-bold text-white truncate">{dc}</span>
+                                </div>
                               )
                             })()}
                       
@@ -13790,53 +13714,56 @@ const mapSlotForUi = (slotData) => {
         </DialogActions>
       </Dialog>
       <Dialog
-        open={dcInvoiceEditOpen}
+        open={Boolean(quickRemarkRow)}
         onClose={() => {
-          if (dcInvoiceEditSaving) return
-          setDcInvoiceEditOpen(false)
-          setDcInvoiceEditRow(null)
-          setDcInvoiceEditValue("")
+          if (!quickRemarkSaving) closeQuickRemark()
         }}
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle sx={{ fontWeight: 700 }}>Delivery challan (DC) number</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Remark · Order #{quickRemarkRow?.order}
+        </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Set the invoice label shown on delivery challan PDFs for orders that were dispatched before
-            automatic sequencing, or to correct a manual entry. Leave empty to clear.
-          </Typography>
+          {(quickRemarkRow?.details?.orderRemarks || []).length > 0 && (
+            <div className="mb-3 max-h-40 overflow-y-auto space-y-1">
+              {quickRemarkRow.details.orderRemarks.map((r, i) => (
+                <div
+                  key={i}
+                  className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700">
+                  {r}
+                </div>
+              ))}
+            </div>
+          )}
           <TextField
             autoFocus
             fullWidth
+            multiline
+            minRows={2}
             size="small"
-            label="DC invoice number"
-            placeholder="e.g. R640"
-            value={dcInvoiceEditValue}
-            onChange={(e) => setDcInvoiceEditValue(e.target.value)}
-            disabled={dcInvoiceEditSaving}
-            inputProps={{ maxLength: 64 }}
+            label="New remark"
+            value={quickRemarkText}
+            onChange={(e) => setQuickRemarkText(e.target.value)}
+            disabled={quickRemarkSaving}
+            inputProps={{ maxLength: 500 }}
           />
         </DialogContent>
         <DialogActions sx={{ px: 2, pb: 2 }}>
           <Button
-            onClick={() => {
-              setDcInvoiceEditOpen(false)
-              setDcInvoiceEditRow(null)
-              setDcInvoiceEditValue("")
-            }}
-            disabled={dcInvoiceEditSaving}
+            onClick={closeQuickRemark}
+            disabled={quickRemarkSaving}
             sx={{ textTransform: "none" }}
           >
             Cancel
           </Button>
           <Button
-            onClick={() => void submitDcInvoiceLabelEdit()}
+            onClick={() => void submitQuickRemark()}
             variant="contained"
-            disabled={dcInvoiceEditSaving}
+            disabled={quickRemarkSaving || !quickRemarkText.trim()}
             sx={{ textTransform: "none" }}
           >
-            {dcInvoiceEditSaving ? "Saving…" : "Save"}
+            {quickRemarkSaving ? "Saving…" : "Add remark"}
           </Button>
         </DialogActions>
       </Dialog>
