@@ -1,12 +1,9 @@
 import React, { useState } from "react"
-import { Box, Typography, Button, IconButton, Alert } from "@mui/material"
+import { Box, Typography, Button, IconButton } from "@mui/material"
 import { Add as AddIcon, Refresh as RefreshIcon, LocalFlorist } from "@mui/icons-material"
-import { Link as RouterLink } from "react-router-dom"
 import ExcessiveSowingModal from "components/Modals/ExcessiveSowingModal"
 import EasyRequestPanel from "./components/EasyRequestPanel"
 import CompletedSowingEntries from "./components/CompletedSowingEntries"
-import SlotStockBoard from "./components/excess-allocation/SlotStockBoard"
-import PendingSowingOrdersPanel from "./components/PendingSowingOrdersPanel"
 import SowingPageTabs from "./components/SowingPageTabs"
 import { SowHorizonProvider } from "./components/SowHorizonContext"
 
@@ -14,8 +11,6 @@ export default function SowingGapAnalysis() {
   const [tab, setTab] = useState(0)
   const [excessiveSowingModalOpen, setExcessiveSowingModalOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
-  const [surplusSlotCount, setSurplusSlotCount] = useState(0)
-  const [pendingOrderCount, setPendingOrderCount] = useState(0)
 
   const bumpRefresh = () => setRefreshToken((n) => n + 1)
 
@@ -29,7 +24,7 @@ export default function SowingGapAnalysis() {
               Sowing Gap Analysis
             </Typography>
             <Typography variant="body2" color="text.secondary" fontWeight={600}>
-              Requests · orders · sowing entry · completed history
+              Request & sow · sowing entries
             </Typography>
           </Box>
         </Box>
@@ -56,45 +51,13 @@ export default function SowingGapAnalysis() {
       <SowingPageTabs
         tab={tab}
         onTabChange={setTab}
-        surplusSlotCount={surplusSlotCount}
-        pendingOrderCount={pendingOrderCount}
         requestPanel={
           <SowHorizonProvider defaultDays={0}>
             <EasyRequestPanel refreshToken={refreshToken} embedded />
           </SowHorizonProvider>
         }
-        pendingPanel={
-          <PendingSowingOrdersPanel
-            refreshToken={refreshToken}
-            onLoaded={({ orderCount }) => setPendingOrderCount(orderCount || 0)}
-            onSowed={bumpRefresh}
-          />
-        }
-        surplusPanel={
-          <SlotStockBoard
-            refreshToken={refreshToken}
-            onRefresh={bumpRefresh}
-            onLoaded={({ slotCount }) => {
-              setSurplusSlotCount(slotCount || 0)
-            }}
-          />
-        }
-        advancedPanel={
-          <Alert severity="info" sx={{ mb: 0 }}>
-            Booking gap charts and plant-level analytics moved here.{" "}
-            <Button
-              size="small"
-              component={RouterLink}
-              to="/u/sowing-booking-gap-analysis"
-              sx={{ textTransform: "none", fontWeight: 700 }}
-            >
-              Open gap analytics
-            </Button>
-          </Alert>
-        }
+        entriesPanel={<CompletedSowingEntries refreshToken={refreshToken} />}
       />
-
-      <CompletedSowingEntries refreshToken={refreshToken} />
 
       <ExcessiveSowingModal
         open={excessiveSowingModalOpen}
