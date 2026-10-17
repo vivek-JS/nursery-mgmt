@@ -130,6 +130,13 @@ describe("farmerPlantPaymentTransfer.utils", () => {
       expect(isOrderEligibleForPlantTransfer({ orderStatus: "COMPLETED" })).toBe(false)
       expect(isOrderEligibleForPlantTransfer({ orderStatus: "ACCEPTED" })).toBe(true)
     })
+
+    it("lets a DISPATCHED order receive a payment but not send one", () => {
+      expect(isOrderEligibleForPlantTransfer({ orderStatus: "DISPATCHED" }, "target")).toBe(true)
+      expect(isOrderEligibleForPlantTransfer({ orderStatus: "DISPATCHED" }, "source")).toBe(false)
+      expect(isOrderEligibleForPlantTransfer({ orderStatus: "COMPLETED" }, "target")).toBe(false)
+      expect(isOrderEligibleForPlantTransfer({ orderStatus: "CANCELLED" }, "target")).toBe(false)
+    })
   })
 
   describe("transferableFarmerPlantPayments", () => {

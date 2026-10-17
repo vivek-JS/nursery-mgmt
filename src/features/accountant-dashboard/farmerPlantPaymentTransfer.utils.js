@@ -21,17 +21,30 @@ export const ORDER_TRANSFER_SEARCH_STATUS_QUERY = [
 ].join(",")
 
 /**
+ * The receiving order may also be DISPATCHED (farmer settling the balance after the vehicle left);
+ * money still cannot move out of a dispatched order.
+ */
+export const ORDER_TRANSFER_TARGET_EXCLUDED_STATUSES = ORDER_TRANSFER_EXCLUDED_STATUSES.filter(
+  (st) => st !== "DISPATCHED"
+)
+
+export const ORDER_TRANSFER_TARGET_SEARCH_STATUS_QUERY = `${ORDER_TRANSFER_SEARCH_STATUS_QUERY},DISPATCHED`
+
+/**
  * @param {{ orderStatus?: string }|string|null|undefined} orderOrStatus
+ * @param {"source"|"target"} [role]
  * @returns {boolean}
  */
-export function isOrderEligibleForPlantTransfer(orderOrStatus) {
+export function isOrderEligibleForPlantTransfer(orderOrStatus, role = "source") {
   const st =
     typeof orderOrStatus === "string"
       ? orderOrStatus
       : String(orderOrStatus?.orderStatus || "")
   const normalized = st.trim().toUpperCase()
   if (!normalized) return false
-  return !ORDER_TRANSFER_EXCLUDED_STATUSES.includes(normalized)
+  const excluded =
+    role === "target" ? ORDER_TRANSFER_TARGET_EXCLUDED_STATUSES : ORDER_TRANSFER_EXCLUDED_STATUSES
+  return !excluded.includes(normalized)
 }
 
 /**

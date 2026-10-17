@@ -216,7 +216,7 @@ export default function PaymentTransferDialog({
     clearTimeout(targetTimerRef.current)
     targetTimerRef.current = setTimeout(async () => {
       try {
-        const rows = await searchFarmerPlantOrdersForTransfer({ q, limit: 15 })
+        const rows = await searchFarmerPlantOrdersForTransfer({ q, limit: 15, role: "target" })
         if (!cancelled) setTargetResults(Array.isArray(rows) ? rows : [])
       } catch (_) {
         if (!cancelled) setTargetResults([])

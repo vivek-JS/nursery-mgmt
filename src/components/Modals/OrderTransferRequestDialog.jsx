@@ -120,7 +120,7 @@ export default function OrderTransferRequestDialog({
     clearTimeout(toTimerRef.current)
     toTimerRef.current = setTimeout(async () => {
       try {
-        const rows = await searchFarmerPlantOrdersForTransfer({ q, limit: 15 })
+        const rows = await searchFarmerPlantOrdersForTransfer({ q, limit: 15, role: "target" })
         if (!cancelled) setToResults(Array.isArray(rows) ? rows : [])
       } catch (_) {
         if (!cancelled) setToResults([])

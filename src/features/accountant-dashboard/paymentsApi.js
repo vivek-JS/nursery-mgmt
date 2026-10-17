@@ -14,7 +14,8 @@ import {
   buildFarmerOrderTransferRequestPayload,
   normalizeMongoObjectId,
   isOrderEligibleForPlantTransfer,
-  ORDER_TRANSFER_SEARCH_STATUS_QUERY
+  ORDER_TRANSFER_SEARCH_STATUS_QUERY,
+  ORDER_TRANSFER_TARGET_SEARCH_STATUS_QUERY
 } from "./farmerPlantPaymentTransfer.utils"
 import {
   fetchMoneyLedgerPendingAdjustments,
@@ -314,12 +315,14 @@ export async function searchFarmersForLedgerTransfer({ q, limit = 20 }) {
   return Array.isArray(payload?.items) ? payload.items : []
 }
 
-export async function searchFarmerPlantOrdersForTransfer({ q, limit = 20 }) {
+/** `role: "target"` also finds DISPATCHED orders (they can receive a payment, not send one). */
+export async function searchFarmerPlantOrdersForTransfer({ q, limit = 20, role = "source" }) {
   const params = {
     q: q != null ? String(q).trim() : "",
     page: 1,
     limit: Math.min(Math.max(Number(limit) || 20, 1), 50),
-    status: ORDER_TRANSFER_SEARCH_STATUS_QUERY
+    status:
+      role === "target" ? ORDER_TRANSFER_TARGET_SEARCH_STATUS_QUERY : ORDER_TRANSFER_SEARCH_STATUS_QUERY
   }
   const instance = NetworkManager(API.ORDER.GET_ORDERS)
   const res = await instance.request({}, params)
@@ -333,7 +336,7 @@ export async function searchFarmerPlantOrdersForTransfer({ q, limit = 20 }) {
         o?._id &&
         o?.orderId != null &&
         o?.farmer?.mobileNumber &&
-        isOrderEligibleForPlantTransfer(o)
+        isOrderEligibleForPlantTransfer(o, role)
     )
     .map((o) => ({
       _id: o._id,
