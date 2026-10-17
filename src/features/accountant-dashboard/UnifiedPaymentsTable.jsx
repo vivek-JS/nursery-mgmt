@@ -245,7 +245,7 @@ export function UnifiedPaymentsTable({
   })
 
   const getRowId = (r) => (r.kind === "order" ? r.data.id : r.data._id)
-  const tableColSpan = advancesMode ? 13 : 14
+  const tableColSpan = advancesMode ? 14 : 15
   const displayTotal =
     typeof totalCount === "number" && Number.isFinite(totalCount) ? totalCount : filtered.length
 
@@ -318,6 +318,7 @@ export function UnifiedPaymentsTable({
               <th>Paid</th>
               <th>Balance</th>
               <th>Mode</th>
+              <th>Remark</th>
               <th>Date</th>
               <th>Status</th>
               <th>Attach</th>
@@ -445,6 +446,9 @@ export function UnifiedPaymentsTable({
                       </td>
                       <td>
                         <span className="text-xs bg-muted px-1.5 py-0.5 rounded-sm font-medium">{p.payment?.modeOfPayment || "—"}</span>
+                      </td>
+                      <td>
+                        <RemarkCell remark={p.payment?.remark} />
                       </td>
                       <td className="text-xs text-muted-foreground tabular">{fmtDate(p.payment?.paymentDate || p.createdAt)}</td>
                       <td onClick={(e) => e.stopPropagation()}>
@@ -626,6 +630,9 @@ export function UnifiedPaymentsTable({
                     <td>
                       <span className="text-xs bg-muted px-1.5 py-0.5 rounded-sm font-medium">{b.modeOfPayment}</span>
                     </td>
+                    <td>
+                      <RemarkCell remark={b.remark} />
+                    </td>
                     <td className="text-xs text-muted-foreground tabular">{fmtDate(b.paymentDate)}</td>
                     <td>
                       <StatusBadge status={b.paymentStatus === "ACCEPTED" ? "ACCEPTED" : b.paymentStatus} />
@@ -767,6 +774,16 @@ function ActionBtn({ title, onClick, icon, variant }) {
     >
       {icon}
     </button>
+  )
+}
+
+function RemarkCell({ remark }) {
+  const text = String(remark ?? "").trim()
+  if (!text) return <span className="text-[11px] text-muted-foreground">—</span>
+  return (
+    <div className="text-[11px] text-foreground max-w-[180px] min-w-[100px] line-clamp-2 break-words" title={text}>
+      {text}
+    </div>
   )
 }
 
