@@ -36,6 +36,38 @@ export function isSlotEndOnOrAfterToday(slot) {
   return end.isSameOrAfter(istTodayMoment(), "day")
 }
 
+/**
+ * Slot for a subtype change. The delivery date never changes: use the new subtype's slot that
+ * covers it, else the slot nearest to it. Plants without sowing are flagged when that slot is short.
+ * @returns {{ slot: object, date: Date, outsideSlot: boolean, distanceDays: number, short: boolean } | null}
+ */
+export function pickSubtypeChangeSlot({ slots, deliveryDate, need, sowingAllowed }) {
+  const day = momentInIst(deliveryDate)?.startOf("day")
+  if (!day || !Array.isArray(slots) || slots.length === 0) return null
+  let best = null
+  for (const s of slots) {
+    const start = slotDayStartMoment(s?.startDay)
+    const end = slotDayEndMoment(s?.endDay)
+    if (!start || !end) continue
+    const distanceDays = day.isBefore(start, "day")
+      ? start.diff(day, "days")
+      : day.isAfter(end, "day")
+      ? day.clone().startOf("day").diff(end.clone().startOf("day"), "days")
+      : 0
+    if (!best || distanceDays < best.distanceDays) best = { slot: s, distanceDays }
+    if (distanceDays === 0) break
+  }
+  if (!best) return null
+  const needQty = Math.max(0, Number(need) || 0)
+  return {
+    slot: best.slot,
+    date: day.toDate(),
+    outsideSlot: best.distanceDays > 0,
+    distanceDays: best.distanceDays,
+    short: !sowingAllowed && Number(best.slot.available || 0) < needQty
+  }
+}
+
 export function emptyOrderForEditShape() {
   return {
     farmerId: "",

@@ -188,6 +188,10 @@ const OrderEditPanel = ({
     ]
   )
 
+  const subtypeChanged =
+    updatedObject?.plantSubtype != null &&
+    String(updatedObject.plantSubtype) !== String(selectedOrder?.details?.plantSubtypeID || "")
+
   const selectedSlotId =
     updatedObject?.bookingSlot != null
       ? String(updatedObject.bookingSlot)
@@ -430,7 +434,9 @@ const OrderEditPanel = ({
         <Box sx={{ flex: 1, overflowY: "auto", pr: 0.5 }}>
           {section === "plant" && isPlantOrderEdit && (
             <Stack spacing={2}>
-              <FieldCard title="Plant subtype" subtitle="Changing subtype requires a new delivery slot">
+              <FieldCard
+                title="Plant subtype"
+                subtitle="Only the subtype changes — delivery date and other order details stay the same">
                 {orderEditSubtypesLoading ? (
                   <CircularProgress size={22} />
                 ) : (
@@ -452,6 +458,22 @@ const OrderEditPanel = ({
                     </Select>
                   </FormControl>
                 )}
+                {subtypeChanged &&
+                  (slotsLoading ? (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="caption">Loading slots for the new subtype…</Typography>
+                    </Box>
+                  ) : updatedObject?.bookingSlot && updatedObject?.deliveryDate ? (
+                    <Alert severity="success" sx={{ mt: 1.5 }}>
+                      Delivery stays on{" "}
+                      <strong>{formatOrderDateDisplay(updatedObject.deliveryDate)}</strong>
+                    </Alert>
+                  ) : (
+                    <Alert severity="warning" sx={{ mt: 1.5 }}>
+                      This subtype has no delivery slots yet — add slots for it before saving.
+                    </Alert>
+                  ))}
               </FieldCard>
 
               <FieldCard title="Tray / cavity">

@@ -162,6 +162,7 @@ import {
   startOfTodayMoment,
   isSlotEndOnOrAfterToday,
   formatSplitAttributionLineage,
+  pickSubtypeChangeSlot,
 } from "./orderEditUtils"
 import {
   buildCopyOrderPrefillFromRow,
@@ -2797,6 +2798,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
 
   const [slots, setSlots] = useState([])
   const [slotsLoading, setSlotsLoading] = useState(false)
+  const subtypeSlotPickSeq = useRef(0)
   const [updatedObject, setUpdatedObject] = useState(null)
   const [nurserySiteEditOptions, setNurserySiteEditOptions] = useState([])
   const [quantityDeltaInput, setQuantityDeltaInput] = useState("")
@@ -6381,31 +6383,61 @@ const mapSlotForUi = (slotData) => {
           })
 
         setSlots(processedSlots)
-      } else {
-        setSlots([])
+        return processedSlots
       }
+      setSlots([])
+      return []
     } catch (error) {
       console.error("Error loading slots:", error)
       Toast.error("Failed to load available slots")
       setSlots([])
+      return []
     } finally {
       setSlotsLoading(false)
     }
   }
 
-  const handleOrderEditPlantSubtypeChange = (newSubtypeId) => {
-    const plantId = selectedOrder?.details?.plantID
-    if (plantId && newSubtypeId) {
-      getSlots(plantId, newSubtypeId)
-    } else {
-      setSlots([])
-    }
+  const handleOrderEditPlantSubtypeChange = async (newSubtypeId) => {
+    const d = selectedOrder?.details
+    const plantId = d?.plantID
+    const seq = ++subtypeSlotPickSeq.current
+    const isOriginal = String(newSubtypeId || "") === String(d?.plantSubtypeID || "")
     setUpdatedObject((prev) => ({
       ...(prev || {}),
       plantSubtype: newSubtypeId,
-      bookingSlot: undefined,
-      deliveryDate: null
+      bookingSlot: isOriginal ? d?.bookingSlot?.slotId : undefined,
+      deliveryDate: isOriginal && d?.deliveryDate ? new Date(d.deliveryDate) : null
     }))
+    if (!plantId || !newSubtypeId) {
+      setSlots([])
+      return
+    }
+    const loaded = await getSlots(plantId, newSubtypeId)
+    if (seq !== subtypeSlotPickSeq.current || isOriginal) return
+
+    const sowingAllowed =
+      Boolean(d?.sowingAllowed) ||
+      plants.some((p) => String(p.value || p.id || "") === String(plantId) && p.sowingAllowed)
+    const pick = pickSubtypeChangeSlot({
+      slots: loaded,
+      deliveryDate: d?.deliveryDate,
+      need: editFinalQuantity,
+      sowingAllowed
+    })
+    if (!pick) {
+      Toast.warn("The new subtype has no delivery slots — add slots for it first")
+      return
+    }
+    setUpdatedObject((prev) => ({
+      ...(prev || {}),
+      bookingSlot: pick.slot.value,
+      deliveryDate: pick.date
+    }))
+    if (pick.short) {
+      Toast.warn(
+        `Only ${fmtNum(pick.slot.available)} plants available in the new subtype's slot — save may be refused`
+      )
+    }
   }
 
   // Function to fetch counts for all statuses (without status filter)
@@ -7311,15 +7343,32 @@ const mapSlotForUi = (slotData) => {
 
       const excessChecked = Boolean(dataToSend.__excessChecked)
       delete dataToSend.__excessChecked
+      let subtypeChangeNeedsSowing = false
       if (!isAgriSalesOrder && !excessChecked && needsDeliveryExcessCheck(row, dataToSend)) {
-        const result = await loadExcessForRow(row, dataToSend.deliveryDate, {
-          releaseOrderId: row.details.orderid
-        })
+        const subtypeChange = isSubtypeChangePatch(row, dataToSend)
+        const result = await loadExcessForRow(
+          row,
+          dataToSend.deliveryDate || row.details.deliveryDate,
+          {
+            releaseOrderId: row.details.orderid,
+            subtypeId: subtypeChange ? dataToSend.plantSubtype : null
+          }
+        )
         if (!result) {
           Toast.error("Could not check excess sowing for the new date. Order not updated — try again.")
           return
         }
-        if (!result.preview?.ownSow?.withinTolerance) {
+        if (subtypeChange) {
+          // Own sowing belongs to the old subtype, so only excess of the new subtype counts.
+          if (Number(result.preview?.totalFree) > 0) {
+            openAcceptCover(row, result, "beforeDeliveryChange", {
+              pendingPatch: patchObj,
+              subtypeChange: true
+            })
+            return
+          }
+          subtypeChangeNeedsSowing = true
+        } else if (!result.preview?.ownSow?.withinTolerance) {
           openAcceptCover(row, result, "beforeDeliveryChange", { pendingPatch: patchObj })
           return
         }
@@ -7733,6 +7782,8 @@ const mapSlotForUi = (slotData) => {
           Toast.error(
             `Delivery changed, but cover from excess failed: ${excessCoverResult.message}. New sowing needs to be created.`
           )
+        } else if (subtypeChangeNeedsSowing) {
+          Toast.info("Subtype changed — no excess of the new subtype nearby, new sowing needs to be created.")
         }
 
         if (!isAgriSalesOrder) {
@@ -7866,13 +7917,17 @@ const mapSlotForUi = (slotData) => {
 
   const orderPlantsNeed = (d) => (Number(d?.numberOfPlants) || 0) + (Number(d?.additionalPlants) || 0)
 
-  const loadExcessForRow = async (row, deliveryDate, { releaseOrderId = null } = {}) => {
+  const loadExcessForRow = async (
+    row,
+    deliveryDate,
+    { releaseOrderId = null, subtypeId = null } = {}
+  ) => {
     const d = row.details
     setpatchLoading(true)
     try {
       return await fetchExcessWithFallback({
         plantId: d.plantID,
-        subtypeId: d.plantSubtypeID,
+        subtypeId: subtypeId || d.plantSubtypeID,
         deliveryDate,
         need: orderPlantsNeed(d),
         releaseOrderId
@@ -7908,9 +7963,15 @@ const mapSlotForUi = (slotData) => {
   ]
 
   /** Delivery slot change on a sowing order: pick excess entries before the save goes out. */
+  const isSubtypeChangePatch = (row, patch) =>
+    patch?.plantSubtype != null &&
+    String(patch.plantSubtype) !== String(row?.details?.plantSubtypeID || "")
+
   const needsDeliveryExcessCheck = (row, patch) => {
     const d = row?.details
-    if (!patch?.deliveryDate || !patch?.bookingSlot || !isSowingCoverCandidate(row)) return false
+    const deliveryDate =
+      patch?.deliveryDate || (isSubtypeChangePatch(row, patch) ? d?.deliveryDate : null)
+    if (!deliveryDate || !patch?.bookingSlot || !isSowingCoverCandidate(row)) return false
     const currentSlotId = String(d?.bookingSlot?.slotId || d?.bookingSlot?._id || "")
     if (String(patch.bookingSlot) === currentSlotId) return false
     const prevStatus = String(row?.orderStatus || "").toUpperCase()
@@ -13796,7 +13857,9 @@ const mapSlotForUi = (slotData) => {
         nearFree={acceptCover.nearFree || 0}
         onCover={handleAcceptCover}
         onSow={handleAcceptSow}
-        {...(acceptCover.mode === "beforeDeliveryChange"
+        {...(acceptCover.mode === "beforeDeliveryChange" && acceptCover.subtypeChange
+          ? { coverLabel: "Cover and change subtype" }
+          : acceptCover.mode === "beforeDeliveryChange"
           ? {
               coverLabel: "Cover and change date",
               requireFullCover: Boolean(acceptCover.preview?.ownSow?.sowed),
