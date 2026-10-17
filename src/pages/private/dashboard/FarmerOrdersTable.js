@@ -7989,6 +7989,18 @@ const mapSlotForUi = (slotData) => {
     }
   }
 
+  /** Suggested day from the delivery-change popup: re-run the check for that day. */
+  const handlePickDeliveryDay = async (ymd) => {
+    const { row, pendingPatch } = acceptCover
+    const slotId = getSlotIdForDate(ymd)
+    if (!row || !slotId) {
+      Toast.error("No delivery slot for that day")
+      return
+    }
+    closeAcceptCover()
+    await pacthOrders({ ...pendingPatch, deliveryDate: ymd, bookingSlot: slotId }, row)
+  }
+
   const handleAcceptSow = async (totalFree) => {
     const { row, mode, windowDays, pendingPatch } = acceptCover
     if (!row) return
@@ -13776,7 +13788,9 @@ const mapSlotForUi = (slotData) => {
           ? {
               coverLabel: "Cover and change date",
               sowLabel: "Change date only",
-              blockWhenNoSowing: true
+              blockWhenNoSowing: true,
+              onPickDate: handlePickDeliveryDay,
+              isDatePickable: (ymd) => Boolean(getSlotIdForDate(ymd))
             }
           : {})}
       />

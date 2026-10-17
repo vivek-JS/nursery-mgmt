@@ -234,11 +234,82 @@ function ShortfallPanel({ totalFree, needQty, windowDays, sowPossible, readyDays
           </Typography>
           {blocked && (
             <Typography variant="body2" fontWeight={800} sx={{ mt: 1, color: tone.fg }}>
-              The delivery date cannot be changed to this date. Pick a later date or another slot.
+              The delivery date cannot be changed to this date. Choose another day below.
             </Typography>
           )}
         </Box>
       </Stack>
+    </Box>
+  )
+}
+
+function dayLabel(ymd) {
+  const d = new Date(`${ymd}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ymd
+  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })
+}
+
+/** Other delivery days whose excess (±5 days) covers the whole order. */
+function SuggestedDays({ days = [], onPickDate, isDatePickable }) {
+  return (
+    <Box>
+      <Typography fontWeight={900} fontSize="0.9rem" sx={{ mb: 0.75 }}>
+        Other days with enough excess
+      </Typography>
+      {days.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          No other day within ±45 days has enough excess for this order.
+        </Typography>
+      ) : (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
+          {days.map((d) => {
+            const pickable = isDatePickable ? isDatePickable(d.date) : true
+            return (
+              <Paper
+                key={d.date}
+                variant="outlined"
+                sx={{
+                  p: 1.25,
+                  borderRadius: 1.5,
+                  borderColor: pickable ? "#86efac" : "#e2e8f0",
+                  bgcolor: pickable ? "#f0fdf4" : "#f8fafc",
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Box flex={1} minWidth={0}>
+                    <Stack direction="row" alignItems="center" spacing={0.75}>
+                      <Typography fontWeight={900} fontSize="0.9rem">
+                        {dayLabel(d.date)}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={offsetChipLabel(d.offsetDays)}
+                        color={d.offsetDays < 0 ? "success" : "warning"}
+                        sx={{ height: 20, fontWeight: 800 }}
+                      />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      {fmtNum(d.freePlants)} excess · {d.entryCount} sowing entr
+                      {d.entryCount === 1 ? "y" : "ies"}
+                      {pickable ? "" : " · no slot"}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="success"
+                    disabled={!pickable}
+                    onClick={() => onPickDate(d.date)}
+                    sx={{ fontWeight: 800, textTransform: "none", flexShrink: 0 }}
+                  >
+                    Use
+                  </Button>
+                </Stack>
+              </Paper>
+            )
+          })}
+        </Box>
+      )}
     </Box>
   )
 }
@@ -265,6 +336,8 @@ export default function ExcessBatchCoverDialog({
   coverLabel = COVER_LABEL,
   sowLabel = SOW_LABEL,
   blockWhenNoSowing = false,
+  onPickDate,
+  isDatePickable,
 }) {
   const rows = useMemo(() => groupExcessEntries(preview?.entries || []), [preview])
   const sowPossible = (newSowingPossible ?? preview?.newSowingPossible) !== false
@@ -371,6 +444,14 @@ export default function ExcessBatchCoverDialog({
               readyDays={readyDays}
               readyBy={readyBy}
               blocked={blocked}
+            />
+          )}
+
+          {!loading && !isFull && onPickDate && Array.isArray(preview?.suggestedDays) && (
+            <SuggestedDays
+              days={preview.suggestedDays}
+              onPickDate={onPickDate}
+              isDatePickable={isDatePickable}
             />
           )}
 
