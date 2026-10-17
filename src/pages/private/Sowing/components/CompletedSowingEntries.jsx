@@ -21,6 +21,7 @@ import {
   Tooltip,
   Popover,
   Divider,
+  Autocomplete,
 } from "@mui/material"
 import SearchIcon from "@mui/icons-material/Search"
 import RefreshIcon from "@mui/icons-material/Refresh"
@@ -32,32 +33,53 @@ import DrawerExportButton from "components/DrawerExportButton"
 import { clock12, durationLabel } from "./MachineTimeField"
 import SowBatchDestroyDialog from "./SowBatchDestroyDialog"
 
+const IST = "Asia/Kolkata"
+
+/** "YYYY-MM-DD" / "DD-MM-YYYY" are calendar days, not instants. */
+function parseDayString(d) {
+  if (typeof d !== "string") return null
+  const ymd = d.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (ymd) return { y: ymd[1], m: ymd[2], d: ymd[3] }
+  const dmy = d.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+  if (dmy) return { y: dmy[3], m: dmy[2], d: dmy[1] }
+  return null
+}
+
 function fmtDate(d) {
   if (!d) return "—"
-  try {
-    return new Date(d).toLocaleString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  } catch {
-    return "—"
-  }
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return "—"
+  return date.toLocaleString("en-IN", {
+    timeZone: IST,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function fmtDay(d) {
   if (!d) return "—"
-  try {
-    return new Date(d).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    })
-  } catch {
-    return "—"
-  }
+  const day = parseDayString(d)
+  if (day) return `${day.d} ${MONTHS[Number(day.m) - 1] || day.m} ${day.y}`
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return "—"
+  return date.toLocaleDateString("en-IN", {
+    timeZone: IST,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
+}
+
+/** Sort key for a sow day: "YYYY-MM-DD" in IST. */
+function sowDayKey(d) {
+  if (!d) return ""
+  const day = parseDayString(d)
+  if (day) return `${day.y}-${day.m}-${day.d}`
+  const date = new Date(d)
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-CA", { timeZone: IST })
 }
 
 const TRAY_SIZE = 126
@@ -325,7 +347,7 @@ function sortValue(row, key) {
   if (key === "trays") return traysOf(row)
   if (key === "mortality") return mortalityOf(row) ?? -1
   if (key === "packets") return Number(row.packetsUsed) || 0
-  if (key === "sowDate") return new Date(row.sowingDate || row.sowingCompletedDate || 0).getTime()
+  if (key === "sowDate") return sowDayKey(row.sowingDate || row.sowingCompletedDate)
   if (key === "added") return new Date(row.createdAt || 0).getTime()
   if (key === "plant") return `${row.plantName || ""} ${row.subtypeName || ""}`
   return ""
@@ -341,6 +363,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
   const [sowTo, setSowTo] = useState("")
   const [addedFrom, setAddedFrom] = useState("")
   const [addedTo, setAddedTo] = useState("")
+  const [plants, setPlants] = useState([])
+  const [plantId, setPlantId] = useState("")
+  const [subtypeId, setSubtypeId] = useState("")
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [items, setItems] = useState([])
@@ -358,6 +383,37 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
     const t = setTimeout(() => setQDebounced(q.trim()), 350)
     return () => clearTimeout(t)
   }, [q])
+
+  useEffect(() => {
+    let alive = true
+    NetworkManager(API.plantCms.GET_PLANTS)
+      .request()
+      .then((res) => {
+        const body = res?.data
+        const list = body?.data || (Array.isArray(body) ? body : [])
+        if (!alive || !Array.isArray(list)) return
+        setPlants(
+          [...list].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+        )
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const selectedPlant = useMemo(
+    () => plants.find((p) => String(p._id) === String(plantId)) || null,
+    [plants, plantId]
+  )
+  const subtypes = useMemo(
+    () =>
+      [...(selectedPlant?.subtypes || [])].sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""))
+      ),
+    [selectedPlant]
+  )
+  const selectedSubtype = subtypes.find((s) => String(s._id) === String(subtypeId)) || null
 
   const openSlotPop = (e, row) => {
     e.stopPropagation()
@@ -393,6 +449,8 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
             ...(sowTo ? { sowTo } : {}),
             ...(addedFrom ? { addedFrom } : {}),
             ...(addedTo ? { addedTo } : {}),
+            ...(plantId ? { plantId } : {}),
+            ...(plantId && subtypeId ? { subtypeId } : {}),
           }
         )
         if (seq !== requestSeq.current) return
@@ -424,7 +482,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
         }
       }
     },
-    [qDebounced, sortKey, sortDir, sowFrom, sowTo, addedFrom, addedTo]
+    [qDebounced, sortKey, sortDir, sowFrom, sowTo, addedFrom, addedTo, plantId, subtypeId]
   )
 
   useEffect(() => {
@@ -499,7 +557,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
             <Typography fontWeight={900}>Sowing entries</Typography>
             <Typography variant="caption" sx={{ opacity: 0.9 }}>
               Every sow entry, including partial ones on open requests · click a column to sort ·
-              filter sow date or date added
+              filter by sow date, date added, plant or subtype · all dates in IST
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -567,6 +625,32 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
             InputLabelProps={{ shrink: true }}
             sx={{ width: 150 }}
           />
+          <Autocomplete
+            size="small"
+            options={plants}
+            value={selectedPlant}
+            onChange={(_, p) => {
+              setPlantId(p?._id || "")
+              setSubtypeId("")
+            }}
+            getOptionLabel={(p) => p?.name || ""}
+            isOptionEqualToValue={(a, b) => String(a._id) === String(b._id)}
+            renderInput={(params) => <TextField {...params} label="Plant" />}
+            sx={{ width: 190 }}
+          />
+          <Autocomplete
+            size="small"
+            options={subtypes}
+            value={selectedSubtype}
+            onChange={(_, s) => setSubtypeId(s?._id || "")}
+            getOptionLabel={(s) => s?.name || ""}
+            isOptionEqualToValue={(a, b) => String(a._id) === String(b._id)}
+            disabled={!selectedPlant}
+            renderInput={(params) => (
+              <TextField {...params} label="Subtype" placeholder={selectedPlant ? "All" : "Pick plant"} />
+            )}
+            sx={{ width: 190 }}
+          />
           <Button
             size="small"
             onClick={() => {
@@ -574,10 +658,12 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
               setSowTo("")
               setAddedFrom("")
               setAddedTo("")
+              setPlantId("")
+              setSubtypeId("")
             }}
             sx={{ textTransform: "none" }}
           >
-            Clear dates
+            Clear filters
           </Button>
         </Stack>
         {error && (
