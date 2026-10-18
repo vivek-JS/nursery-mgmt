@@ -16,6 +16,7 @@ import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material"
 import moment from "moment"
 import SearchableSelect from "components/FormField/SearchableSelect"
+import { sanitizeRateInput } from "utils/resolveEffectiveRate"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 
@@ -405,10 +406,11 @@ export default function InstantPlantLineItems({
                   fullWidth
                   size="small"
                   label="Rate"
-                  type="number"
-                  value={line.rate}
-                  onChange={(e) => updateLine(line.localId, { rate: e.target.value })}
-                  inputProps={{ min: 0, step: "0.01" }}
+                  type="text"
+                  value={line.rate ?? ""}
+                  onChange={(e) => updateLine(line.localId, { rate: sanitizeRateInput(e.target.value) })}
+                  placeholder="0.00"
+                  inputProps={{ inputMode: "decimal", autoComplete: "off" }}
                 />
               </Grid>
               <Grid item xs={12} md={6}>

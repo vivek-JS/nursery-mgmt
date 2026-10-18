@@ -62,7 +62,7 @@ import {
   Inventory2 as InventoryIcon
 } from "@mui/icons-material"
 import moment from "moment"
-import { resolveEffectiveRate, mapSubtypeOption } from "utils/resolveEffectiveRate"
+import { resolveEffectiveRate, mapSubtypeOption, sanitizeRateInput } from "utils/resolveEffectiveRate"
 import ExcessBatchCoverDialog, {
   SOW_LABEL,
   COVER_LABEL,
@@ -81,6 +81,63 @@ import InstantPlantLineItems, {
 const DATE_PICKER_FORMAT = "dd-MMMM-yyyy"
 /** moment — same display as DATE_PICKER_FORMAT */
 const DISPLAY_DATE_FORMAT = "DD-MMMM-YYYY"
+
+const POPUP_SELECTOR = ".MuiMenu-paper, .MuiPopover-paper, .MuiPickersPopper-root, .MuiPickersLayout-root"
+
+function isFormField(el) {
+  if (!el || el.disabled) return false
+  if (el.tabIndex < 0) return false
+  if (el.getAttribute("type") === "hidden") return false
+  if (el.getAttribute("aria-hidden") === "true") return false
+  const style = window.getComputedStyle(el)
+  if (style.display === "none" || style.visibility === "hidden") return false
+  return true
+}
+
+function getFormFields(root) {
+  if (!root) return []
+  return Array.from(
+    root.querySelectorAll("a[href], button, input, select, textarea, [tabindex]")
+  ).filter(isFormField)
+}
+
+function findFieldAnchor(dialog, target) {
+  if (!dialog) return target || null
+  if (target && dialog.contains(target)) return target
+  const popup = target?.closest?.(POPUP_SELECTOR)
+  if (!popup) return target || null
+  const ids = [
+    popup.id,
+    popup.querySelector("[role='listbox']")?.id,
+    popup.querySelector("[role='dialog']")?.id
+  ].filter(Boolean)
+  for (const id of ids) {
+    const match = dialog.querySelector(`[aria-controls="${CSS.escape(id)}"]`)
+    if (match) return match
+  }
+  return (
+    dialog.querySelector('[aria-expanded="true"]') ||
+    dialog.querySelector(".Mui-focused input, .Mui-focused .MuiSelect-select") ||
+    null
+  )
+}
+
+function moveFieldFocus(dialog, origin, delta) {
+  const fields = getFormFields(dialog)
+  if (!fields.length || !origin) return
+  const index = fields.findIndex((el) => el === origin || el.contains(origin) || origin.contains(el))
+  if (index < 0) return
+  const next = fields[index + delta]
+  if (next) next.focus()
+}
+
+function closeOpenPopup(target) {
+  const popup = target?.closest?.(POPUP_SELECTOR)
+  if (!popup) return
+  popup.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })
+  )
+}
 
 const RECENT_ORDER_LIMIT = 3
 
@@ -419,6 +476,7 @@ const AddOrderForm = ({
   const { classes } = useStyles()
   const prefillAppliedRef = useRef(false)
   const copyPrefillAppliedRef = useRef(false)
+  const formRootRef = useRef(null)
   
   // ============================================================================
   // REDUX & USER DATA
@@ -659,14 +717,20 @@ const AddOrderForm = ({
   }, [formData?.plant, formData?.subtype, quotaType, dealerWallet, formData?.dealer, bulkOrder])
 
   // Refresh catalog lists when the dialog opens so dropdowns are not stale.
+  // Prefill flags stay set if the dialog was only dismissed, so reopening keeps typed data.
   useEffect(() => {
-    if (!open) {
-      prefillAppliedRef.current = false
-      copyPrefillAppliedRef.current = false
-      return
-    }
+    if (!open) return
     void Promise.all([loadPlants(), loadSales(), loadDealers(), loadCavities()]).catch(() => {})
   }, [open])
+
+  // A new book / copy source should apply once. Dismissing the dialog does not clear typed fields.
+  useEffect(() => {
+    prefillAppliedRef.current = false
+  }, [initialPlantId, initialSubtypeId, initialSlotId, initialStartDay])
+
+  useEffect(() => {
+    copyPrefillAppliedRef.current = false
+  }, [copyFromOrder])
 
   // Prefill from "Copy order" on dashboard (excludes farmer name & payment)
   useEffect(() => {
@@ -1979,6 +2043,7 @@ const AddOrderForm = ({
   
   const isAdminRateEditor =
     user?.jobTitle === "SUPERADMIN" ||
+    user?.jobTitle === "SUPER_ADMIN" ||
     user?.jobTitle === "OFFICE_ADMIN" ||
     user?.jobTitle === "ACCOUNTANT"
 
@@ -3119,6 +3184,8 @@ const AddOrderForm = ({
   }
 
   const handleClose = () => {
+    prefillAppliedRef.current = false
+    copyPrefillAppliedRef.current = false
     setFormData({
       date: new Date(),
       name: "",
@@ -3508,19 +3575,47 @@ const AddOrderForm = ({
     if (!open) return
 
     const handleKeyDown = (e) => {
+      if (e.isComposing) return
+
       // Ctrl/Cmd + S to submit
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault()
+        e.stopPropagation()
         if (!loading) handleSubmit()
+        return
       }
-      // Esc to close
-      if (e.key === 'Escape' && !showConfirmation) {
+
+      const target = e.target
+      const popup = target?.closest?.(POPUP_SELECTOR)
+      const backquote = !e.shiftKey && (e.key === "`" || e.code === "Backquote")
+      const tabInPopup = e.key === "Tab" && Boolean(popup)
+
+      // Tab moves to the next field. The key above Tab (`) moves to the previous field.
+      if ((backquote || tabInPopup) && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
+        e.preventDefault()
+        e.stopPropagation()
+        const formDialog = formRootRef.current
+        let dialog = formDialog
+        if (!popup && target) {
+          const host = target.closest('[role="dialog"]')
+          if (host) dialog = host
+        }
+        const anchor = popup ? findFieldAnchor(formDialog, target) : target
+        closeOpenPopup(target)
+        const delta = backquote || e.shiftKey ? -1 : 1
+        const focusRoot = popup ? formDialog : dialog
+        setTimeout(() => moveFieldFocus(focusRoot, anchor, delta), 30)
+        return
+      }
+
+      // Esc closes the form only when a dropdown / date popup is not open
+      if (e.key === "Escape" && !showConfirmation && !popup) {
         handleClose()
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    window.addEventListener("keydown", handleKeyDown, true)
+    return () => window.removeEventListener("keydown", handleKeyDown, true)
   }, [open, loading, showConfirmation])
 
   // ============================================================================
@@ -3531,7 +3626,12 @@ const AddOrderForm = ({
     <Dialog
       open={open}
       onClose={(event, reason) => {
-        if (reason === "backdropClick") return
+        // Clicking the backdrop dismisses the dialog but keeps what was already filled in.
+        if (reason === "backdropClick") {
+          setShowConfirmation(false)
+          onClose()
+          return
+        }
         handleClose()
       }}
       maxWidth={fullScreen ? false : "sm"}
@@ -3539,6 +3639,7 @@ const AddOrderForm = ({
       fullScreen={fullScreen}
       className={`${classes.dialog} ${fullScreen ? 'fullScreenDialog' : ''}`.trim()}
       PaperProps={{
+        ref: formRootRef,
         style: fullScreen
           ? { maxWidth: '100%', width: '100%', height: '100%', maxHeight: '100%', borderRadius: 0, display: 'flex', flexDirection: 'column' }
           : { maxHeight: '75vh', minHeight: '50vh', maxWidth: 540 },
@@ -3553,7 +3654,7 @@ const AddOrderForm = ({
           </Box>
           <Box display="flex" alignItems="center" gap={0.5}>
             {!fullScreen && (
-              <Tooltip title="Keyboard Shortcuts: Ctrl+S to submit, Esc to close">
+                <Tooltip title="Tab: next field. ` (key above Tab): previous field. Ctrl+S to submit, Esc to close">
                 <IconButton
                   className={classes.closeButton}
                   size="small"
@@ -5046,34 +5147,25 @@ const AddOrderForm = ({
                     <TextField
                       fullWidth
                       label="Rate per Plant"
-                      type="number"
-                      value={formData?.rate}
-                      onChange={(e) => handleInputChange("rate", e.target.value)}
-                      disabled={
-                        !(
-                          user?.jobTitle === "SUPERADMIN" ||
-                          user?.jobTitle === "OFFICE_ADMIN" ||
-                          user?.jobTitle === "ACCOUNTANT"
-                        )
-                      }
+                      type="text"
+                      value={formData?.rate ?? ""}
+                      onChange={(e) => handleInputChange("rate", sanitizeRateInput(e.target.value))}
+                      placeholder="0.00"
+                      inputProps={{ inputMode: "decimal", autoComplete: "off" }}
                       helperText={
-                        user?.jobTitle === "SUPERADMIN" ||
-                        user?.jobTitle === "OFFICE_ADMIN" ||
-                        user?.jobTitle === "ACCOUNTANT"
+                        isAdminRateEditor
                           ? formData?.subtype
-                            ? "Rate auto-filled from selected subtype. You can edit it as you have admin privileges."
-                            : "Select a subtype to auto-fill rate. You can edit it as you have admin privileges."
+                            ? "Rate auto-filled from selected subtype. You can edit it."
+                            : "Select a subtype to auto-fill rate. You can edit it."
                           : formData?.farmerGivesSeed &&
                             parseFloat(resolveSubtypeForRate(formData?.subtype)?.raisingRate) > 0
                           ? `Raising rate ₹${resolveSubtypeForRate(formData?.subtype).raisingRate} applied (farmer gives seed)`
                           : formData?.subtype
-                          ? "Rate auto-filled from selected subtype, but you can edit it."
+                          ? "Rate auto-filled from selected subtype. You can edit it."
                           : "Select a subtype to auto-fill rate"
                       }
                     />
-                    {(user?.jobTitle === "SUPERADMIN" ||
-                      user?.jobTitle === "OFFICE_ADMIN" ||
-                      user?.jobTitle === "ACCOUNTANT") && (
+                    {isAdminRateEditor && (
                       <Chip
                         label="Admin Edit"
                         size="small"

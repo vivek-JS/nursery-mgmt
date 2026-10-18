@@ -91,16 +91,44 @@ export function rowCards(row) {
 
 /** Excess = dates with free plants to sell; gap = dates where bookings are short. */
 export const SHOW_OPTIONS = [
+  { value: "all", label: "All" },
   { value: "excess", label: "Excess (free)" },
-  { value: "gap", label: "Gap (short)" },
+  { value: "gap", label: "Not sown" },
 ]
 
 export function modeAmount(cell, mode) {
   const net = Number(cell?.net) || 0
-  return mode === "gap" ? Math.max(0, -net) : Math.max(0, net)
+  const gap = Number(cell?.gap) || 0
+  if (mode === "gap") return Math.max(gap, Math.max(0, -net))
+  if (mode === "all") return Math.max(0, net) + Math.max(gap, Math.max(0, -net))
+  return Math.max(0, net)
+}
+
+export function cellFree(cell) {
+  return Math.max(0, Number(cell?.net) || 0)
+}
+
+export function cellUnsown(cell) {
+  const net = Number(cell?.net) || 0
+  const gap = Number(cell?.gap) || 0
+  return Math.max(gap, Math.max(0, -net))
+}
+
+export function splitTotals(row) {
+  return { excess: modeTotal(row, "excess"), unsown: modeTotal(row, "gap") }
+}
+
+/** Sow-by date for a card when that slot should already have been sown. */
+export function cellDueBy(cell, dueSow) {
+  const ids = new Set([...(cell?.slotIds || []), cell?.slotId].filter(Boolean))
+  const match = (dueSow || []).find(
+    (item) => (item.slotIds || []).some((id) => ids.has(id)) || item.startDay === cell?.startDay
+  )
+  return match?.sowBy || null
 }
 
 export function modeCards(row, mode = "excess") {
+  if (mode === "all" || !mode) return rowCards(row).filter(hasPlants)
   return rowCards(row).filter((cell) => modeAmount(cell, mode) > 0)
 }
 
@@ -167,7 +195,7 @@ export function filterRows(rows, { search = "", crop = "", mode = "" } = {}) {
   return (rows || []).filter((row) => {
     if (crop && row.plantName !== crop) return false
     if (q && !`${row.plantName} ${row.subtypeName}`.toLowerCase().includes(q)) return false
-    if (mode) return modeCards(row, mode).length > 0
+    if (mode && mode !== "all") return modeCards(row, mode).length > 0
     return true
   })
 }

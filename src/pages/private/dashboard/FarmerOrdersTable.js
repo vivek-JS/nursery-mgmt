@@ -25,6 +25,7 @@ import DrawerExportButton from "components/DrawerExportButton"
 import { ordersListToTable } from "components/ExcelExport/ExcelExport"
 import DeliveryDateBadge from "components/DeliveryDateBadge"
 import DeliveryDateChangesInfo from "components/DeliveryDateChangesInfo"
+import { VoiceNoteChip, VoiceNoteList } from "components/orders/VoiceNotes"
 import { formatDeliveryDateDisplay } from "utils/deliveryDateDisplay"
 import {
   formatOrderDateDisplay,
@@ -3501,6 +3502,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 expectedNursery: expectedNursery != null ? String(expectedNursery).trim() : null,
                 statusChanges: statusChanges || [],
                 orderRemarks: orderRemarks || [],
+                voiceNotes: data?.voiceNotes || [],
                 deliveryChanges: data.deliveryChanges || [],
                 returnHistory: data?.returnHistory || [],
                 dispatchHistory: data?.dispatchHistory || [],
@@ -6670,6 +6672,7 @@ const mapSlotForUi = (slotData) => {
             expectedNursery: expectedNursery != null ? String(expectedNursery).trim() : null,
             statusChanges: statusChanges || [],
             orderRemarks: orderRemarks || [],
+            voiceNotes: data?.voiceNotes || [],
             deliveryChanges: data.deliveryChanges || [],
             returnHistory: data?.returnHistory || [],
             dispatchHistory: data?.dispatchHistory || [],
@@ -10667,8 +10670,11 @@ const mapSlotForUi = (slotData) => {
                                   {latest}
                                 </button>
                               ) : (
-                                <span className="text-[11px] text-gray-400">—</span>
+                                !(row.details?.voiceNotes || []).length && (
+                                  <span className="text-[11px] text-gray-400">—</span>
+                                )
                               )}
+                              <VoiceNoteChip notes={row.details?.voiceNotes} />
                               <span className="inline-flex items-center gap-1">
                                 {remarks.length > 1 && (
                                   <span className="text-[10px] font-semibold text-gray-500">
@@ -13194,6 +13200,13 @@ const mapSlotForUi = (slotData) => {
                       <div className="space-y-6">
                         <h3 className="text-lg font-medium text-gray-900">Order Remarks</h3>
 
+                        {(selectedOrder?.details?.voiceNotes || []).length > 0 && (
+                          <div className="bg-gray-50 rounded-lg p-4">
+                            <h4 className="font-medium text-gray-900 mb-3">Voice Notes</h4>
+                            <VoiceNoteList notes={selectedOrder.details.voiceNotes} />
+                          </div>
+                        )}
+
                         {selectedOrder?.details?.orderRemarks &&
                           selectedOrder?.details?.orderRemarks.length > 0 && (
                             <div className="bg-gray-50 rounded-lg p-4">
@@ -13728,6 +13741,7 @@ const mapSlotForUi = (slotData) => {
           Remark · Order #{quickRemarkRow?.order}
         </DialogTitle>
         <DialogContent>
+          <VoiceNoteList notes={quickRemarkRow?.details?.voiceNotes} className="mb-3" />
           {(quickRemarkRow?.details?.orderRemarks || []).length > 0 && (
             <div className="mb-3 max-h-40 overflow-y-auto space-y-1">
               {quickRemarkRow.details.orderRemarks.map((r, i) => (

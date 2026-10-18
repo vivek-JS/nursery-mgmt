@@ -93,7 +93,29 @@ const rows = [
 
 beforeEach(() => {
   mockRequest.mockResolvedValue({
-    data: { success: true, today: "2026-10-16", overdueLookbackDays: 30, generatedAt: "2026-10-16T10:00:00Z", rows },
+    data: {
+      success: true,
+      today: "2026-10-16",
+      overdueLookbackDays: 30,
+      generatedAt: "2026-10-16T10:00:00Z",
+      summary: {
+        tableDays: 30,
+        totalExcess: 4300,
+        totalUnsown: 2000,
+        dueSowPlants: 2000,
+        dueSow: [
+          {
+            plantName: "Papaya",
+            subtypeName: "Taiwan 786",
+            sowBy: "14-10-2026",
+            startDay: "01-11-2026",
+            plants: 2000,
+            slotIds: ["n1"],
+          },
+        ],
+      },
+      rows,
+    },
   })
 })
 
@@ -107,14 +129,18 @@ test("shows one tab per slot length and the 1-day board first", async () => {
   expect(screen.getByText("Chilli")).toBeInTheDocument()
   expect(screen.getByRole("tab", { name: /1-Day slots \(1\)/ })).toBeInTheDocument()
   expect(screen.getByRole("tab", { name: /7-Day slots \(1\)/ })).toBeInTheDocument()
-  expect(screen.queryByText("Taiwan 786")).not.toBeInTheDocument()
+  expect(screen.queryByTitle("Papaya – Taiwan 786")).not.toBeInTheDocument()
   const cards = screen.getAllByTestId("date-card").map((card) => card.textContent)
   expect(cards).toEqual([
     "Now · 16 Oct100free300 ready · 200 booked",
     "17 OctSat900free900 ready · 0 booked",
     "20 OctTue400free400 ready · 0 booked",
   ])
-  expect(screen.getByRole("columnheader", { name: /Total free/ })).toBeInTheDocument()
+  expect(screen.getByRole("columnheader", { name: /Free \/ unsown/ })).toBeInTheDocument()
+  expect(screen.getByText("Sellable excess")).toBeInTheDocument()
+  expect(screen.getAllByText("Not sown").length).toBeGreaterThan(1)
+  expect(screen.getByText("Should have been sown")).toBeInTheDocument()
+  expect(screen.getByText("14 Oct · 2,000")).toBeInTheDocument()
   expect(mockRequest).toHaveBeenCalledWith({}, { group: 1 })
 })
 
@@ -161,21 +187,21 @@ test("crops without sowing get a batch-wise shed stock tab", async () => {
   expect(screen.queryByText("Taiwan 786")).not.toBeInTheDocument()
 })
 
-test("excess shows only free dates; gap toggle shows only short ones", async () => {
+test("excess shows only free dates; not-sown toggle shows only short ones", async () => {
   render(
-    <MemoryRouter initialEntries={["/u/sowing-capacity?tab=7d"]}>
+    <MemoryRouter initialEntries={["/u/sowing-capacity?tab=7d&show=excess"]}>
       <SowingCapacitySheet />
     </MemoryRouter>
   )
-  await screen.findByText("Taiwan 786")
+  await screen.findByTitle("Papaya – Taiwan 786")
   expect(screen.getAllByTestId("date-card").map((card) => card.textContent)).toEqual([
     "19–25 Oct7 days1,500free6,500 ready · 5,000 booked",
   ])
-  fireEvent.click(screen.getByRole("button", { name: "Gap (short)" }))
+  fireEvent.click(screen.getByRole("button", { name: "Not sown" }))
   expect(screen.getAllByTestId("date-card").map((card) => card.textContent)).toEqual([
-    "Now · 12–18 Oct1,200short11,100 ready · 12,300 bookedincl. 5,100 overdue",
+    "Now · 12–18 Oct2,000unsown11,100 ready · 12,300 bookedincl. 5,100 overdue",
   ])
-  expect(screen.getByRole("columnheader", { name: /Total short/ })).toBeInTheDocument()
+  expect(screen.getByRole("columnheader", { name: /Total unsown/ })).toBeInTheDocument()
 })
 
 test("7-day gap board folds overdue into now, expands sheds and opens orders", async () => {
@@ -184,7 +210,7 @@ test("7-day gap board folds overdue into now, expands sheds and opens orders", a
       <SowingCapacitySheet />
     </MemoryRouter>
   )
-  const name = await screen.findByText("Taiwan 786")
+  const name = await screen.findByTitle("Papaya – Taiwan 786")
   expect(screen.getByText("Papaya")).toBeInTheDocument()
   expect(screen.getByText("incl. 5,100 overdue")).toBeInTheDocument()
   expect(screen.getByText("Now · 12–18 Oct")).toBeInTheDocument()

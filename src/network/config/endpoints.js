@@ -1199,6 +1199,13 @@ export const API = {
     GET_LEDGER: new APIRouter("fleet/ledger", HTTP_METHODS.GET),
     GET_LEDGER_DETAIL: new APIRouter("fleet/ledger/:dispatchId", HTTP_METHODS.GET)
   },
+  FREIGHT_SLIP: {
+    QUOTE: new APIRouter("freight-slips/quote", HTTP_METHODS.GET),
+    TRIPS: new APIRouter("freight-slips/trips", HTTP_METHODS.GET),
+    GET_BY_DISPATCH: new APIRouter("freight-slips/dispatch/:dispatchId", HTTP_METHODS.GET),
+    SAVE_TENTATIVE: new APIRouter("freight-slips/dispatch/:dispatchId/tentative", HTTP_METHODS.PUT),
+    FINALIZE: new APIRouter("freight-slips/dispatch/:dispatchId/finalize", HTTP_METHODS.POST)
+  },
   SHADE: {
     CREATE_SHADE: new APIRouter("shade/create", HTTP_METHODS.POST),
     GET_SHADES: new APIRouter("shade/all", HTTP_METHODS.GET),

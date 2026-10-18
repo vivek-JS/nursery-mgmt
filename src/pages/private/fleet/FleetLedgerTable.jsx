@@ -12,6 +12,116 @@ import CloseIcon from "@mui/icons-material/Close"
 import OpenInNewIcon from "@mui/icons-material/OpenInNew"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import { freightFieldLabel } from "shared/dispatch-documents"
+import { printFreightSlip } from "pages/private/dashboard/FreightSlipPrint"
+
+const SLIP_COMPARE_ROWS = [
+  ["km", "KM", (v) => (v != null ? `${v} km` : "—")],
+  ["rateCardName", "Vehicle rate", (v) => v || "—"],
+  ["loadType", "Load type", (v) => v || "—"],
+  ["ratePerKm", "Rate / KM", (v) => fmtMoney(v)],
+  ["freightAmount", "Freight", (v) => fmtMoney(v)],
+  ["bhatta", "Bhatta", (v) => fmtMoney(v)],
+  ["otherAmount", "Other / toll", (v) => fmtMoney(v)],
+  ["totalAmount", "Total", (v) => fmtMoney(v)],
+  ["remarks", "Remarks", (v) => v || "—"],
+]
+
+function SlipStatusCell({ slip }) {
+  if (!slip) return <span className="text-xs text-slate-400">Pending</span>
+  const isFinal = slip.status === "FINAL"
+  return (
+    <div className="space-y-0.5">
+      <span
+        className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+          isFinal ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+        }`}>
+        {isFinal ? (slip.finalUnchanged ? "FINAL · same" : "FINAL · changed") : "TENTATIVE"}
+      </span>
+      <div className="text-xs text-slate-600 whitespace-nowrap">
+        T {fmtMoney(slip.tentativeTotal)}
+        {isFinal ? ` → F ${fmtMoney(slip.finalTotal)}` : ""}
+      </div>
+    </div>
+  )
+}
+
+function FreightSlipSection({ slip }) {
+  if (!slip) {
+    return (
+      <section className="rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+        <h3 className="text-xs font-semibold uppercase text-amber-800">Freight slip</h3>
+        <p className="text-sm text-amber-900/80 mt-1">
+          No freight slip yet. Add the tentative entry while creating the dispatch or from the Ram Orders app.
+        </p>
+      </section>
+    )
+  }
+  const isFinal = slip.status === "FINAL" && slip.final
+  const changed = new Set((slip.changedFields || []).map((f) => (f === "rateCardId" ? "rateCardName" : f)))
+  return (
+    <section className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-xs font-semibold uppercase text-amber-800">Freight slip {slip.slipNumber}</h3>
+        <span
+          className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+            isFinal ? "bg-emerald-100 text-emerald-800" : "bg-amber-200 text-amber-900"
+          }`}>
+          {slip.status}
+        </span>
+        <div className="ml-auto flex gap-1">
+          <button
+            type="button"
+            onClick={() => printFreightSlip(slip, "tentative")}
+            className="text-xs px-2 py-1 rounded border border-amber-300 bg-white hover:bg-amber-100">
+            Print tentative
+          </button>
+          {isFinal && (
+            <button
+              type="button"
+              onClick={() => printFreightSlip(slip, "final")}
+              className="text-xs px-2 py-1 rounded border border-emerald-300 bg-white hover:bg-emerald-50">
+              Print final
+            </button>
+          )}
+        </div>
+      </div>
+      <table className="w-full text-sm">
+        <thead className="text-[11px] uppercase text-slate-500">
+          <tr>
+            <th className="text-left py-1 font-medium"></th>
+            <th className="text-right py-1 font-medium">Tentative</th>
+            <th className="text-right py-1 font-medium">Final</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-amber-100">
+          {SLIP_COMPARE_ROWS.map(([key, label, fmt]) => (
+            <tr key={key} className={isFinal && changed.has(key) ? "bg-amber-100/70" : ""}>
+              <td className="py-1 text-slate-500 text-xs">{label}</td>
+              <td className="py-1 text-right">{fmt(slip.tentative?.[key])}</td>
+              <td className={`py-1 text-right ${isFinal && changed.has(key) ? "font-bold text-amber-900" : ""}`}>
+                {isFinal ? fmt(slip.final?.[key]) : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-slate-600">
+        {isFinal
+          ? slip.finalUnchanged
+            ? `Finalized by ${slip.final.byName || "travel manager"} with no changes.`
+            : `Finalized by ${slip.final.byName || "travel manager"} · changed: ${(slip.changedFields || [])
+                .map(freightFieldLabel)
+                .join(", ")}`
+          : `Tentative by ${slip.tentative?.byName || "—"} (${slip.tentative?.source === "APP" ? "app" : "web"}). Waiting for final entry in the app.`}
+      </p>
+      {(slip.villages || []).length > 0 && (
+        <p className="text-xs text-slate-500">Villages: {slip.villages.map((v) => v.name).join(" → ")}</p>
+      )}
+    </section>
+  )
+}
+
 const STATUS_OPTIONS = [
   { value: "", label: "All statuses" },
   { value: "PENDING", label: "Pending" },
@@ -187,6 +297,7 @@ export default function FleetLedgerTable() {
                 <th className="px-4 py-2.5">Driver</th>
                 <th className="px-4 py-2.5">Orders</th>
                 <th className="px-4 py-2.5">KM</th>
+                <th className="px-4 py-2.5">Freight slip</th>
                 <th className="px-4 py-2.5">Vehicle cost</th>
                 <th className="px-4 py-2.5">Customer freight</th>
                 <th className="px-4 py-2.5">Date</th>
@@ -195,13 +306,13 @@ export default function FleetLedgerTable() {
             <tbody className="divide-y divide-slate-100">
               {loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={11} className="px-4 py-12 text-center text-slate-400">
                     <CircularProgress size={28} />
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={11} className="px-4 py-12 text-center text-slate-400">
                     No dispatches found. Assign vehicles when dispatching or from the map planner.
                   </td>
                 </tr>
@@ -228,6 +339,9 @@ export default function FleetLedgerTable() {
                     <td className="px-4 py-2.5">{r.orderCount}</td>
                     <td className="px-4 py-2.5">
                       {r.trip?.kmRun != null ? `${r.trip.kmRun} km` : "—"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <SlipStatusCell slip={r.freightSlip} />
                     </td>
                     <td className="px-4 py-2.5">{fmtMoney(r.vehicleCostTotal)}</td>
                     <td className="px-4 py-2.5">{fmtMoney(r.freightTotal)}</td>
@@ -328,6 +442,8 @@ export default function FleetLedgerTable() {
                     </div>
                   )}
                 </section>
+
+                <FreightSlipSection slip={detail.freightSlip} />
 
                 <section className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
                   <h3 className="text-xs font-semibold uppercase text-violet-800">Trip settlement (vehicle cost)</h3>

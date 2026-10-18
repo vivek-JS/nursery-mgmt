@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import {
   FormControl,
   InputLabel,
@@ -6,9 +6,12 @@ import {
   MenuItem,
   TextField,
   Box,
-  InputAdornment
+  InputAdornment,
+  ListSubheader
 } from "@mui/material"
 import { Search as SearchIcon } from "@mui/icons-material"
+
+const sameValue = (a, b) => String(a ?? "") === String(b ?? "")
 
 export default function SearchableSelect({
   label,
@@ -21,52 +24,93 @@ export default function SearchableSelect({
   onOpen,
 }) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [filteredItems, setFilteredItems] = useState(items)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const searchInputRef = useRef(null)
+  const labelRef = useRef("")
+  const options = Array.isArray(items) ? items : []
+
+  const selectedItem = options.find((item) => sameValue(item.value, value))
+  if (selectedItem?.label) labelRef.current = selectedItem.label
+  else if (value === undefined || value === null || value === "") labelRef.current = ""
+
+  const filteredItems = options.filter((item) => {
+    const labelText = String(item?.label ?? "")
+    if (!searchTerm.trim()) return true
+    return labelText.toLowerCase().includes(searchTerm.trim().toLowerCase())
+  })
+
+  // Keep the current choice in the list so closing the menu cannot drop it.
+  const visibleItems =
+    value !== undefined &&
+    value !== null &&
+    value !== "" &&
+    !filteredItems.some((item) => sameValue(item.value, value)) &&
+    selectedItem
+      ? [selectedItem, ...filteredItems]
+      : filteredItems
 
   useEffect(() => {
-    if (searchTerm.trim() === "") {
-      setFilteredItems(items)
-    } else {
-      const filtered = items.filter((item) =>
-        item.label.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      setFilteredItems(filtered)
-    }
-  }, [searchTerm, items])
-
-  const handleSearchChange = (event) => {
-    setSearchTerm(event.target.value)
-  }
+    if (!menuOpen) return undefined
+    const timer = setTimeout(() => searchInputRef.current?.focus(), 0)
+    return () => clearTimeout(timer)
+  }, [menuOpen])
 
   const handleSelectChange = (event) => {
+    const next = event.target.value
+    if (next === undefined || next === null) return
     onChange(event)
-    setSearchTerm("") // Clear search when selection is made
+    setSearchTerm("")
+  }
+
+  const handleMenuClose = () => {
+    setMenuOpen(false)
+    setSearchTerm("")
   }
 
   return (
     <Box sx={{ width: "100%", ...style }}>
-      <FormControl fullWidth>
+      <FormControl fullWidth disabled={disabled}>
         <InputLabel>{label}</InputLabel>
         <Select
           value={value || ""}
           label={label}
+          open={menuOpen}
           onChange={handleSelectChange}
-          onOpen={(e) => onOpen?.(e)}
+          onOpen={(e) => {
+            setMenuOpen(true)
+            onOpen?.(e)
+          }}
+          onClose={handleMenuClose}
           disabled={disabled}
+          renderValue={(selected) => {
+            if (selected === "" || selected == null) return ""
+            return selectedItem?.label || labelRef.current || ""
+          }}
           MenuProps={{
+            autoFocus: false,
+            disableAutoFocus: true,
+            disableAutoFocusItem: true,
+            disableEnforceFocus: true,
+            disableRestoreFocus: true,
             PaperProps: {
               style: {
                 maxHeight: 300
               }
+            },
+            TransitionProps: {
+              onEntered: () => searchInputRef.current?.focus()
             }
           }}>
-          {/* Search input at the top */}
-          <MenuItem sx={{ p: 0 }}>
+          <ListSubheader
+            sx={{ p: 1, lineHeight: "unset", bgcolor: "background.paper" }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}>
             <TextField
+              inputRef={searchInputRef}
               fullWidth
               placeholder={placeholder}
               value={searchTerm}
-              onChange={handleSearchChange}
+              onChange={(event) => setSearchTerm(event.target.value)}
               variant="outlined"
               size="small"
               InputProps={{
@@ -76,20 +120,21 @@ export default function SearchableSelect({
                   </InputAdornment>
                 )
               }}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") return
+                if (e.key === "Tab" || e.key === "`" || e.code === "Backquote") return
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") return
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                }
+                e.stopPropagation()
+              }}
             />
-          </MenuItem>
+          </ListSubheader>
 
-          {/* Divider */}
-          <MenuItem disabled sx={{ borderBottom: "1px solid #e0e0e0", minHeight: "auto", py: 0 }}>
-            <Box sx={{ width: "100%", height: "1px", bgcolor: "#e0e0e0" }} />
-          </MenuItem>
-
-          {/* Filtered options */}
-          {filteredItems.length > 0 ? (
-            filteredItems.map((item) => (
-              <MenuItem key={item.value} value={item.value}>
+          {visibleItems.length > 0 ? (
+            visibleItems.map((item, index) => (
+              <MenuItem key={`${String(item.value)}-${index}`} value={item.value}>
                 {item.label}
               </MenuItem>
             ))

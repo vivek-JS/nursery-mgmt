@@ -1,5 +1,6 @@
 import {
   boardColumns,
+  cellDueBy,
   cellFor,
   columnTotals,
   exportSheet,
@@ -10,6 +11,7 @@ import {
   modeTotal,
   slotTabs,
   sortRows,
+  splitTotals,
   stockBatchSheet,
 } from "./capacityBoardUtils"
 import { slotRangeLabel } from "./capacitySheetUtils"
@@ -134,10 +136,17 @@ test("3-day groups use the API's now cell and group crops in sorted order", () =
 test("excess / gap modes keep only free or only short dates", () => {
   expect(modeCards(papaya, "excess").map((c) => c.key)).toEqual(["2026-10-19", "2026-10-26"])
   expect(modeCards(papaya, "gap").map((c) => [c.key, modeAmount(c, "gap")])).toEqual([["now", 1200]])
+  expect(modeCards(papaya, "all").map((c) => c.key)).toEqual(["now", "2026-10-19", "2026-10-26"])
   expect(modeTotal(papaya, "excess")).toBe(1500 + 2800)
+  expect(modeTotal(papaya, "all")).toBe(1200 + 1500 + 2800)
+  expect(splitTotals(papaya)).toEqual({ excess: 4300, unsown: 1200 })
   expect(modeTotal(tomato, "gap")).toBe(0)
   expect(filterRows([papaya, tomato], { mode: "gap" }).map((r) => r.plantName)).toEqual(["Papaya"])
   expect(filterRows([papaya, tomato], { mode: "excess" }).map((r) => r.plantName)).toEqual(["Papaya", "Tomato"])
+  expect(filterRows([papaya, tomato], { mode: "all" }).map((r) => r.plantName)).toEqual(["Papaya", "Tomato"])
+  expect(cellDueBy({ slotIds: ["n1"], startDay: "01-11-2026" }, [{ slotIds: ["n1"], sowBy: "14-10-2026" }])).toBe(
+    "14-10-2026"
+  )
   expect(sortRows([tomato, papaya], { key: "total", dir: "desc", mode: "excess" }, []).map((r) => r.plantName)).toEqual([
     "Papaya",
     "Tomato",

@@ -34,6 +34,7 @@ import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
 import SowingCapacityAsk from "./components/SowingCapacityAsk"
 import SowingShedStockTab from "./components/SowingShedStockTab"
 import CapacityBoardTable from "./components/CapacityBoardTable"
+import CapacityBoardSummary from "./components/CapacityBoardSummary"
 import StockOnlyTable from "./components/StockOnlyTable"
 import ReadyPlantsMessageDialog from "./components/ReadyPlantsMessageDialog"
 import { downloadSheetsXlsx } from "utils/exportExcel"
@@ -83,7 +84,7 @@ export default function SowingCapacitySheet() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [board, setBoard] = useState({ today: "", rows: [], generatedAt: "", lookbackDays: 0 })
+  const [board, setBoard] = useState({ today: "", rows: [], generatedAt: "", lookbackDays: 0, summary: null })
   const [search, setSearch] = useState("")
   const [crop, setCrop] = useState("")
   const [sort, setSort] = useState({ key: "urgent", dir: "asc" })
@@ -92,7 +93,8 @@ export default function SowingCapacitySheet() {
   const [messageOpen, setMessageOpen] = useState(false)
 
   const group = parseGroup(searchParams.get("group")) || 1
-  const mode = searchParams.get("show") === "gap" ? "gap" : "excess"
+  const showParam = searchParams.get("show")
+  const mode = showParam === "gap" || showParam === "excess" ? showParam : "all"
   const isPreset = GROUP_OPTIONS.some((option) => option.value === group)
   const [customOpen, setCustomOpen] = useState(!isPreset)
   const [customDays, setCustomDays] = useState(isPreset ? "" : String(group))
@@ -109,6 +111,7 @@ export default function SowingCapacitySheet() {
           rows: res.data.rows || [],
           generatedAt: res.data.generatedAt,
           lookbackDays: res.data.overdueLookbackDays || 0,
+          summary: res.data.summary || null,
         })
       } else {
         setError(res?.data?.message || "Could not load capacity")
@@ -318,6 +321,13 @@ export default function SowingCapacitySheet() {
 
       {tab === SHED_TAB ? <SowingShedStockTab /> : null}
 
+      {tab !== SHED_TAB && !stockOnly && board.summary ? (
+        <CapacityBoardSummary
+          summary={board.summary}
+          onOpen={(slotIds, focus) => setDetail({ slotIds, focus })}
+        />
+      ) : null}
+
       {tab !== SHED_TAB ? (
         <Box sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 3, overflow: "hidden", boxShadow: "0 8px 24px rgba(15,23,42,0.04)" }}>
           <Stack
@@ -386,7 +396,8 @@ export default function SowingCapacitySheet() {
                         value={option.value}
                         sx={{
                           "&.Mui-selected, &.Mui-selected:hover": {
-                            bgcolor: option.value === "gap" ? "#be123c" : "#047857",
+                            bgcolor:
+                              option.value === "gap" ? "#be123c" : option.value === "all" ? "#0f172a" : "#047857",
                             color: "#fff",
                           },
                         }}
@@ -415,10 +426,16 @@ export default function SowingCapacitySheet() {
             ) : (
               <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
                 <Typography sx={{ fontSize: 11.5, color: "#475569", fontWeight: 700 }}>
-                  {mode === "gap" ? "Only dates where bookings are short" : "Only dates with free plants to sell"}
+                  {mode === "gap"
+                    ? "Only dates where bookings are not sown"
+                    : mode === "excess"
+                      ? "Only dates with free plants to sell (after 10% mortality)"
+                      : "Next 30 days · free after 10% mortality, and not sown"}
                 </Typography>
                 <Legend color="#f59e0b" label="Now + overdue" />
-                {mode === "gap" ? <Legend color="#f43f5e" label="Short" /> : <Legend color="#10b981" label="Free" />}
+                {mode !== "gap" ? <Legend color="#10b981" label="Free (after 10% mortality)" /> : null}
+                {mode !== "excess" ? <Legend color="#f43f5e" label="Not sown" /> : null}
+                <Legend color="#f97316" label="Sow-by date already passed" />
               </Stack>
             )}
           </Stack>
@@ -438,8 +455,10 @@ export default function SowingCapacitySheet() {
               {stockOnly
                 ? "No shed stock for this filter."
                 : mode === "gap"
-                  ? "Nothing is short — every booking is covered."
-                  : "No free plants to sell for this filter."}
+                  ? "Nothing is unsown — every booking is covered."
+                  : mode === "excess"
+                    ? "No free plants to sell for this filter."
+                    : "No sowing or booking numbers for this filter."}
             </Alert>
           ) : stockOnly ? (
             <StockOnlyTable rows={rows} />

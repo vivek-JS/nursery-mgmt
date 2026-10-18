@@ -17,6 +17,12 @@ import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { formatOrderFarmerDisplayName, normalizeOrderFor } from "utils/orderCustomerDisplay"
 import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel"
+import TentativeFreightEntry, {
+  emptyFreightEntry,
+  freightEntryError,
+  freightEntryPayload
+} from "components/fleet/TentativeFreightEntry"
+import { printFreightSlip } from "./FreightSlipPrint"
 import {
   emptyFleetAssignment,
   formatFleetDriverLabel,
@@ -394,6 +400,7 @@ const DispatchForm = ({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [fleetAssignment, setFleetAssignment] = useState(emptyFleetAssignment)
+  const [freightEntry, setFreightEntry] = useState(emptyFreightEntry)
   const [fleetDrivers, setFleetDrivers] = useState([])
   const [fleetVehicles, setFleetVehicles] = useState([])
   const [shades, setShades] = useState([])
@@ -447,6 +454,38 @@ const DispatchForm = ({
     () => getSelectedOrdersArray().map((order) => orderRowKey(order)).filter(Boolean),
     [open, mode, isEditing, editOrdersMap, createOrdersMap, selectedOrders]
   )
+
+  /** Crop / plants / crates per plant row for the tentative freight slip. */
+  const freightLoadSummary = useMemo(
+    () =>
+      (formData.plants || [])
+        .map((p) => ({
+          crop: p.name || "Plants",
+          plants: Number(p.quantity) || 0,
+          crates: totalCratesOnPlant(p)
+        }))
+        .filter((l) => l.plants > 0),
+    [formData.plants]
+  )
+
+  /** Delivery villages (farmer village of each order) with dispatch quantities. */
+  const freightVillages = useMemo(() => {
+    const byName = new Map()
+    for (const order of getSelectedOrdersArray()) {
+      const name = String(order?.details?.farmer?.village || "").trim()
+      if (!name) continue
+      const qty = Number(orderQuantities.get(orderRowKey(order)) || 0)
+      const key = name.toLowerCase()
+      const prev = byName.get(key)
+      if (prev) prev.plants += qty
+      else byName.set(key, { name, plants: qty })
+    }
+    return [...byName.values()]
+  }, [open, mode, createOrdersMap, selectedOrders, orderQuantities])
+
+  useEffect(() => {
+    if (open && mode !== "view") setFreightEntry(emptyFreightEntry())
+  }, [open, mode])
 
   const {
     giftCatalog,
@@ -1182,10 +1221,14 @@ const DispatchForm = ({
     setLoading(true)
     try {
       validateForm()
+      const freightError = freightEntryError(freightEntry)
+      if (freightError) throw new Error(freightError)
       const payload = transformDispatchData(formData, selectedOrders)
       if (readyDispatchGroupId) {
         payload.readyDispatchGroupId = readyDispatchGroupId
       }
+      const freightSlip = freightEntryPayload(freightEntry, freightVillages)
+      if (freightSlip) payload.freightSlip = freightSlip
       if (linkedAgriBlockedBy.length > 0) {
         payload.autoMarkLinkedAgriLoaded = true
       }
@@ -1195,6 +1238,12 @@ const DispatchForm = ({
       if (response.data) {
         await syncDispatchOrderGiftLines(giftDraftsByOrder)
         console.log("[DispatchForm] Dispatch created successfully:", response.data)
+        const createdSlip = response.data?.data?.freightSlip
+        if (createdSlip) {
+          printFreightSlip(createdSlip, "tentative")
+          Toast.success(`Freight slip ${createdSlip.slipNumber} saved (tentative)`)
+        }
+        setFreightEntry(emptyFreightEntry())
         // Trigger refresh of parent components
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("dispatchCreated"))
@@ -2413,6 +2462,16 @@ const DispatchForm = ({
             )}
           </div>
 
+          {!isViewMode && (
+            <TentativeFreightEntry
+              value={freightEntry}
+              onChange={setFreightEntry}
+              loadSummary={freightLoadSummary}
+              villages={freightVillages}
+              disabled={loading}
+            />
+          )}
+
           <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "text-base" : ""}`}>
             <label className="text-sm text-gray-600 shrink-0">Expected nursery</label>
             <select
@@ -2442,17 +2501,29 @@ const DispatchForm = ({
               const vehicleTotalCrates =
                 formData.plants?.reduce((s, p) => s + totalCratesOnPlant(p), 0) || 0
               return (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-                  <div className="text-sm font-medium text-blue-900">Vehicle load (auto-calculated)</div>
-                  <div className="mt-1 flex flex-wrap gap-3 text-sm text-blue-800">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div className="text-sm font-semibold text-emerald-950">Vehicle load · plant wise</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(formData.plants || []).map((plant) => (
+                      <div
+                        key={plant.id}
+                        className="min-w-[150px] rounded-lg border-2 border-emerald-700 bg-white px-3 py-2">
+                        <div className="text-sm font-bold text-slate-900">{plant.name}</div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <span className="rounded bg-emerald-700 px-2 py-0.5 text-xs font-bold text-white">
+                            {Number(plant.quantity || 0).toLocaleString("en-IN")} plants
+                          </span>
+                          <span className="rounded bg-amber-600 px-2 py-0.5 text-xs font-bold text-white">
+                            {totalCratesOnPlant(plant).toLocaleString("en-IN")} crates
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold text-emerald-900">
                     <span>{vehicleTotalPlants.toLocaleString("en-IN")} plants</span>
-                    <span className="text-blue-400">·</span>
                     <span>{vehicleTotalCrates.toLocaleString("en-IN")} crates</span>
                   </div>
-                  <p className="mt-1 text-xs text-blue-700">
-                    Crates are calculated from each order&apos;s tray and dispatch quantity. Shed loading
-                    assigns shades in the shed app.
-                  </p>
                 </div>
               )
             })()}

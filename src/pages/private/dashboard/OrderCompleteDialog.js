@@ -20,6 +20,7 @@ import { normalizeOrderFor } from "utils/orderCustomerDisplay"
 import CompleteInvoicePDF from "./CompleteInvoicePDF"
 import { buildCompletePreviewDispatch } from "./orderCompletePreview"
 import LinkShedStockDialog from "./LinkShedStockDialog"
+import { fetchFreightSlip, printFreightSlip } from "./FreightSlipPrint"
 import ReturnToShedBlock, {
   appShedReturnedForOrder,
   returnToShedPayload,
@@ -652,6 +653,122 @@ function resolveBatchPayloadForOrder(
   return payloadFromStockLine(order, selectedBatchRecord, batchSheds, selectedShed)
 }
 
+const slipInr = (n) => `₹${(Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
+
+function bhattaLinesOf(entry) {
+  const lines = (Array.isArray(entry?.bhattas) ? entry.bhattas : [])
+    .map((b) => ({ name: String(b?.name || "").trim(), amount: Number(b?.amount) || 0 }))
+    .filter((b) => b.name || b.amount > 0)
+  if (lines.length) return lines
+  const amount = Number(entry?.bhatta) || 0
+  return amount > 0 ? [{ name: "Bhatta", amount }] : []
+}
+
+function vehiclePlantLoads(dispatch, slip) {
+  const fromSlip = Array.isArray(slip?.loadSummary) ? slip.loadSummary : []
+  if (fromSlip.length) {
+    return fromSlip.map((l) => ({
+      key: l.crop || "Plants",
+      crop: l.crop || "Plants",
+      plants: Number(l.plants) || 0,
+      crates: Number(l.crates) || 0,
+    }))
+  }
+  return (Array.isArray(dispatch?.plantsDetails) ? dispatch.plantsDetails : [])
+    .map((p, i) => ({
+      key: p?.id || p?._id || `${p?.name || "plant"}-${i}`,
+      crop: p?.name || "Plants",
+      plants: Number(p?.totalPlants ?? p?.quantity) || 0,
+      crates: (Array.isArray(p?.crates) ? p.crates : []).reduce(
+        (s, c) => s + (Number(c?.crateCount ?? c?.numberOfCrates) || 0),
+        0
+      ),
+    }))
+    .filter((l) => l.plants > 0 || l.crates > 0)
+}
+
+function VehiclePlantLoad({ dispatch, slip }) {
+  const lines = vehiclePlantLoads(dispatch, slip)
+  if (!lines.length) return null
+  const plants = lines.reduce((s, l) => s + l.plants, 0)
+  const crates = lines.reduce((s, l) => s + l.crates, 0)
+  return (
+    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2.5">
+      <div className="text-xs font-bold uppercase tracking-wide text-emerald-900">
+        Vehicle load · plant wise
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {lines.map((l) => (
+          <div
+            key={l.key}
+            className="min-w-[140px] rounded-lg border-2 border-emerald-700 bg-white px-3 py-2">
+            <div className="text-sm font-bold text-slate-900">{l.crop}</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <span className="rounded bg-emerald-700 px-2 py-0.5 text-xs font-bold text-white">
+                {l.plants.toLocaleString("en-IN")} plants
+              </span>
+              <span className="rounded bg-amber-600 px-2 py-0.5 text-xs font-bold text-white">
+                {l.crates.toLocaleString("en-IN")} crates
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 text-[11px] font-semibold text-emerald-900">
+        {plants.toLocaleString("en-IN")} plants · {crates.toLocaleString("en-IN")} crates
+      </div>
+    </div>
+  )
+}
+
+function FreightSlipSummary({ slip }) {
+  const isFinal = slip.status === "FINAL" && slip.final
+  const e = isFinal ? slip.final : slip.tentative
+  const bhattas = bhattaLinesOf(e)
+  return (
+    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-amber-900">Driver slip {slip.slipNumber}</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+            isFinal ? "bg-emerald-100 text-emerald-800" : "bg-amber-200 text-amber-900"
+          }`}>
+          {isFinal ? "FINAL" : "TENTATIVE"}
+        </span>
+        <button
+          type="button"
+          onClick={() => printFreightSlip(slip)}
+          className="ml-auto rounded border border-amber-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-900 hover:bg-amber-100">
+          Print driver slip
+        </button>
+      </div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-gray-700 sm:grid-cols-3">
+        <span>Distance: <b>{e?.km ?? "—"} KM</b></span>
+        <span>Freight: <b>{slipInr(e?.freightAmount)}</b></span>
+        <span>Total: <b>{slipInr(e?.totalAmount)}</b></span>
+      </div>
+      {bhattas.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {bhattas.map((b, i) => (
+            <span
+              key={`${b.name}-${i}`}
+              className="rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-950">
+              {b.name || "Bhatta"} · {slipInr(b.amount)}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="mt-1 text-[11px] text-amber-800">
+        {isFinal
+          ? slip.finalUnchanged
+            ? "Finalized by travel manager with no changes. Trip km and charges are taken from this slip."
+            : `Finalized with changes (tentative ${slipInr(slip.tentative?.totalAmount)}). Trip km and charges are taken from this slip.`
+          : "Distance and bhatta come from this driver slip. They are not entered again here."}
+      </div>
+    </div>
+  )
+}
+
 const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const hasPaymentAccess = useHasPaymentAccess()
   const user = useUserData()
@@ -791,7 +908,20 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     }
   }, [open, returnInfoDispatchId])
 
-  const [tripData, setTripData] = useState({ kmRun: "", rent: "", otherCharges: "", remark: "", expanded: false })
+  /** Prefetched driver slip. Km and bhatta come from it — there is no trip settlement form. */
+  const [freightSlip, setFreightSlip] = useState(null)
+  useEffect(() => {
+    const id = String(dispatchData?._id || "")
+    setFreightSlip(null)
+    if (!open || !id) return
+    let alive = true
+    fetchFreightSlip(id)
+      .then((slip) => alive && setFreightSlip(slip))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [open, dispatchData?._id])
 
   const [orderActions, setOrderActions] = useState({})
   const [additionalPlantInputs, setAdditionalPlantInputs] = useState({})
@@ -877,7 +1007,6 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setPaymentFormExpandedByOrder({})
     setPaymentReceiptBusy(false)
     setPaymentOcrBusy(false)
-    setTripData({ kmRun: "", rent: "", otherCharges: "", remark: "", expanded: false })
   }, [localDispatch])
 
   /** Load secondary lagwad-ready shed stock per order (plant + subtype). */
@@ -1512,7 +1641,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       getPaymentDraftsForOrder,
       previewFlag,
     }),
-    tripRemark: tripData.remark || "",
+    tripRemark: "",
   })
 
   const handleOpenPrintPreview = () => {
@@ -1563,14 +1692,6 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           nurserySites,
           discountByOrder
         )
-      }
-      if (tripData.kmRun !== "" || tripData.rent !== "" || tripData.otherCharges !== "" || tripData.remark) {
-        payload.tripData = {
-          kmRun: tripData.kmRun !== "" ? Number(tripData.kmRun) : null,
-          rent: tripData.rent !== "" ? Number(tripData.rent) : null,
-          otherCharges: tripData.otherCharges !== "" ? Number(tripData.otherCharges) : null,
-          remark: tripData.remark || "",
-        }
       }
       const user = await instance.request(payload, [localDispatch?._id || dispatchData?._id])
       if (user?.data?.status) {
@@ -2700,75 +2821,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
               })}
             </div>
 
-            {/* Vehicle trip details — dispatch-level optional accordion */}
-            <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5">
-              <button
-                type="button"
-                onClick={() => setTripData((prev) => ({ ...prev, expanded: !prev.expanded }))}
-                className="flex w-full items-center gap-1.5 text-left text-xs font-semibold text-violet-800 hover:text-violet-900">
-                {tripData.expanded ? (
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                )}
-                Trip settlement (km / rent)
-                <span className="ml-1 font-normal text-violet-600">(optional — km, rent, charges)</span>
-                {(tripData.kmRun !== "" || tripData.rent !== "" || tripData.otherCharges !== "") && (
-                  <span className="ml-auto inline-flex items-center rounded-full bg-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-900">
-                    filled
-                  </span>
-                )}
-              </button>
-              {tripData.expanded && (
-                <div className="mt-3 space-y-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-[10px] font-medium text-gray-600">KM Run</label>
-                      <input
-                        type="number"
-                        min={0}
-                        className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                        placeholder="km"
-                        value={tripData.kmRun}
-                        onChange={(e) => setTripData((prev) => ({ ...prev, kmRun: e.target.value }))}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-medium text-gray-600">Rent (₹)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                        placeholder="₹"
-                        value={tripData.rent}
-                        onChange={(e) => setTripData((prev) => ({ ...prev, rent: e.target.value }))}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-medium text-gray-600">Other Charges (₹)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                        placeholder="₹"
-                        value={tripData.otherCharges}
-                        onChange={(e) => setTripData((prev) => ({ ...prev, otherCharges: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-medium text-gray-600">Remark</label>
-                    <textarea
-                      rows={2}
-                      className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                      placeholder="Optional note about this trip"
-                      value={tripData.remark}
-                      onChange={(e) => setTripData((prev) => ({ ...prev, remark: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <VehiclePlantLoad dispatch={localDispatch} slip={freightSlip} />
+            {freightSlip ? <FreightSlipSummary slip={freightSlip} /> : null}
           </div>
 
           <div className="shrink-0 border-t border-gray-200 bg-gray-50 p-4">

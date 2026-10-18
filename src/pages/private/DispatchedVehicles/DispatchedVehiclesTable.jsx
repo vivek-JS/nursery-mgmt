@@ -17,6 +17,20 @@ import {
 } from "./dispatchVehiclesUtils";
 import { openDispatchPdfUrl } from "utils/dispatchPdfHelpers";
 import { Toast } from "helpers/toasts/toastHelper";
+import { fetchFreightSlip, printFreightSlip } from "../dashboard/FreightSlipPrint";
+
+async function handleFreightSlip(dispatch) {
+  try {
+    const slip = await fetchFreightSlip(dispatch?._id);
+    if (!slip) {
+      Toast.error("No freight slip yet — add the tentative entry from the app or while creating the dispatch");
+      return;
+    }
+    printFreightSlip(slip);
+  } catch (e) {
+    Toast.error(e?.response?.data?.message || "Could not load freight slip");
+  }
+}
 
 function ActionBtn({ onClick, children, className = "", disabled = false, title = "" }) {
   return (
@@ -230,6 +244,13 @@ export default function DispatchedVehiclesTable({
                               className="border-green-200 text-green-700 hover:bg-green-50"
                             >
                               <ClipboardList size={10} /> Collect Slip
+                            </ActionBtn>
+                            <ActionBtn
+                              onClick={() => handleFreightSlip(dispatch)}
+                              className="border-amber-200 text-amber-800 hover:bg-amber-50"
+                              title="Print driver slip"
+                            >
+                              <Receipt size={10} /> Driver slip
                             </ActionBtn>
                             <ActionBtn
                               disabled={agriLoadBlocked || pdfBusy}

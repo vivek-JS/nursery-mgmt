@@ -44,6 +44,12 @@ export {
   renderInvoicePage,
 } from "./ramBiotechInvoiceTemplate.js";
 
+export {
+  renderFreightSlipBody,
+  renderFreightSlipDocument,
+  freightFieldLabel,
+} from "./freightSlipTemplate.js";
+
 /** Re-export for backend PDF label resolution (alias). */
 export { resolveChallanInvoiceLabel as resolveChallanInvoiceLabelForPdf } from "./challanUtils.js";
 export { resolveTaxInvoiceLabel as resolveTaxInvoiceLabelForPdf } from "./challanUtils.js";

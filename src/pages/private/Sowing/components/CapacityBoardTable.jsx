@@ -16,15 +16,18 @@ import {
 import ChevronRightIcon from "@mui/icons-material/ChevronRight"
 import HistoryIcon from "@mui/icons-material/History"
 import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight"
-import { dayLabel, fmt, signed } from "../capacitySheetUtils"
+import { dayLabel, fmt, signed, slotRangeLabel } from "../capacitySheetUtils"
 import {
+  cellDueBy,
+  cellFree,
   cellLabel,
+  cellUnsown,
   groupByCrop,
   hasOverdue,
   isUrgent,
   modeAmount,
   modeCards,
-  modeTotal
+  splitTotals
 } from "../capacityBoardUtils"
 
 const C = {
@@ -77,6 +80,9 @@ function CellTip({ cell, title }) {
       <Typography sx={{ fontSize: 12, fontWeight: 800, mb: 0.5 }}>{title}</Typography>
       <TipRow label="Ready (sowed)" value={fmt(cell.ready)} />
       <TipRow label="Booked" value={fmt(cell.booked)} />
+      {Number(cell.mortality) > 0 ? (
+        <TipRow label="Held for mortality (10%)" value={fmt(cell.mortality)} color="#fcd34d" />
+      ) : null}
       {Number(cell.gap) > 0 ? (
         <TipRow label="Booked, not sowed yet" value={fmt(cell.gap)} color="#fda4af" />
       ) : null}
@@ -99,19 +105,45 @@ function CellTip({ cell, title }) {
 }
 
 const MODE_TONE = {
+  all: { color: C.ink, bar: "#64748b", word: "" },
   excess: { color: C.green, bar: "#10b981", word: "free" },
-  gap: { color: C.red, bar: "#f43f5e", word: "short" }
+  gap: { color: C.red, bar: "#f43f5e", word: "unsown" }
+}
+
+function DualTotal({ excess, unsown, align = "right" }) {
+  return (
+    <Stack alignItems={align} spacing={0}>
+      {excess ? (
+        <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.green, lineHeight: 1.2 }}>
+          {fmt(excess)}
+        </Typography>
+      ) : null}
+      {unsown ? (
+        <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.red, lineHeight: 1.2 }}>
+          {fmt(unsown)}
+        </Typography>
+      ) : null}
+      {!excess && !unsown ? (
+        <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.faint }}>0</Typography>
+      ) : null}
+    </Stack>
+  )
 }
 
 /** One date for one variety: date on top, the free (excess) or short (gap) plants, then ready / booked. */
-function DateCard({ cell, mode, onOpen }) {
+function DateCard({ cell, mode, dueBy, onOpen }) {
   const { range, sub } = cellLabel(cell)
-  const tone = MODE_TONE[mode]
+  const net = Number(cell.net) || 0
+  const free = cellFree(cell)
+  const unsown = cellUnsown(cell)
+  const shortTone = net < 0 || (unsown > 0 && free <= 0)
+  const tone = mode === "gap" || (mode === "all" && shortTone) ? MODE_TONE.gap : MODE_TONE.excess
   const ready = Number(cell.ready) || 0
   const booked = Number(cell.booked) || 0
   const overdue = cell.overdue
   const slotIds = cell.slotIds || (cell.slotId ? [cell.slotId] : [])
   const title = `${range || "Today"}${cell.isNow ? " + overdue" : ""}`
+  const showBoth = mode === "all" && free > 0 && unsown > 0
   return (
     <Tooltip arrow placement="top" enterDelay={250} title={<CellTip cell={cell} title={title} />}>
       <Box
@@ -119,22 +151,22 @@ function DateCard({ cell, mode, onOpen }) {
         onClick={(event) => {
           if (!slotIds.length) return
           event.stopPropagation()
-          onOpen(slotIds, Number(cell.net) < 0 ? "gap" : "slot")
+          onOpen(slotIds, Number(cell.net) < 0 || unsown > free ? "gap" : "slot")
         }}
         sx={{
           minWidth: 104,
           px: 1,
           py: 0.6,
           borderRadius: 1.5,
-          bgcolor: cell.isNow ? C.amberBg : "#fff",
-          border: `1px solid ${cell.isNow ? C.amberLine : C.line}`,
-          borderTop: `3px solid ${tone.bar}`,
+          bgcolor: dueBy ? "#fff7ed" : cell.isNow ? C.amberBg : "#fff",
+          border: `1px solid ${dueBy ? "#fdba74" : cell.isNow ? C.amberLine : C.line}`,
+          borderTop: `3px solid ${dueBy ? "#f59e0b" : tone.bar}`,
           cursor: slotIds.length ? "pointer" : "default",
           "&:hover": { boxShadow: "0 2px 8px rgba(15,23,42,0.08)" }
         }}>
         <Stack direction="row" spacing={0.5} alignItems="baseline">
           <Typography
-            sx={{ fontSize: 12, fontWeight: 800, color: cell.isNow ? "#92400e" : "#334155" }}
+            sx={{ fontSize: 12, fontWeight: 800, color: cell.isNow || dueBy ? "#92400e" : "#334155" }}
             noWrap>
             {cell.isNow ? `Now · ${range || "today"}` : range}
           </Typography>
@@ -142,17 +174,41 @@ function DateCard({ cell, mode, onOpen }) {
             <Typography sx={{ fontSize: 10.5, color: C.faint }}>{sub}</Typography>
           ) : null}
         </Stack>
-        <Stack direction="row" spacing={0.5} alignItems="baseline">
-          <Typography sx={{ fontSize: 16, fontWeight: 900, color: tone.color, lineHeight: 1.25 }}>
-            {fmt(modeAmount(cell, mode))}
-          </Typography>
-          <Typography sx={{ fontSize: 11, fontWeight: 700, color: tone.color }}>
-            {tone.word}
-          </Typography>
-        </Stack>
+        {showBoth ? (
+          <>
+            <Stack direction="row" spacing={0.5} alignItems="baseline">
+              <Typography sx={{ fontSize: 16, fontWeight: 900, color: C.green, lineHeight: 1.25 }}>
+                {fmt(free)}
+              </Typography>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.green }}>free</Typography>
+            </Stack>
+            <Typography sx={{ fontSize: 11, fontWeight: 800, color: C.red }}>
+              {fmt(unsown)} unsown
+            </Typography>
+          </>
+        ) : (
+          <Stack direction="row" spacing={0.5} alignItems="baseline">
+            <Typography sx={{ fontSize: 16, fontWeight: 900, color: tone.color, lineHeight: 1.25 }}>
+              {fmt(modeAmount(cell, mode))}
+            </Typography>
+            <Typography sx={{ fontSize: 11, fontWeight: 700, color: tone.color }}>
+              {tone.word}
+            </Typography>
+          </Stack>
+        )}
         <Typography sx={{ fontSize: 10.5, color: C.muted }} noWrap>
           {fmt(ready)} ready · {fmt(booked)} booked
         </Typography>
+        {Number(cell.mortality) > 0 && mode !== "gap" ? (
+          <Typography sx={{ fontSize: 10, color: "#b45309", fontWeight: 700 }}>
+            {fmt(cell.mortality)} held for 10% mortality
+          </Typography>
+        ) : null}
+        {dueBy ? (
+          <Typography sx={{ fontSize: 10.5, fontWeight: 800, color: "#c2410c", mt: 0.15 }}>
+            Sow by {slotRangeLabel(dueBy, dueBy)}
+          </Typography>
+        ) : null}
         {cell.isNow && (Number(overdue?.booked) > 0 || Number(overdue?.unsold) > 0) ? (
           <Stack direction="row" spacing={0.3} alignItems="center" sx={{ mt: 0.25, color: C.red }}>
             <HistoryIcon sx={{ fontSize: 12 }} />
@@ -309,6 +365,13 @@ function ShedBatches({ stock }) {
 function CropRow({ crop, rows, mode }) {
   const urgent = rows.filter(isUrgent).length
   const bg = "#f1f5f9"
+  const totals = rows.reduce(
+    (acc, row) => {
+      const split = splitTotals(row)
+      return { excess: acc.excess + split.excess, unsown: acc.unsown + split.unsown }
+    },
+    { excess: 0, unsown: 0 }
+  )
   return (
     <TableRow>
       <TableCell sx={{ ...cellSx, ...stickyLeft, bgcolor: bg, py: 0.6 }}>
@@ -333,16 +396,14 @@ function CropRow({ crop, rows, mode }) {
         {sum(rows, (row) => row.stock?.inShed) ? fmt(sum(rows, (row) => row.stock?.inShed)) : ""}
       </TableCell>
       <TableCell sx={{ ...cellSx, bgcolor: bg, py: 0.6 }} />
-      <TableCell
-        align="right"
-        sx={{
-          ...cellSx,
-          bgcolor: "#e2e8f0",
-          py: 0.6,
-          fontWeight: 800,
-          color: MODE_TONE[mode].color
-        }}>
-        {fmt(sum(rows, (row) => modeTotal(row, mode)))}
+      <TableCell align="right" sx={{ ...cellSx, bgcolor: "#e2e8f0", py: 0.6 }}>
+        {mode === "all" ? (
+          <DualTotal excess={totals.excess} unsown={totals.unsown} />
+        ) : (
+          <Typography sx={{ fontWeight: 800, color: MODE_TONE[mode].color }}>
+            {fmt(mode === "gap" ? totals.unsown : totals.excess)}
+          </Typography>
+        )}
       </TableCell>
     </TableRow>
   )
@@ -353,6 +414,7 @@ function VarietyRow({ row, mode, open, onToggle, onOpen }) {
   const cards = modeCards(row, mode)
   const batches = row.stock?.batches?.length || 0
   const bg = open ? "#f8fafc" : "#fff"
+  const totals = splitTotals(row)
   return (
     <TableRow hover sx={{ cursor: "pointer" }} onClick={onToggle}>
       <TableCell
@@ -398,25 +460,33 @@ function VarietyRow({ row, mode, open, onToggle, onOpen }) {
         {cards.length ? (
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
             {cards.map((cell) => (
-              <DateCard key={cell.key} cell={cell} mode={mode} onOpen={onOpen} />
+              <DateCard
+                key={cell.key}
+                cell={cell}
+                mode={mode}
+                dueBy={cellDueBy(cell, row.dueSow)}
+                onOpen={onOpen}
+              />
             ))}
           </Stack>
         ) : (
           <Typography sx={{ fontSize: 12, color: C.faint, py: 0.5 }}>
-            {mode === "gap" ? "Not short on any date" : "Nothing free on any date"}
+            {mode === "gap"
+              ? "Not unsown on any date"
+              : mode === "all"
+                ? "No sowing or booking numbers"
+                : "Nothing free on any date"}
           </Typography>
         )}
       </TableCell>
-      <TableCell
-        align="right"
-        sx={{
-          ...cellSx,
-          bgcolor: "#f8fafc",
-          fontWeight: 800,
-          fontSize: 14,
-          color: MODE_TONE[mode].color
-        }}>
-        {fmt(modeTotal(row, mode))}
+      <TableCell align="right" sx={{ ...cellSx, bgcolor: "#f8fafc" }}>
+        {mode === "all" ? (
+          <DualTotal excess={totals.excess} unsown={totals.unsown} />
+        ) : (
+          <Typography sx={{ fontWeight: 800, fontSize: 14, color: MODE_TONE[mode].color }}>
+            {fmt(mode === "gap" ? totals.unsown : totals.excess)}
+          </Typography>
+        )}
       </TableCell>
     </TableRow>
   )
@@ -457,11 +527,19 @@ export default function CapacityBoardTable({
             </HeadCell>
             <HeadCell sort={sort} onSort={onSort} sx={{ width: "100%" }}>
               <HeadText
-                title={gap ? "Short plants by date" : "Free plants by date"}
+                title={
+                  gap
+                    ? "Not sown by date"
+                    : mode === "all"
+                      ? "Free & unsown by date"
+                      : "Free plants by date"
+                }
                 sub={
                   gap
-                    ? "Booked more than ready — sow or move orders"
-                    : "Sowed and not booked yet — free to sell"
+                    ? "Booked orders still waiting to sow"
+                    : mode === "all"
+                      ? "Next 30 days · sellable after 10% mortality, and bookings not sown"
+                      : "Sowed and not booked yet — sellable after 10% mortality"
                 }
               />
             </HeadCell>
@@ -471,7 +549,7 @@ export default function CapacityBoardTable({
               onSort={onSort}
               align="right"
               sx={{ bgcolor: "#f1f5f9" }}>
-              <HeadText title={gap ? "Total short" : "Total free"} />
+              <HeadText title={gap ? "Total unsown" : mode === "all" ? "Free / unsown" : "Total free"} />
             </HeadCell>
           </TableRow>
         </TableHead>
@@ -519,10 +597,17 @@ export default function CapacityBoardTable({
                 {fmt(sum(rows, (row) => row.stock?.inShed))}
               </TableCell>
               <TableCell sx={cellSx} />
-              <TableCell
-                align="right"
-                sx={{ ...cellSx, fontWeight: 800, fontSize: 14, color: MODE_TONE[mode].color }}>
-                {fmt(sum(rows, (row) => modeTotal(row, mode)))}
+              <TableCell align="right" sx={{ ...cellSx, fontWeight: 800, fontSize: 14 }}>
+                {mode === "all" ? (
+                  <DualTotal
+                    excess={sum(rows, (row) => splitTotals(row).excess)}
+                    unsown={sum(rows, (row) => splitTotals(row).unsown)}
+                  />
+                ) : (
+                  <Typography sx={{ fontWeight: 800, color: MODE_TONE[mode].color }}>
+                    {fmt(sum(rows, (row) => (mode === "gap" ? splitTotals(row).unsown : splitTotals(row).excess)))}
+                  </Typography>
+                )}
               </TableCell>
             </TableRow>
           </TableFooter>

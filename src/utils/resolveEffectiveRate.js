@@ -33,6 +33,16 @@ export function resolveEffectiveRate(subtype, { farmerGivesSeed = false, deliver
   return defaultRate
 }
 
+/** Keep a rate string while the user is still typing (for example "1." or "1.10"). */
+export function sanitizeRateInput(raw) {
+  const cleaned = String(raw ?? "").replace(/[^\d.]/g, "")
+  const dot = cleaned.indexOf(".")
+  if (dot === -1) return cleaned
+  const whole = cleaned.slice(0, dot)
+  const frac = cleaned.slice(dot + 1).replace(/\./g, "").slice(0, 4)
+  return `${whole}.${frac}`
+}
+
 export function mapSubtypeOption(subtype) {
   let rate = 0
   if (subtype.rates) {
