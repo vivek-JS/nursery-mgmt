@@ -10,6 +10,15 @@ import OrderSowForm from "./OrderSowForm"
 import OrderCoverExcessSection from "./OrderCoverExcessSection"
 import { summarizePicks } from "../order/ExcessBatchCoverDialog"
 
+const READY_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+function readyDayLabel(value) {
+  const m = String(value || "").match(/^(\d{2})-(\d{2})-(\d{4})$/)
+  if (!m) return value || "another date"
+  const month = READY_MONTHS[Number(m[2]) - 1] || m[2]
+  return `${Number(m[1])} ${month}`
+}
+
 function formatDoneAt(value) {
   if (!value) return "—"
   try {
@@ -39,6 +48,7 @@ export default function OrderSowingDetailsPanel({
   sowingDoneRequestId = null,
   sowingCoverSources = [],
   sowingCoverReversedAt = null,
+  sowBatchLinks = [],
   sowingPlan = null,
   plantId = null,
   subtypeId = null,
@@ -48,6 +58,32 @@ export default function OrderSowingDetailsPanel({
   onUpdated,
 }) {
   const coverSources = Array.isArray(sowingCoverSources) ? sowingCoverSources : []
+  const movedLinks = (Array.isArray(sowBatchLinks) ? sowBatchLinks : []).filter(
+    (l) => l?.reason === "DISPATCH_RELINK" && Number(l.plants) > 0
+  )
+  const movedBlock = movedLinks.length > 0 && (
+    <Box
+      sx={{
+        p: 1.25,
+        borderRadius: 1.5,
+        border: "1px solid #2563eb",
+        bgcolor: "#eff6ff",
+      }}
+    >
+      <Typography variant="body2" fontWeight={800} mb={0.5}>
+        Moved for a dispatch
+      </Typography>
+      {movedLinks.map((l, i) => {
+        const code = l.causedByOrderCode || (l.causedByOrderId ? String(l.causedByOrderId).slice(-6) : "")
+        return (
+          <Typography key={`${l.batchId || i}-${l.at || i}`} variant="caption" sx={{ display: "block" }}>
+            Moved to {readyDayLabel(l.plantReadyDate)} for dispatch of #{code || "—"} ·{" "}
+            <strong>{Number(l.plants || 0).toLocaleString("en-IN")} plants</strong>
+          </Typography>
+        )
+      })}
+    </Box>
+  )
   const coverSourcesBlock = coverSources.length > 0 && (
     <Box
       sx={{
@@ -103,6 +139,7 @@ export default function OrderSowingDetailsPanel({
           )}
         </Stack>
         {coverSourcesBlock}
+        {movedBlock}
         <Alert severity="success" sx={{ py: 0.75 }}>
           Marked <strong>sowingDone</strong>.
           {coverSources.length > 0
@@ -118,6 +155,7 @@ export default function OrderSowingDetailsPanel({
   return (
     <Box className="space-y-3">
       {coverSourcesBlock}
+      {movedBlock}
       <OrderSowForm
         orderMongoId={orderMongoId}
         plantId={plantId}
