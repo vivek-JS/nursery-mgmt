@@ -843,6 +843,13 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                             sx={{ bgcolor: "#f59e0b", color: "#fff", fontWeight: 800 }}
                           />
                         )}
+                        {row.sowingIncomplete && (
+                          <Chip
+                            size="small"
+                            label="Incomplete"
+                            sx={{ bgcolor: "#f59e0b", color: "#fff", fontWeight: 800 }}
+                          />
+                        )}
                         <Chip
                           size="small"
                           label={`${row.linkedOrders?.length || 0} covered`}
@@ -1191,7 +1198,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       p: 1.25,
                       borderRadius: 2,
                       border: "1px solid #bbf7d0",
-                      bgcolor: "#f0fdf4",
+                      bgcolor: o.sowingDone ? "#f0fdf4" : o.partiallyCovered ? "#fffbeb" : "#f8fafc",
                     }}
                   >
                     <Stack direction="row" justifyContent="space-between" gap={1}>
@@ -1216,7 +1223,11 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       {o.plants || 0} plants
                       {o.bookingDate ? ` · booked ${fmtDay(o.bookingDate)}` : ""}
                       {o.deliveryDate ? ` · delivery ${fmtDay(o.deliveryDate)}` : ""}
-                      {o.sowingDone ? " · sowingDone" : ""}
+                      {o.sowingDone
+                        ? " · Sown"
+                        : o.partiallyCovered
+                          ? ` · Partial ${o.coveredPlants || 0} of ${o.plants || 0}`
+                          : " · Need sow"}
                       {o.sowingDoneAt ? ` · sowed ${fmtDay(o.sowingDoneAt)}` : ""}
                     </Typography>
                   </Box>

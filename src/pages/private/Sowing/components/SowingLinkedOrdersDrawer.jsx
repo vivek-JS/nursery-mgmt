@@ -38,8 +38,11 @@ export default function SowingLinkedOrdersDrawer({
 }) {
   const req = card?.activeRequest || card?.pendingRequest || null
   const linkedIds = useMemo(
-    () => (req?.linkedOrderIds || []).map(String).filter(Boolean),
-    [req?.linkedOrderIds]
+    () =>
+      [...(req?.linkedOrderIds || []), ...(req?.uncoveredOrderIds || [])]
+        .map(String)
+        .filter(Boolean),
+    [req?.linkedOrderIds, req?.uncoveredOrderIds]
   )
   const flaggedExcess =
     Boolean(req?.isExcessiveSowing) || Boolean(card?.isExcessiveSowing)
@@ -239,7 +242,7 @@ export default function SowingLinkedOrdersDrawer({
                     {o.sowingDone ? (
                       <Chip
                         size="small"
-                        label="sowed"
+                        label="Sown"
                         sx={{
                           height: 20,
                           fontWeight: 800,
@@ -248,17 +251,44 @@ export default function SowingLinkedOrdersDrawer({
                           color: "#166534",
                         }}
                       />
-                    ) : canCoverFromStock && onCoverOrder ? (
-                      <Button
+                    ) : o.partiallyCovered ? (
+                      <Chip
                         size="small"
-                        variant="outlined"
-                        color="success"
-                        onClick={() => onCoverOrder(String(o.orderId || o._id || o.orderMongoId))}
-                        sx={{ textTransform: "none", fontWeight: 700, py: 0, minHeight: 24 }}
-                      >
-                        Cover
-                      </Button>
-                    ) : null}
+                        label={`Partial (${Number(o.coveredPlants) || 0} of ${Number(o.bookedPlants || o.numberOfPlants) || 0})`}
+                        sx={{
+                          height: 20,
+                          fontWeight: 800,
+                          fontSize: "0.65rem",
+                          bgcolor: "#fde68a",
+                          color: "#92400e",
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <Chip
+                          size="small"
+                          label="Need sow"
+                          sx={{
+                            height: 20,
+                            fontWeight: 800,
+                            fontSize: "0.65rem",
+                            bgcolor: "#e2e8f0",
+                            color: "#334155",
+                          }}
+                        />
+                        {canCoverFromStock && onCoverOrder ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                            onClick={() => onCoverOrder(String(o.orderId || o._id || o.orderMongoId))}
+                            sx={{ textTransform: "none", fontWeight: 700, py: 0, minHeight: 24 }}
+                          >
+                            Cover
+                          </Button>
+                        ) : null}
+                      </>
+                    )}
                   </Stack>
                 </Stack>
                 <Typography variant="caption" color="text.secondary" display="block">

@@ -652,7 +652,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Batch Number</TableCell>
+                    <TableCell>Batch / Product</TableCell>
                     <TableCell align="right">Available</TableCell>
                     <TableCell align="right">Unit</TableCell>
                     <TableCell>Expiry Date</TableCell>
@@ -677,7 +677,16 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
 
                     return (
                       <TableRow key={batch._id}>
-                        <TableCell>{batch.batchNumber}</TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>
+                            {batch.batchNumber}
+                          </Typography>
+                          {batch.product?.name && (
+                            <Typography variant="caption" color="text.secondary">
+                              {batch.product.name}
+                            </Typography>
+                          )}
+                        </TableCell>
                         <TableCell align="right">{batch.remainingQuantity}</TableCell>
                         <TableCell align="right">
                           {batch.unit?.symbol || batch.unit?.name || 'N/A'}
