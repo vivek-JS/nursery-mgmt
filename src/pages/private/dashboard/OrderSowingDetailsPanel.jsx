@@ -1,22 +1,32 @@
-import React from "react"
+import React, { useEffect, useState } from "react"
 import {
   Alert,
   Box,
   Stack,
   Typography,
   Chip,
+  CircularProgress,
 } from "@mui/material"
 import OrderSowForm from "./OrderSowForm"
 import OrderCoverExcessSection from "./OrderCoverExcessSection"
 import { summarizePicks } from "../order/ExcessBatchCoverDialog"
+import { NetworkManager, API } from "network/core"
 
 const READY_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 function readyDayLabel(value) {
-  const m = String(value || "").match(/^(\d{2})-(\d{2})-(\d{4})$/)
-  if (!m) return value || "another date"
-  const month = READY_MONTHS[Number(m[2]) - 1] || m[2]
-  return `${Number(m[1])} ${month}`
+  const s = String(value || "").trim()
+  const dmy = s.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+  if (dmy) {
+    const month = READY_MONTHS[Number(dmy[2]) - 1] || dmy[2]
+    return `${Number(dmy[1])} ${month}`
+  }
+  const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (ymd) {
+    const month = READY_MONTHS[Number(ymd[2]) - 1] || ymd[2]
+    return `${Number(ymd[3])} ${month}`
+  }
+  return s || "another date"
 }
 
 function formatDoneAt(value) {
@@ -34,6 +44,16 @@ function formatDoneAt(value) {
   } catch {
     return String(value)
   }
+}
+
+function fmtNum(n) {
+  return Number(n || 0).toLocaleString("en-IN")
+}
+
+function requestIdParam(value) {
+  if (!value) return null
+  if (typeof value === "object") return value._id || value.id || null
+  return String(value)
 }
 
 /**
@@ -58,6 +78,56 @@ export default function OrderSowingDetailsPanel({
   onUpdated,
 }) {
   const coverSources = Array.isArray(sowingCoverSources) ? sowingCoverSources : []
+  const activeCover =
+    coverSources.length > 0 && !sowingCoverReversedAt ? coverSources : []
+  const reqId = requestIdParam(sowingDoneRequestId)
+  const [sowEntry, setSowEntry] = useState(null)
+  const [sowEntryLoading, setSowEntryLoading] = useState(false)
+
+  useEffect(() => {
+    if (!sowingDone || !reqId) {
+      setSowEntry(null)
+      setSowEntryLoading(false)
+      return undefined
+    }
+    let cancelled = false
+    setSowEntryLoading(true)
+    ;(async () => {
+      try {
+        const instance = NetworkManager(API.sowing.GET_SOWING_REQUEST_BY_ID)
+        const response = await instance.request({}, [reqId])
+        if (cancelled) return
+        if (!response?.data?.success) {
+          setSowEntry(null)
+          return
+        }
+        const data = response.data.data || {}
+        const doneEv = (data.completionEvents || []).find((e) => e.type === "SOW_COMPLETED")
+        const meta = doneEv?.meta || {}
+        setSowEntry({
+          requestNumber: data.requestNumber || null,
+          plants: Number(data.sowedQuantity) || 0,
+          shedName: data.shedName || meta.shedName || "",
+          completedAt: data.sowingCompletedDate || sowingDoneAt,
+          readyDate: meta.readyDate || meta.plantReadyDate || null,
+          sowDate: meta.sowDate || meta.sowingDate || null,
+          excessPlants: Number(meta.excessPlants) || 0,
+          orderCoveredPlants:
+            Number(meta.orderCoveredPlants) ||
+            Math.max(0, (Number(data.sowedQuantity) || 0) - (Number(meta.excessPlants) || 0)),
+          isExcessive: Boolean(data.isExcessiveSowing),
+        })
+      } catch {
+        if (!cancelled) setSowEntry(null)
+      } finally {
+        if (!cancelled) setSowEntryLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [sowingDone, reqId, sowingDoneAt])
+
   const movedLinks = (Array.isArray(sowBatchLinks) ? sowBatchLinks : []).filter(
     (l) => l?.reason === "DISPATCH_RELINK" && Number(l.plants) > 0
   )
@@ -78,7 +148,7 @@ export default function OrderSowingDetailsPanel({
         return (
           <Typography key={`${l.batchId || i}-${l.at || i}`} variant="caption" sx={{ display: "block" }}>
             Moved to {readyDayLabel(l.plantReadyDate)} for dispatch of #{code || "—"} ·{" "}
-            <strong>{Number(l.plants || 0).toLocaleString("en-IN")} plants</strong>
+            <strong>{fmtNum(l.plants)} plants</strong>
           </Typography>
         )
       })}
@@ -113,10 +183,53 @@ export default function OrderSowingDetailsPanel({
           <Typography key={s.key} variant="caption" sx={{ display: "block" }}>
             Sowed {s.sowingDate || "—"} · ready {s.plantReadyDate || "—"} ({offLabel})
             {s.shedName ? ` · ${s.shedName}` : ""} ·{" "}
-            <strong>{Number(s.plants || 0).toLocaleString("en-IN")} plants</strong>
+            <strong>{fmtNum(s.plants)} plants</strong>
           </Typography>
         )
       })}
+    </Box>
+  )
+
+  const sowEntryBlock = sowingDone && reqId && (
+    <Box
+      sx={{
+        p: 1.25,
+        borderRadius: 1.5,
+        border: "1px solid #16a34a",
+        bgcolor: "#f0fdf4",
+      }}
+    >
+      <Typography variant="body2" fontWeight={800} mb={0.5}>
+        Sowing entry
+      </Typography>
+      {sowEntryLoading && (
+        <Stack direction="row" spacing={1} alignItems="center">
+          <CircularProgress size={14} />
+          <Typography variant="caption">Loading sowing request…</Typography>
+        </Stack>
+      )}
+      {!sowEntryLoading && sowEntry && (
+        <>
+          <Typography variant="caption" sx={{ display: "block" }}>
+            {sowEntry.requestNumber || "Request"} · sowed{" "}
+            <strong>{fmtNum(sowEntry.plants)}</strong>
+            {sowEntry.orderCoveredPlants > 0
+              ? ` · covered ${fmtNum(sowEntry.orderCoveredPlants)}`
+              : ""}
+            {sowEntry.excessPlants > 0 ? ` · excess ${fmtNum(sowEntry.excessPlants)}` : ""}
+          </Typography>
+          <Typography variant="caption" sx={{ display: "block" }}>
+            {sowEntry.sowDate ? `Sow ${sowEntry.sowDate} · ` : ""}
+            ready {sowEntry.readyDate ? readyDayLabel(sowEntry.readyDate) : "—"}
+            {sowEntry.shedName ? ` · ${sowEntry.shedName}` : ""}
+          </Typography>
+        </>
+      )}
+      {!sowEntryLoading && !sowEntry && (
+        <Typography variant="caption" color="text.secondary">
+          Request linked, but entry details could not be loaded.
+        </Typography>
+      )}
     </Box>
   )
 
@@ -128,23 +241,28 @@ export default function OrderSowingDetailsPanel({
           <Typography variant="body2" color="text.secondary">
             {formatDoneAt(sowingDoneAt)}
           </Typography>
-          {sowingDoneRequestId ? (
+          {reqId ? (
             <Chip
               size="small"
               variant="outlined"
-              label={`Req ${String(sowingDoneRequestId).slice(-8)}`}
+              label={
+                sowEntry?.requestNumber
+                  ? sowEntry.requestNumber
+                  : `Req ${String(reqId).slice(-8)}`
+              }
             />
           ) : (
             <Chip size="small" variant="outlined" label="Direct sow / slot transfer" />
           )}
         </Stack>
+        {sowEntryBlock}
         {coverSourcesBlock}
         {movedBlock}
         <Alert severity="success" sx={{ py: 0.75 }}>
           Marked <strong>sowingDone</strong>.
-          {coverSources.length > 0
+          {activeCover.length > 0
             ? " Plants taken from excess of the sowing entries above."
-            : sowingDoneRequestId
+            : reqId
               ? " Plants recorded on the ready-date slot from sow completion."
               : " Plants allocated to the ready-date slot or reserved from nearby saleable stock."}
         </Alert>
