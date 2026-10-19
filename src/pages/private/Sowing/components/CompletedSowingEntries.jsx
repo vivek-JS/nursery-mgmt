@@ -852,9 +852,16 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         )}
                         <Chip
                           size="small"
-                          label={`${row.linkedOrders?.length || 0} covered`}
+                          label={`${(row.linkedOrders || []).filter((o) => o.sowingDone).length} covered`}
                           sx={{ fontWeight: 700 }}
                         />
+                        {(row.linkedOrders || []).some((o) => !o.sowingDone) && (
+                          <Chip
+                            size="small"
+                            label={`${(row.linkedOrders || []).filter((o) => !o.sowingDone).length} leftover`}
+                            sx={{ bgcolor: "#e2e8f0", fontWeight: 700 }}
+                          />
+                        )}
                       </Stack>
                     </TableCell>
                     <TableCell sx={gridCell} align="center" onClick={(e) => e.stopPropagation()}>
@@ -1198,7 +1205,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       p: 1.25,
                       borderRadius: 2,
                       border: "1px solid #bbf7d0",
-                      bgcolor: o.sowingDone ? "#f0fdf4" : o.partiallyCovered ? "#fffbeb" : "#f8fafc",
+                      bgcolor: o.sowingDone ? "#f0fdf4" : "#f8fafc",
                     }}
                   >
                     <Stack direction="row" justifyContent="space-between" gap={1}>
@@ -1223,11 +1230,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       {o.plants || 0} plants
                       {o.bookingDate ? ` · booked ${fmtDay(o.bookingDate)}` : ""}
                       {o.deliveryDate ? ` · delivery ${fmtDay(o.deliveryDate)}` : ""}
-                      {o.sowingDone
-                        ? " · Sown"
-                        : o.partiallyCovered
-                          ? ` · Partial ${o.coveredPlants || 0} of ${o.plants || 0}`
-                          : " · Need sow"}
+                      {o.sowingDone ? " · Sown" : " · Need sow"}
                       {o.sowingDoneAt ? ` · sowed ${fmtDay(o.sowingDoneAt)}` : ""}
                     </Typography>
                   </Box>

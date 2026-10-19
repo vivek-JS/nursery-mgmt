@@ -251,18 +251,6 @@ export default function SowingLinkedOrdersDrawer({
                           color: "#166534",
                         }}
                       />
-                    ) : o.partiallyCovered ? (
-                      <Chip
-                        size="small"
-                        label={`Partial (${Number(o.coveredPlants) || 0} of ${Number(o.bookedPlants || o.numberOfPlants) || 0})`}
-                        sx={{
-                          height: 20,
-                          fontWeight: 800,
-                          fontSize: "0.65rem",
-                          bgcolor: "#fde68a",
-                          color: "#92400e",
-                        }}
-                      />
                     ) : (
                       <>
                         <Chip
