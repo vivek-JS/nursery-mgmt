@@ -108,6 +108,25 @@ describe("buildSelectedOrderRequestScope", () => {
     expect(scope.gapCard.totalPlantsToSowWithBuffer).toBe(6600)
   })
 
+  it("packs leftover remaining only, not booked plants", () => {
+    const scope = buildSelectedOrderRequestScope(
+      card,
+      [
+        {
+          orderId: "order-1",
+          numberOfPlants: 20000,
+          bookedPlants: 20000,
+          coveredPlants: 2300,
+          leftoverPlants: 17700,
+          bookingSlot: "slot-1",
+        },
+      ],
+      ["order-1"]
+    )
+    expect(scope.rawPlants).toBe(17700)
+    expect(scope.gapCard.totalPlantsToSowWithBuffer).toBe(19470)
+  })
+
   it("excludes an already-requested selected row", () => {
     const scope = buildSelectedOrderRequestScope(
       card,

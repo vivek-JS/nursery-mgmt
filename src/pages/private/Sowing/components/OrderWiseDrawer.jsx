@@ -23,6 +23,17 @@ import DrawerExportButton from "components/DrawerExportButton"
 import SeedPlanChip from "./SeedPlanChip"
 import RaisingIntakeModal from "./RaisingIntakeModal"
 import { useSowHorizon } from "./SowHorizonContext"
+import {
+  remainingPlantsOf,
+  bookedPlantsOf,
+  sownPlantsOf,
+  plantsPerPacket,
+  applyBufferToPlants,
+} from "./sowingPackingUtils"
+
+function fmtQty(n) {
+  return (Number(n) || 0).toLocaleString("en-IN")
+}
 
 function isRaisingCollected(o) {
   return Boolean(
@@ -235,6 +246,16 @@ export default function OrderWiseDrawer({
   const selectedRows = rows.filter((o) =>
     selected.includes(String(o.orderId))
   )
+  const selectedRemaining = selectedRows.reduce(
+    (sum, row) => sum + remainingPlantsOf(row),
+    0
+  )
+  const cf = plantsPerPacket(card) || 1000
+  const selectedPackets = (selectedRemaining / cf).toFixed(2)
+  const bufferedRemaining = applyBufferToPlants(
+    selectedRemaining,
+    Number(card?.sowingBuffer) || 0
+  )
   const companyFallbackRows = selectedRows.filter(
     (o) =>
       isRaisingOrder(o) &&
@@ -269,11 +290,13 @@ export default function OrderWiseDrawer({
   const getExportSheets = () => [
     {
       title: raisingOnly ? "Farmer seed orders" : "Orders to sow",
-      headers: ["Order", "Farmer", "Plants", "Suggested packets", "Booking date", "Delivery date", "Sow by", "Days until sow", "Seed source", "Raising status", "Already requested", "Customer seed in hand (pkt)"],
+      headers: ["Order", "Farmer", "Booked", "Sown", "Remaining", "Suggested packets", "Booking date", "Delivery date", "Sow by", "Days until sow", "Seed source", "Raising status", "Already requested", "Customer seed in hand (pkt)"],
       rows: rows.map((o) => [
         o.orderNumber,
         o.farmerName,
-        o.numberOfPlants,
+        bookedPlantsOf(o),
+        sownPlantsOf(o),
+        remainingPlantsOf(o),
         o.suggestedPackets,
         fmtDelivery(bookingDateRaw(o)),
         fmtDelivery(o.deliveryDate) || o.slotStartDay,
@@ -315,20 +338,18 @@ export default function OrderWiseDrawer({
         <Typography variant="body2" sx={{ mb: 1.5 }}>
           {raisingOnly ? (
             <>
-              Farmer seed orders · gap{" "}
-              {Number(card?.totalPlantsToSowRaw) ||
-                card?.totalPlantsToSowWithBuffer ||
-                card?.totalGap ||
-                0}{" "}
-              plants (no buffer)
+              Farmer seed orders · remaining {fmtQty(selectedRemaining)} plants (no
+              buffer)
               {visibleRaisingInHand > 0
                 ? ` · ${visibleRaisingInHand} pkt in hand`
                 : " · none in hand"}
             </>
           ) : (
             <>
-              Need ~{card?.packetsNeeded?.toFixed?.(2) ?? card?.packetsNeeded} packets ·{" "}
-              {card?.totalPlantsToSowWithBuffer || card?.totalGap || 0} plants
+              Remaining {fmtQty(selectedRemaining)} plants · ~{selectedPackets} pkt
+              {bufferedRemaining > selectedRemaining
+                ? ` · request with buffer ${fmtQty(bufferedRemaining)}`
+                : ""}
             </>
           )}
         </Typography>
@@ -384,8 +405,26 @@ export default function OrderWiseDrawer({
                         <SowDaysChip daysUntilSow={o.daysUntilSow} />
                       </Stack>
                       <Typography variant="caption" color="text.secondary" display="block">
-                        {o.numberOfPlants} plants · suggest {o.suggestedPackets} pkt
+                        Booked {fmtQty(bookedPlantsOf(o))} · Sown {fmtQty(sownPlantsOf(o))} ·{" "}
+                        Remaining {fmtQty(remainingPlantsOf(o))}
                       </Typography>
+                      <Typography variant="caption" fontWeight={800} display="block">
+                        Take remaining · suggest {o.suggestedPackets} pkt
+                      </Typography>
+                      {(o.leftoverFromIncomplete || o.partiallyCovered) && (
+                        <Chip
+                          size="small"
+                          label={`Partial sow · leftover ${fmtQty(remainingPlantsOf(o))}`}
+                          sx={{
+                            mt: 0.35,
+                            height: 20,
+                            fontSize: "0.65rem",
+                            fontWeight: 800,
+                            bgcolor: "#fde68a",
+                            color: "#92400e",
+                          }}
+                        />
+                      )}
                       <Typography variant="caption" fontWeight={700} display="block" sx={{ mt: 0.25 }}>
                         Booking: {fmtDelivery(bookingDateRaw(o)) || "—"}
                       </Typography>

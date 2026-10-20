@@ -120,6 +120,31 @@ export function sumRawGapFromCard(card) {
   return Number(card?.totalPlantsToSowWithBuffer || card?.totalGap) || 0
 }
 
+/** Plants still to pack from an order-wise row (never the already-sown qty). */
+export function remainingPlantsOf(row) {
+  if (row?.leftoverPlants != null && Number.isFinite(Number(row.leftoverPlants))) {
+    return Math.max(0, Number(row.leftoverPlants) || 0)
+  }
+  const booked = Number(row?.bookedPlants)
+  const sown = Number(row?.coveredPlants) || 0
+  if (Number.isFinite(booked) && row?.bookedPlants != null) {
+    return Math.max(0, booked - sown)
+  }
+  return Math.max(0, Number(row?.numberOfPlants) || 0)
+}
+
+export function bookedPlantsOf(row) {
+  const booked = Number(row?.bookedPlants)
+  if (Number.isFinite(booked) && row?.bookedPlants != null) {
+    return Math.max(0, booked)
+  }
+  return remainingPlantsOf(row) + (Number(row?.coveredPlants) || 0)
+}
+
+export function sownPlantsOf(row) {
+  return Math.max(0, Number(row?.coveredPlants) || 0)
+}
+
 export function applyBufferToPlants(basePlants, bufferPct) {
   const base = Number(basePlants) || 0
   const pct = Number(bufferPct) || 0
@@ -154,7 +179,7 @@ export function buildSelectedOrderRequestScope(
   }
 
   const rawPlants = selectedRows.reduce(
-    (sum, row) => sum + (Number(row?.numberOfPlants) || 0),
+    (sum, row) => sum + remainingPlantsOf(row),
     0
   )
   const bufferedPlants = applyBufferToPlants(
