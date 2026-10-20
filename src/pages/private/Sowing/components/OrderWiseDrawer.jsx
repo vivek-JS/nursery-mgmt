@@ -30,6 +30,7 @@ import {
   plantsPerPacket,
   applyBufferToPlants,
 } from "./sowingPackingUtils"
+import SowingPacketsWhatsAppDialog from "./SowingPacketsWhatsAppDialog"
 
 function fmtQty(n) {
   return (Number(n) || 0).toLocaleString("en-IN")
@@ -188,6 +189,7 @@ export default function OrderWiseDrawer({
   const [converting, setConverting] = useState(false)
   const [collectRow, setCollectRow] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [waOpen, setWaOpen] = useState(false)
 
   useEffect(() => {
     if (!open || !card) return
@@ -551,6 +553,15 @@ export default function OrderWiseDrawer({
           />
           <Button
             fullWidth
+            variant="outlined"
+            disabled={!selected.length}
+            onClick={() => setWaOpen(true)}
+            sx={{ mt: 1 }}
+          >
+            WhatsApp packets ({selected.length})
+          </Button>
+          <Button
+            fullWidth
             variant="contained"
             disabled={!selected.length}
             onClick={requestSelected}
@@ -592,6 +603,12 @@ export default function OrderWiseDrawer({
           </Button>
         </DialogActions>
       </Dialog>
+      <SowingPacketsWhatsAppDialog
+        open={waOpen}
+        onClose={() => setWaOpen(false)}
+        card={card}
+        orders={selectedRows}
+      />
       <RaisingIntakeModal
         open={Boolean(collectRow)}
         onClose={() => setCollectRow(null)}
