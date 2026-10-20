@@ -32,6 +32,7 @@ import { NetworkManager, API } from "network/core"
 import DrawerExportButton from "components/DrawerExportButton"
 import { clock12, durationLabel } from "./MachineTimeField"
 import SowBatchDestroyDialog from "./SowBatchDestroyDialog"
+import { leftoverRemaining, requestOrderSowLine } from "./requestOrderSowLine"
 
 const IST = "Asia/Kolkata"
 
@@ -858,7 +859,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         {(row.linkedOrders || []).some((o) => !o.sowingDone) && (
                           <Chip
                             size="small"
-                            label={`${(row.linkedOrders || []).filter((o) => !o.sowingDone).length} leftover`}
+                            label={`${(row.linkedOrders || [])
+                              .filter((o) => !o.sowingDone)
+                              .reduce((s, o) => s + leftoverRemaining(o), 0)} leftover`}
                             sx={{ bgcolor: "#e2e8f0", fontWeight: 700 }}
                           />
                         )}
@@ -1021,11 +1024,11 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       rows: (detail.linkedOrders || []).map((o) => [
                         o.orderNumber,
                         o.farmerName,
-                        o.plants || 0,
+                        requestOrderSowLine(o),
                         o.bookingDate ? fmtDay(o.bookingDate) : "",
                         o.deliveryDate ? fmtDay(o.deliveryDate) : "",
                         o.coverOffsetDays,
-                        o.sowingDone ? "Yes" : "No",
+                        o.sowingDone ? "Yes" : o.partiallyCovered ? "Partial" : "No",
                         o.sowingDoneAt ? fmtDay(o.sowingDoneAt) : "",
                       ]),
                     },
@@ -1227,10 +1230,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       )}
                     </Stack>
                     <Typography variant="caption" color="text.secondary">
-                      {o.plants || 0} plants
+                      {requestOrderSowLine(o)}
                       {o.bookingDate ? ` · booked ${fmtDay(o.bookingDate)}` : ""}
                       {o.deliveryDate ? ` · delivery ${fmtDay(o.deliveryDate)}` : ""}
-                      {o.sowingDone ? " · Sown" : " · Need sow"}
                       {o.sowingDoneAt ? ` · sowed ${fmtDay(o.sowingDoneAt)}` : ""}
                     </Typography>
                   </Box>
