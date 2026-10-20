@@ -6559,6 +6559,7 @@ const mapSlotForUi = (slotData) => {
           sowingCoverSources,
           sowingCoverReversedAt,
           sowingPartialCover,
+          leftoverFromIncomplete,
           sowBatchLinks,
         } = data || {}
         const orderFor = normalizeOrderFor(orderForRaw)
@@ -6719,6 +6720,7 @@ const mapSlotForUi = (slotData) => {
             sowingCoverSources: Array.isArray(sowingCoverSources) ? sowingCoverSources : [],
             sowingCoverReversedAt: sowingCoverReversedAt || null,
             sowingPartialCover: Array.isArray(sowingPartialCover) ? sowingPartialCover : [],
+            leftoverFromIncomplete: Boolean(leftoverFromIncomplete),
             sowBatchLinks: Array.isArray(sowBatchLinks) ? sowBatchLinks : [],
             productMappingId: data?.productMappingId || null,
             slotHistory: Array.isArray(bookingSlot)
@@ -13194,6 +13196,7 @@ const mapSlotForUi = (slotData) => {
                           sowingCoverSources={selectedOrder?.details?.sowingCoverSources}
                           sowingCoverReversedAt={selectedOrder?.details?.sowingCoverReversedAt}
                           sowingPartialCover={selectedOrder?.details?.sowingPartialCover}
+                          leftoverFromIncomplete={Boolean(selectedOrder?.details?.leftoverFromIncomplete)}
                           sowBatchLinks={selectedOrder?.details?.sowBatchLinks}
                           sowingPlan={selectedOrder?.details?.sowingPlan}
                           plantId={selectedOrder?.details?.plantID}

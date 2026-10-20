@@ -302,7 +302,7 @@ export default function SlotStockCard({
                   </Typography>
                 </Stack>
                 {pending.slice(0, 3).map((o) => {
-                  const isPartial = o.partiallyCovered || (o.coveredPlants > 0 && !o.sowingDone)
+                  const isPartial = o.partiallyCovered || o.leftoverFromIncomplete || (o.coveredPlants > 0 && !o.sowingDone)
                   return (
                     <OrderLine
                       key={o._id}

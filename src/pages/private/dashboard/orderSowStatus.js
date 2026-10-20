@@ -35,13 +35,16 @@ export function resolveOrderSowStatus(details) {
       className: "bg-green-50 text-green-800 border border-green-200",
     }
   }
-  if (held > 0) {
+  if (held > 0 || details?.leftoverFromIncomplete) {
     return {
       key: "partial",
       label: "Partial sow",
-      title: `${held.toLocaleString("en-IN")} plants already held · leftover still needs sowing`,
+      title: held > 0
+        ? `${held.toLocaleString("en-IN")} plants already held · leftover still needs sowing`
+        : "Leftover plants after incomplete sowing — still needs a new request",
       className: "bg-yellow-50 text-yellow-900 border border-yellow-300",
       held,
+      leftoverFromIncomplete: Boolean(details?.leftoverFromIncomplete),
     }
   }
   return {

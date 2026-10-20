@@ -70,6 +70,7 @@ export default function OrderSowingDetailsPanel({
   sowingCoverSources = [],
   sowingCoverReversedAt = null,
   sowingPartialCover = [],
+  leftoverFromIncomplete = false,
   sowBatchLinks = [],
   sowingPlan = null,
   plantId = null,
@@ -85,6 +86,7 @@ export default function OrderSowingDetailsPanel({
     sowingCoverSources: coverSources,
     sowingCoverReversedAt,
     sowingPartialCover,
+    leftoverFromIncomplete,
   })
   const activeCover =
     coverSources.length > 0 && !sowingCoverReversedAt ? coverSources : []
@@ -295,6 +297,10 @@ export default function OrderSowingDetailsPanel({
         {sowStatus.held > 0 ? (
           <Typography variant="caption" color="text.secondary">
             {fmtNum(sowStatus.held)} already held · leftover {fmtNum(Math.max(0, plantsBooked - sowStatus.held))}
+          </Typography>
+        ) : leftoverFromIncomplete ? (
+          <Typography variant="caption" color="text.secondary">
+            Leftover {fmtNum(plantsBooked)} plants still to sow
           </Typography>
         ) : (
           <Typography variant="caption" color="text.secondary">
