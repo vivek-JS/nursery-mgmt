@@ -11,6 +11,7 @@ import OrderSowForm from "./OrderSowForm"
 import OrderCoverExcessSection from "./OrderCoverExcessSection"
 import { summarizePicks } from "../order/ExcessBatchCoverDialog"
 import { NetworkManager, API } from "network/core"
+import { resolveOrderSowStatus } from "./orderSowStatus"
 
 const READY_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -68,6 +69,7 @@ export default function OrderSowingDetailsPanel({
   sowingDoneRequestId = null,
   sowingCoverSources = [],
   sowingCoverReversedAt = null,
+  sowingPartialCover = [],
   sowBatchLinks = [],
   sowingPlan = null,
   plantId = null,
@@ -78,6 +80,12 @@ export default function OrderSowingDetailsPanel({
   onUpdated,
 }) {
   const coverSources = Array.isArray(sowingCoverSources) ? sowingCoverSources : []
+  const sowStatus = resolveOrderSowStatus({
+    sowingDone,
+    sowingCoverSources: coverSources,
+    sowingCoverReversedAt,
+    sowingPartialCover,
+  })
   const activeCover =
     coverSources.length > 0 && !sowingCoverReversedAt ? coverSources : []
   const reqId = requestIdParam(sowingDoneRequestId)
@@ -237,7 +245,12 @@ export default function OrderSowingDetailsPanel({
     return (
       <Box className="space-y-3">
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Chip label="Sow completed" color="success" size="small" sx={{ fontWeight: 700 }} />
+          <Chip
+            label={sowStatus.label}
+            color={sowStatus.key === "excess" ? "warning" : "success"}
+            size="small"
+            sx={{ fontWeight: 700 }}
+          />
           <Typography variant="body2" color="text.secondary">
             {formatDoneAt(sowingDoneAt)}
           </Typography>
@@ -272,6 +285,23 @@ export default function OrderSowingDetailsPanel({
 
   return (
     <Box className="space-y-3">
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Chip
+          size="small"
+          label={sowStatus.label}
+          sx={{ fontWeight: 800 }}
+          color={sowStatus.key === "partial" ? "warning" : "default"}
+        />
+        {sowStatus.held > 0 ? (
+          <Typography variant="caption" color="text.secondary">
+            {fmtNum(sowStatus.held)} already held · leftover {fmtNum(Math.max(0, plantsBooked - sowStatus.held))}
+          </Typography>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            {fmtNum(plantsBooked)} plants still to sow
+          </Typography>
+        )}
+      </Stack>
       {coverSourcesBlock}
       {movedBlock}
       <OrderSowForm

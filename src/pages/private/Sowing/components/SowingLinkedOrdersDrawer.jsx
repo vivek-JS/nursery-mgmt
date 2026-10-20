@@ -253,6 +253,23 @@ export default function SowingLinkedOrdersDrawer({
                       />
                     ) : (
                       <>
+                        {o.leftoverFromIncomplete || o.partiallyCovered ? (
+                          <Chip
+                            size="small"
+                            label={
+                              o.partiallyCovered
+                                ? `Leftover ${Number(o.leftoverPlants || o.numberOfPlants) || 0}`
+                                : "Leftover"
+                            }
+                            sx={{
+                              height: 20,
+                              fontWeight: 800,
+                              fontSize: "0.65rem",
+                              bgcolor: "#fde68a",
+                              color: "#92400e",
+                            }}
+                          />
+                        ) : null}
                         <Chip
                           size="small"
                           label="Need sow"

@@ -143,6 +143,7 @@ import { useFillViewportHeight } from "hooks/useFillViewportHeight"
 import OrderEditPanel from "./OrderEditPanel"
 import OrderRaisingIntakePanel from "./OrderRaisingIntakePanel"
 import OrderSowingDetailsPanel from "./OrderSowingDetailsPanel"
+import { resolveOrderSowStatus } from "./orderSowStatus"
 import ExcessBatchCoverDialog, {
   SOW_LABEL,
   fetchExcessWithFallback,
@@ -308,11 +309,7 @@ const isRaisingSeedOrder = (row) => {
 
 /** Statuses where base plant quantity must not be edited (enforced in API as well). */
 const STATUSES_BLOCK_QUANTITY_EDIT = new Set([
-  "READY_FOR_DISPATCH",
-  "DISPATCH_PROCESS",
-  "DISPATCHED",
   "COMPLETED",
-  "PARTIALLY_COMPLETED",
   "CANCELLED",
   "REJECTED",
 ])
@@ -6561,6 +6558,7 @@ const mapSlotForUi = (slotData) => {
           sowingDoneRequestId,
           sowingCoverSources,
           sowingCoverReversedAt,
+          sowingPartialCover,
           sowBatchLinks,
         } = data || {}
         const orderFor = normalizeOrderFor(orderForRaw)
@@ -6720,6 +6718,7 @@ const mapSlotForUi = (slotData) => {
             sowingDoneRequestId: sowingDoneRequestId || null,
             sowingCoverSources: Array.isArray(sowingCoverSources) ? sowingCoverSources : [],
             sowingCoverReversedAt: sowingCoverReversedAt || null,
+            sowingPartialCover: Array.isArray(sowingPartialCover) ? sowingPartialCover : [],
             sowBatchLinks: Array.isArray(sowBatchLinks) ? sowBatchLinks : [],
             productMappingId: data?.productMappingId || null,
             slotHistory: Array.isArray(bookingSlot)
@@ -7394,7 +7393,7 @@ const mapSlotForUi = (slotData) => {
         if (hasQuantityPatch) {
           if (!canEditOrderPlantQuantity(row?.orderStatus)) {
             Toast.error(
-              "Plant quantity cannot be changed after Ready for dispatch or for completed/cancelled orders."
+              "Plant quantity cannot be changed on completed or cancelled orders."
             )
             setpatchLoading(false)
             return
@@ -10280,14 +10279,17 @@ const mapSlotForUi = (slotData) => {
                                 Raising
                               </span>
                             ),
-                            !showAgriSalesOrders && row.details?.sowingDone && (
+                            !showAgriSalesOrders && (() => {
+                              const sow = resolveOrderSowStatus(row.details)
+                              return (
                               <span
-                                key="sowed"
-                                className={`${ORDER_CELL_PILL} bg-green-50 text-green-800 border border-green-200`}
-                                title={row.details?.sowingCoverSources?.length ? "Sow completed · covered from excess sowing" : "Sow completed"}>
-                                Sowed
+                                key="sow"
+                                className={`${ORDER_CELL_PILL} ${sow.className}`}
+                                title={sow.title}>
+                                {sow.label}
                               </span>
-                            ),
+                              )
+                            })(),
                             isAgri && row.details?.linkedNurseryOrderCode && (
                               <button
                                 key="linked"
@@ -10903,14 +10905,17 @@ const mapSlotForUi = (slotData) => {
                                       />
                                     </div>
                                   )}
-                                  {!showAgriSalesOrders && row.details?.sowingDone && (
+                                  {!showAgriSalesOrders && (() => {
+                                    const sow = resolveOrderSowStatus(row.details)
+                                    return (
                                     <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide bg-green-100 text-green-800 border border-green-300"
-                                      title="Sow completed"
+                                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide ${sow.className}`}
+                                      title={sow.title}
                                     >
-                                      Sowed
+                                      {sow.label}
                                     </span>
-                                  )}
+                                    )
+                                  })()}
                                   {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                                     <span
                                       className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
@@ -11680,9 +11685,20 @@ const mapSlotForUi = (slotData) => {
                         }`}>
                         <span className="mr-1">🌱</span>
                         Sowing Details
-                        {selectedOrder?.details?.sowingDone ? (
-                          <span className="ml-1 text-[10px] font-bold text-green-600">DONE</span>
-                        ) : null}
+                        {(() => {
+                          const sow = resolveOrderSowStatus(selectedOrder?.details)
+                          const color =
+                            sow.key === "sown" || sow.key === "excess"
+                              ? "text-green-700"
+                              : sow.key === "partial"
+                                ? "text-amber-700"
+                                : "text-slate-600"
+                          return (
+                            <span className={`ml-1 text-[10px] font-bold ${color}`}>
+                              {sow.label.toUpperCase()}
+                            </span>
+                          )
+                        })()}
                       </button>
                       )}
                       <button
@@ -13177,6 +13193,7 @@ const mapSlotForUi = (slotData) => {
                           sowingDoneRequestId={selectedOrder?.details?.sowingDoneRequestId}
                           sowingCoverSources={selectedOrder?.details?.sowingCoverSources}
                           sowingCoverReversedAt={selectedOrder?.details?.sowingCoverReversedAt}
+                          sowingPartialCover={selectedOrder?.details?.sowingPartialCover}
                           sowBatchLinks={selectedOrder?.details?.sowBatchLinks}
                           sowingPlan={selectedOrder?.details?.sowingPlan}
                           plantId={selectedOrder?.details?.plantID}
