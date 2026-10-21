@@ -11,7 +11,6 @@ import {
   Box,
   Divider,
   CircularProgress,
-  Alert,
   Chip,
 } from "@mui/material"
 import { NetworkManager, API } from "network/core"
