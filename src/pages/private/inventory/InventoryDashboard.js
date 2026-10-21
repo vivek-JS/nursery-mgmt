@@ -18,6 +18,7 @@ import { Toast } from 'helpers/toasts/toastHelper';
 import { CheckCircle, XCircle } from 'lucide-react';
 import { useWorkspace } from 'workspace/WorkspaceContext';
 import { canSeeBiotechSeedMaster, isAgriLockedRole } from 'workspace/agriAccess';
+import { cancelSowingRequestById } from './utils/cancelSowingRequest';
 
 const AGRI_HIDDEN_QUICK = new Set([
   'New Product',
@@ -55,6 +56,7 @@ const InventoryDashboard = () => {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [selectedReturnRequest, setSelectedReturnRequest] = useState(null);
+  const [cancellingSowingId, setCancellingSowingId] = useState(null);
 
   useEffect(() => {
     fetchInventorySummary();
@@ -180,6 +182,23 @@ const InventoryDashboard = () => {
       Toast.error(error?.response?.data?.message || 'Error rejecting return request');
     } finally {
       setRejectingId(null);
+    }
+  };
+
+  const handleCancelSowingRequest = async (request, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Cancel ${request.requestNumber}? Linked orders go back to unsown.`)) {
+      return;
+    }
+    setCancellingSowingId(request._id);
+    try {
+      await cancelSowingRequestById(request._id);
+      Toast.success(`${request.requestNumber} cancelled`);
+      fetchPendingSowingRequests();
+    } catch (error) {
+      Toast.error(error?.response?.data?.message || error.message || 'Cancel failed');
+    } finally {
+      setCancellingSowingId(null);
     }
   };
 
@@ -583,6 +602,14 @@ const InventoryDashboard = () => {
                     <span>Available: {request.availablePackets || 0}</span>
                     <span className="text-orange-600 font-semibold">Click to Issue →</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCancelSowingRequest(request, e)}
+                    disabled={cancellingSowingId === request._id}
+                    className="mt-2 w-full rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  >
+                    {cancellingSowingId === request._id ? 'Cancelling…' : 'Cancel request'}
+                  </button>
                 </button>
               ))}
             </div>

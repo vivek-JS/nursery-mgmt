@@ -20,6 +20,10 @@ import {
   InputLabel,
   CircularProgress,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -30,6 +34,7 @@ import {
 } from '@mui/icons-material';
 import { API, NetworkManager } from 'network/core';
 import SowingRequestDialog from './components/SowingRequestDialog';
+import { cancelSowingRequestById } from './utils/cancelSowingRequest';
 
 const SowingRequestsList = () => {
   const navigate = useNavigate();
@@ -162,6 +167,39 @@ const SowingRequestsList = () => {
             open: true,
             title: "Error",
             message: error?.response?.data?.message || 'Failed to cancel all requests',
+          });
+        }
+      },
+    });
+  };
+
+  const handleCancelRequest = async (request) => {
+    if (request.sowingCompleted) {
+      setAlertDialog({
+        open: true,
+        title: "Cannot cancel",
+        message: "Completed sowing requests cannot be cancelled.",
+      });
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: "Cancel request",
+      message: `Cancel ${request.requestNumber}? Linked orders go back to unsown.`,
+      onConfirm: async () => {
+        try {
+          await cancelSowingRequestById(request._id);
+          setAlertDialog({
+            open: true,
+            title: "Cancelled",
+            message: `${request.requestNumber} cancelled. Linked orders are unsown.`,
+          });
+          fetchRequests();
+        } catch (error) {
+          setAlertDialog({
+            open: true,
+            title: "Error",
+            message: error?.response?.data?.message || error.message || "Cancel failed",
           });
         }
       },
@@ -401,6 +439,18 @@ const SowingRequestsList = () => {
                         >
                           <VisibilityIcon />
                         </IconButton>
+                        {request.status !== "cancelled" &&
+                          request.status !== "rejected" &&
+                          !request.sowingCompleted && (
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => handleCancelRequest(request)}
+                            sx={{ textTransform: "none", fontWeight: 700 }}
+                          >
+                            Cancel
+                          </Button>
+                        )}
                       </Box>
                     )}
                   </TableCell>
@@ -422,6 +472,49 @@ const SowingRequestsList = () => {
           fetchRequests();
         }}
       />
+
+      <Dialog
+        open={alertDialog.open}
+        onClose={() => setAlertDialog({ open: false, message: "", title: "" })}
+      >
+        <DialogTitle>{alertDialog.title}</DialogTitle>
+        <DialogContent>
+          <Typography>{alertDialog.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAlertDialog({ open: false, message: "", title: "" })}>
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={confirmDialog.open}
+        onClose={() => setConfirmDialog({ open: false, message: "", title: "", onConfirm: null })}
+      >
+        <DialogTitle>{confirmDialog.title}</DialogTitle>
+        <DialogContent>
+          <Typography>{confirmDialog.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setConfirmDialog({ open: false, message: "", title: "", onConfirm: null })}
+          >
+            Close
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={async () => {
+              const fn = confirmDialog.onConfirm;
+              setConfirmDialog({ open: false, message: "", title: "", onConfirm: null });
+              await fn?.();
+            }}
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

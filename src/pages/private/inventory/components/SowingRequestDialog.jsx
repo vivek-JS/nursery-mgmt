@@ -23,6 +23,7 @@ import { NetworkManager, API } from 'network/core';
 import { formatDisplayDate } from '../../../../utils/dateUtils';
 import SowingIssueInventorySourcePanel from './SowingIssueInventorySourcePanel';
 import { sortBatchesByExpiry } from '../utils/fillBatchesByExpiry';
+import { cancelSowingRequestById } from '../utils/cancelSowingRequest';
 
 const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   const [batches, setBatches] = useState([]);
@@ -773,8 +774,31 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>
-          Cancel
+          Close
         </Button>
+        {request?._id && !request.sowingCompleted && request.status !== 'cancelled' ? (
+          <Button
+            color="error"
+            disabled={submitting}
+            onClick={async () => {
+              if (!window.confirm(`Cancel ${request.requestNumber}? Linked orders go back to unsown.`)) {
+                return;
+              }
+              try {
+                setSubmitting(true);
+                await cancelSowingRequestById(request._id);
+                onSuccess?.();
+                onClose?.();
+              } catch (e) {
+                setError(e?.response?.data?.message || e.message || 'Cancel failed');
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+          >
+            Cancel request
+          </Button>
+        ) : null}
         <Button
           onClick={handleSubmit}
           variant="contained"
