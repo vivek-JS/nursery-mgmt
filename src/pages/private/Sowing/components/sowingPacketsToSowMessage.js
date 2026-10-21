@@ -79,6 +79,14 @@ export function packetsToSowOf(card, rows = []) {
   }
 }
 
+export function plantKeyOf(card) {
+  return String(card?.plantId || card?.plantName || "plant")
+}
+
+export function varietyKeyOf(card) {
+  return `${plantKeyOf(card)}::${card?.subtypeId || card?.subtypeName || "var"}`
+}
+
 function excessPlantsOf(card, rows = []) {
   if (Number(card?.excessPlants) > 0) return Number(card.excessPlants)
   if (card?.isExcessiveSowing) {
@@ -89,70 +97,111 @@ function excessPlantsOf(card, rows = []) {
   return Math.max(0, Math.round(cardGap - linked))
 }
 
-function blockFor({ n, variety, qty, orderLabel, delay, lang }) {
-  const qtyLine =
-    lang === "mr" ? `${n}. *${variety}* ${fmt(qty)}` : `${n}. *${variety}* ${fmt(qty)}`
-  const idLine = orderLabel
-    ? lang === "mr"
-      ? `   ऑर्डर #${orderLabel}`
-      : `   Order #${orderLabel}`
-    : lang === "mr"
-      ? "   एक्सेस (ऑर्डर लिंक नाही)"
-      : "   Excess (no order linked)"
-  const delayLine = delay ? `   ${delay}` : ""
-  return [qtyLine, idLine, delayLine].filter(Boolean).join("\n")
-}
-
-export function buildPacketsToSowMessage({ card, rows = [], lang = "mr" } = {}) {
-  const plant = cropName(card?.plantName, lang)
+function varietyItems(card, rows, lang) {
   const variety = varietyName(card?.subtypeName, lang)
-  const window = deliveryWindowOf(rows)
-  const shed = card?.shedName || rows.find((r) => r.shedName)?.shedName || ""
-  const excess = excessPlantsOf(card, rows)
-
   const items = []
   for (const row of rows) {
     const qty = remainingPlantsOf(row)
     if (qty <= 0) continue
     const delay = Number(row.daysUntilSow) < 0 ? urgencyOf(row.daysUntilSow) : null
     items.push({
-      variety: varietyName(row.subtypeName || card?.subtypeName, lang),
       qty,
       orderLabel: row.orderNumber || "",
       delay: delay ? (lang === "mr" ? delay.mr : delay.en) : "",
     })
   }
+  const excess = excessPlantsOf(card, rows)
   if (excess > 0.5 && !items.some((i) => !i.orderLabel)) {
-    items.push({ variety, qty: excess, orderLabel: "", delay: "" })
+    items.push({ qty: excess, orderLabel: "", delay: "" })
   }
+  return { variety, items, total: items.reduce((s, i) => s + i.qty, 0) }
+}
 
-  const body = items.map((item, i) =>
-    blockFor({ n: i + 1, lang, ...item })
-  )
+function varietyBlock(card, rows, lang) {
+  const { variety, items, total } = varietyItems(card, rows, lang)
+  if (!items.length) return ""
+  const window = deliveryWindowOf(rows)
+  const lines = [
+    `*${variety}* — *${fmt(total)}*`,
+    window ? (lang === "mr" ? `Delivery window: ${window}` : `Delivery window: ${window}`) : "",
+  ]
+  items.forEach((item, i) => {
+    const who = item.orderLabel
+      ? lang === "mr"
+        ? `ऑर्डर #${item.orderLabel}`
+        : `Order #${item.orderLabel}`
+      : lang === "mr"
+        ? "एक्सेस (ऑर्डर लिंक नाही)"
+        : "Excess (no order linked)"
+    lines.push(`${i + 1}. ${who} · ${fmt(item.qty)}`)
+    if (item.delay) lines.push(`   ${item.delay}`)
+  })
+  return lines.filter(Boolean).join("\n")
+}
 
-  if (lang === "en") {
-    return [
-      "*Sowing needed*",
-      `*${plant}* · *${variety}*`,
-      window ? `Delivery window: ${window}` : "",
-      shed ? `Shed: ${shed}` : "",
-      "",
-      ...body,
-    ]
-      .filter((line, i, arr) => line !== "" || arr[i - 1] !== "")
-      .join("\n")
-      .trim()
-  }
-
+function cropBlock(plantName, bundles, lang) {
+  const plant = cropName(plantName, lang)
+  const sections = bundles
+    .map(({ card, rows }) => varietyBlock(card, rows || [], lang))
+    .filter(Boolean)
+  if (!sections.length) return ""
+  const allRows = bundles.flatMap((b) => b.rows || [])
+  const total = bundles.reduce((s, b) => s + varietyItems(b.card, b.rows || [], lang).total, 0)
+  const window = deliveryWindowOf(allRows)
+  const sheds = [
+    ...new Set(
+      bundles
+        .map((b) => b.card?.shedName || (b.rows || []).find((r) => r.shedName)?.shedName)
+        .filter(Boolean)
+    ),
+  ]
+  const nVar = sections.length
+  const summary =
+    lang === "mr"
+      ? `एकूण *${fmt(total)}* रोपे · ${nVar} वाण`
+      : `Total *${fmt(total)}* plants · ${nVar} ${nVar === 1 ? "variety" : "varieties"}`
   return [
-    "*लागवड झाली पाहिजे*",
-    `*${plant}* · *${variety}*`,
+    `*${plant}*`,
+    summary,
     window ? `Delivery window: ${window}` : "",
-    shed ? `शेड: ${shed}` : "",
+    sheds.length
+      ? lang === "mr"
+        ? `शेड: ${sheds.join(", ")}`
+        : `Shed: ${sheds.join(", ")}`
+      : "",
     "",
-    ...body,
+    sections.join("\n\n"),
   ]
     .filter((line, i, arr) => line !== "" || arr[i - 1] !== "")
     .join("\n")
     .trim()
+}
+
+function groupBundles(bundles = []) {
+  const map = new Map()
+  for (const b of bundles) {
+    if (!b?.card) continue
+    const name = b.card.plantName || "Plant"
+    const key = plantKeyOf(b.card)
+    if (!map.has(key)) map.set(key, { plantName: name, bundles: [] })
+    map.get(key).bundles.push(b)
+  }
+  return [...map.values()].sort((a, b) =>
+    String(a.plantName).localeCompare(String(b.plantName))
+  )
+}
+
+/** Crop-wise (then variety / order) sowing-needed WhatsApp text. */
+export function buildSowNeededMessage({ bundles = [], lang = "mr" } = {}) {
+  const crops = groupBundles(bundles)
+    .map((g) => cropBlock(g.plantName, g.bundles, lang))
+    .filter(Boolean)
+  if (!crops.length) return ""
+  const title = lang === "mr" ? "*लागवड झाली पाहिजे*" : "*Sowing needed*"
+  return [title, "", crops.join("\n\n────────\n\n")].join("\n").trim()
+}
+
+export function buildPacketsToSowMessage({ card, rows = [], lang = "mr" } = {}) {
+  if (!card) return buildSowNeededMessage({ bundles: [], lang })
+  return buildSowNeededMessage({ bundles: [{ card, rows }], lang })
 }

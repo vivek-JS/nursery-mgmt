@@ -17,6 +17,7 @@ import LocalFloristRoundedIcon from "@mui/icons-material/LocalFloristRounded"
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded"
 import MapRoundedIcon from "@mui/icons-material/MapRounded"
 import PrintIcon from "@mui/icons-material/Print"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import OrderWiseDrawer from "./OrderWiseDrawer"
 import RequestPacketsDialog from "./RequestPacketsDialog"
 import SowingRoadmapDialog from "./SowingRoadmapDialog"
@@ -45,7 +46,8 @@ export default function EasyRequestPanel({
   const isOfficeAdmin = useIsOfficeAdmin()
   const canEnterSow = isSuperAdmin || isOfficeAdmin
   const { sowHorizonDays } = useSowHorizon()
-  const { openWhatsApp, waDialog } = useEasyRequestWhatsApp(sowHorizonDays)
+  const { openWhatsApp, openCropWhatsApp, openAllWhatsApp, waDialog } =
+    useEasyRequestWhatsApp(sowHorizonDays)
   const [view, setView] = useState("cards")
   const [loading, setLoading] = useState(true)
   const [cards, setCards] = useState([])
@@ -345,6 +347,23 @@ export default function EasyRequestPanel({
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Button
               size="small"
+              variant="contained"
+              disableElevation
+              startIcon={<WhatsAppIcon />}
+              onClick={() => openAllWhatsApp(cards)}
+              disabled={loading || !cards.length}
+              sx={{
+                textTransform: "none",
+                fontWeight: 800,
+                bgcolor: "#16a34a",
+                color: "#fff",
+                "&:hover": { bgcolor: "#15803d" },
+              }}
+            >
+              WhatsApp all
+            </Button>
+            <Button
+              size="small"
               variant="outlined"
               disableElevation
               startIcon={<PrintIcon />}
@@ -561,6 +580,7 @@ export default function EasyRequestPanel({
                         setDrawerCard(card)
                       }}
                       onWhatsApp={openWhatsApp}
+                      onCropWhatsApp={openCropWhatsApp}
                       onRaisingOrders={(card) => {
                         setDrawerRaisingOnly(true)
                         setDrawerCard(card)

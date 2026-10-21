@@ -14,6 +14,7 @@ import {
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
 import SpaIcon from "@mui/icons-material/Spa"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import EasyRequestSubtypeRow from "./EasyRequestSubtypeRow"
 
 const HEAD = [
@@ -34,6 +35,7 @@ export default function EasyRequestPlantGroup({
   defaultOpen = true,
   onOrders,
   onWhatsApp,
+  onCropWhatsApp,
   onRaisingOrders,
   onRequest,
   onGapClick,
@@ -95,6 +97,17 @@ export default function EasyRequestPlantGroup({
         <Typography variant="caption" fontWeight={700} color="text.secondary" mr={0.5}>
           {count} subtype{count === 1 ? "" : "s"}
         </Typography>
+        <IconButton
+          size="small"
+          title="WhatsApp this crop"
+          onClick={(e) => {
+            e.stopPropagation()
+            onCropWhatsApp?.(group)
+          }}
+          sx={{ color: "#16a34a" }}
+        >
+          <WhatsAppIcon fontSize="small" />
+        </IconButton>
         <IconButton
           size="small"
           sx={{
