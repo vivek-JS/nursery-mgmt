@@ -18,6 +18,7 @@ import {
   Alert,
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import { NetworkManager, API } from "network/core"
 import DrawerExportButton from "components/DrawerExportButton"
 import SeedPlanChip from "./SeedPlanChip"
@@ -333,6 +334,13 @@ export default function OrderWiseDrawer({
                 fileName={`sowing-orders-${card?.plantName || ""}-${card?.subtypeName || ""}`}
               />
             ) : null}
+            <IconButton
+              onClick={() => setWaOpen(true)}
+              sx={{ color: "#16a34a" }}
+              title="WhatsApp"
+            >
+              <WhatsAppIcon />
+            </IconButton>
             <IconButton onClick={onClose}>
               <CloseIcon />
             </IconButton>
@@ -573,12 +581,13 @@ export default function OrderWiseDrawer({
           />
           <Button
             fullWidth
-            variant="outlined"
-            disabled={!selected.length}
+            variant="contained"
+            disableElevation
+            startIcon={<WhatsAppIcon />}
             onClick={() => setWaOpen(true)}
-            sx={{ mt: 1 }}
+            sx={{ mt: 1, bgcolor: "#16a34a", "&:hover": { bgcolor: "#15803d" }, textTransform: "none", fontWeight: 800 }}
           >
-            WhatsApp packets ({selected.length})
+            WhatsApp
           </Button>
           <Button
             fullWidth
@@ -627,7 +636,7 @@ export default function OrderWiseDrawer({
         open={waOpen}
         onClose={() => setWaOpen(false)}
         card={card}
-        orders={selectedRows}
+        orders={selectedRows.length ? selectedRows : rows}
       />
       <RaisingIntakeModal
         open={Boolean(collectRow)}

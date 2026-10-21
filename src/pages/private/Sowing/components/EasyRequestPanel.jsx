@@ -24,6 +24,7 @@ import EasyRequestPlantGroup from "./EasyRequestPlantGroup"
 import SowingInProgressCard from "./SowingInProgressCard"
 import SowingLinkedOrdersDrawer from "./SowingLinkedOrdersDrawer"
 import AdminSowEntryDialog from "./AdminSowEntryDialog"
+import { useEasyRequestWhatsApp } from "./useEasyRequestWhatsApp"
 import GapDaysDrawer from "./GapDaysDrawer"
 import UnsowedVarietyTab from "./UnsowedVarietyTab"
 import { SowHorizonChips, useSowHorizon } from "./SowHorizonContext"
@@ -44,6 +45,7 @@ export default function EasyRequestPanel({
   const isOfficeAdmin = useIsOfficeAdmin()
   const canEnterSow = isSuperAdmin || isOfficeAdmin
   const { sowHorizonDays } = useSowHorizon()
+  const { openWhatsApp, waDialog } = useEasyRequestWhatsApp(sowHorizonDays)
   const [view, setView] = useState("cards")
   const [loading, setLoading] = useState(true)
   const [cards, setCards] = useState([])
@@ -558,6 +560,7 @@ export default function EasyRequestPanel({
                         setDrawerRaisingOnly(false)
                         setDrawerCard(card)
                       }}
+                      onWhatsApp={openWhatsApp}
                       onRaisingOrders={(card) => {
                         setDrawerRaisingOnly(true)
                         setDrawerCard(card)
@@ -748,6 +751,8 @@ export default function EasyRequestPanel({
             : undefined
         }
       />
+
+      {waDialog}
 
       <OrderWiseDrawer
         open={Boolean(drawerCard)}

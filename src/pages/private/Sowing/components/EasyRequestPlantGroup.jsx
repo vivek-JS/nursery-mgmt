@@ -33,6 +33,7 @@ export default function EasyRequestPlantGroup({
   group,
   defaultOpen = true,
   onOrders,
+  onWhatsApp,
   onRaisingOrders,
   onRequest,
   onGapClick,
@@ -138,6 +139,7 @@ export default function EasyRequestPlantGroup({
                   key={`${card.plantId}-${card.subtypeId}`}
                   card={card}
                   onOrders={onOrders}
+                  onWhatsApp={onWhatsApp}
                   onRaisingOrders={onRaisingOrders}
                   onRequest={onRequest}
                   onGapClick={onGapClick}

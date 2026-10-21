@@ -155,7 +155,7 @@ export default function SowingPacketsWhatsAppDialog({
             )
           })}
         </Stack>
-        {!selected.length && (
+        {orders.length > 0 && !selected.length && (
           <Alert severity="warning" sx={{ mt: 1 }}>
             Select at least one order.
           </Alert>
@@ -181,13 +181,13 @@ export default function SowingPacketsWhatsAppDialog({
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.25 }}>
-        <Button onClick={onCopy} disabled={!selected.length}>
+        <Button onClick={onCopy} disabled={!text}>
           Copy
         </Button>
         <Button
           variant="contained"
           startIcon={<WhatsAppIcon />}
-          disabled={!selected.length}
+          disabled={!text}
           onClick={onShare}
           sx={{ bgcolor: "#16a34a", "&:hover": { bgcolor: "#15803d" } }}
         >

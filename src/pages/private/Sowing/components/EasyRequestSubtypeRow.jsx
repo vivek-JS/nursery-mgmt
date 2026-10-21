@@ -12,6 +12,7 @@ import {
 } from "@mui/material"
 import SpaIcon from "@mui/icons-material/Spa"
 import NorthEastIcon from "@mui/icons-material/NorthEast"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import { getEasyRequestRowMetrics } from "./easyRequestRowMetrics"
 
 const STATUS_SX = {
@@ -26,6 +27,7 @@ const STATUS_SX = {
 export default function EasyRequestSubtypeRow({
   card,
   onOrders,
+  onWhatsApp,
   onRaisingOrders,
   onRequest,
   onGapClick,
@@ -242,6 +244,21 @@ export default function EasyRequestSubtypeRow({
             }}
           >
             Orders
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            disableElevation
+            startIcon={<WhatsAppIcon sx={{ fontSize: "16px !important" }} />}
+            onClick={() => onWhatsApp?.(card)}
+            sx={{
+              textTransform: "none",
+              fontWeight: 800,
+              bgcolor: "#16a34a",
+              "&:hover": { bgcolor: "#15803d" },
+            }}
+          >
+            WhatsApp
           </Button>
           {m.requestPending && m.canCancel ? (
             <Button
