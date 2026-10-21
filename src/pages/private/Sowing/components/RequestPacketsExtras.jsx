@@ -28,9 +28,13 @@ export default function RequestPacketsExtras({
   raisingPkts,
   onShowRaising,
   attachedIntakes,
+  showExcess = true,
+  showRaising = true,
 }) {
+  if (!showExcess && !showRaising) return null
   return (
     <>
+      {showExcess ? (
       <Box sx={boxSx}>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Box>
@@ -65,7 +69,9 @@ export default function RequestPacketsExtras({
           </Stack>
         </Stack>
       </Box>
+      ) : null}
 
+      {showRaising ? (
       <Box>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
           <TextField
@@ -128,6 +134,7 @@ export default function RequestPacketsExtras({
           </Stack>
         )}
       </Box>
+      ) : null}
     </>
   )
 }

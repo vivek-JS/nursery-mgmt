@@ -803,11 +803,8 @@ export default function EasyRequestPanel({
           orderRows={requestCtx.orderRows}
           selectedOrderIds={requestCtx.selectedOrderIds}
           onSuccess={() => {
-            const card = requestCtx.card
             load(true)
-            if (card) setDrawerCard(card)
           }}
-          onCardReload={() => load(true)}
         />
       )}
 
