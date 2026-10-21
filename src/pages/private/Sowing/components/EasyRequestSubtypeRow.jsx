@@ -269,7 +269,7 @@ export default function EasyRequestSubtypeRow({
                 "&:hover": { bgcolor: "#14532d" },
               }}
             >
-              Enter sow
+              Request
             </Button>
           ) : m.canCancel ? (
             <Button

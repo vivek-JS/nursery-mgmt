@@ -587,7 +587,7 @@ export default function OrderWiseDrawer({
             onClick={requestSelected}
             sx={{ mt: 1 }}
           >
-            Enter sow ({selected.length})
+            Request packets ({selected.length})
           </Button>
         </Box>
       </Box>

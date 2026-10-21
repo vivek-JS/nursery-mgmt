@@ -425,10 +425,10 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
             }}
           >
             <Typography fontSize="0.78rem" fontWeight={800} color="#1d4ed8">
-              Enter plants, shed, packets used and packets returned
+              Stock issued — enter used and return for each seed pool
             </Typography>
             <Typography fontSize="0.7rem" fontWeight={600} color="text.secondary">
-              Ready date = sow date + plant ready days. Used + returned are required (0 is allowed).
+              Ready date = sow date + plant ready days. Leftover packets keep the request open.
             </Typography>
           </Box>
 
