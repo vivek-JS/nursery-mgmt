@@ -76,7 +76,7 @@ export function getEasyRequestRowMetrics(card) {
   if (inProgress) {
     statusKind = "progress"
     statusLabel = "In progress"
-  } else if (requestPending && openPacks.length === 0) {
+  } else if (requestPending) {
     statusKind = "pending"
     statusLabel = "Request pending"
   } else if (raisingPendingCollect) {

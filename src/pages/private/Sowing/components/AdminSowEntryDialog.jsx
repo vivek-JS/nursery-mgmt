@@ -137,19 +137,21 @@ function PacketPoolCard({
           onChange={(e) => onUsed(e.target.value)}
           fullWidth
           size="small"
+          required
           inputProps={{ min: 0, max: openPkts }}
           helperText={`Open ${openPkts} pkt`}
         />
         {canReturn ? (
           <TextField
-            label="Packets returned"
+            label="Packets returned *"
             type="number"
             value={returned}
             onChange={(e) => onReturned(e.target.value)}
             fullWidth
             size="small"
+            required
             inputProps={{ min: 0, max: openPkts }}
-            helperText={`Max ${openPkts}`}
+            helperText={`Required · 0 allowed · max ${openPkts}`}
           />
         ) : (
           <TextField
@@ -257,9 +259,9 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     setPlants(expectedPlants > 0 ? String(expectedPlants) : "")
     setSowDate(todayYmd())
     setPacketsUsed(hasCompany && companyOpen > 0 ? String(companyOpen) : "")
-    setPacketsReturned("")
+    setPacketsReturned(hasCompany && companyOpen > 0 ? "0" : "")
     setRaisingUsed(hasRaising && raisingOpen > 0 ? String(raisingOpen) : "")
-    setRaisingReturned("")
+    setRaisingReturned(hasRaising && raisingOpen > 0 ? "0" : "")
     setShedName("")
     setLadies("")
     setGents("")
@@ -308,6 +310,11 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
 
   if (!open || !req?._id) return null
 
+  const filled = (v) => String(v ?? "").trim() !== ""
+  const companyPacketsFilled =
+    !hasCompany || companyOpen <= 0 || (filled(packetsUsed) && filled(packetsReturned))
+  const raisingPacketsFilled =
+    !hasRaising || raisingOpen <= 0 || (filled(raisingUsed) && filled(raisingReturned))
   const companyTouched = hasCompany && (usedNum > 0 || returnedNum > 0)
   const raisingTouched = hasRaising && (raisingUsedNum > 0 || raisingReturnedNum > 0)
   const machineStart24 = toClock24(machineStart)
@@ -318,6 +325,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     Boolean(shedName.trim()) &&
     Boolean(String(sowDate || "").trim()) &&
     readyDaysNum >= 1 &&
+    companyPacketsFilled &&
+    raisingPacketsFilled &&
     (plantsNum > 0 || companyTouched || raisingTouched) &&
     (!machineNeeded || machineSet) &&
     !packetsOver
@@ -325,7 +334,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   const handleSubmit = async () => {
     if (!canSubmit) {
       Toast.error(
-        "Select sow date, pollyhouse/shed, plant ready days, machine start/end time, and plants / packets"
+        "Select sow date, shed, plant ready days, machine time, plants, and packets used + returned"
       )
       return
     }
@@ -416,10 +425,10 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
             }}
           >
             <Typography fontSize="0.78rem" fontWeight={800} color="#1d4ed8">
-              Stock issued — enter used and return for each seed pool
+              Enter plants, shed, packets used and packets returned
             </Typography>
             <Typography fontSize="0.7rem" fontWeight={600} color="text.secondary">
-              Ready date = sow date + plant ready days. Leftover packets keep the request open.
+              Ready date = sow date + plant ready days. Used + returned are required (0 is allowed).
             </Typography>
           </Box>
 

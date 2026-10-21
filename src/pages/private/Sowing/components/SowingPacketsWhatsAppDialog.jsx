@@ -1,4 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react"
+
+function WhatsAppLine({ text }) {
+  const parts = String(text || "").split(/(\*[^*\n]+\*)/g)
+  return (
+    <div>
+      {parts.map((part, i) =>
+        /^\*[^*]+\*$/.test(part) ? (
+          <strong key={i}>{part.slice(1, -1)}</strong>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        )
+      )}
+      {text ? null : "\u00a0"}
+    </div>
+  )
+}
 import {
   Alert,
   Box,
@@ -90,7 +106,7 @@ export default function SowingPacketsWhatsAppDialog({
       <DialogTitle sx={{ display: "flex", alignItems: "center", pr: 1 }}>
         <WhatsAppIcon sx={{ color: "#16a34a", mr: 1 }} />
         <Box flex={1}>
-          <Typography fontWeight={800}>Packets to sow</Typography>
+          <Typography fontWeight={800}>लागवड झाली पाहिजे</Typography>
           <Typography variant="caption" color="text.secondary">
             {card?.plantName} · {card?.subtypeName} · ~{packets.toFixed(1)} pkt ·{" "}
             {remaining.toLocaleString("en-IN")} plants
@@ -157,7 +173,11 @@ export default function SowingPacketsWhatsAppDialog({
             lineHeight: 1.45,
           }}
         >
-          {text}
+          {String(text || "")
+            .split("\n")
+            .map((line, i) => (
+              <WhatsAppLine key={i} text={line} />
+            ))}
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.25 }}>

@@ -10,9 +10,10 @@ import {
   Typography,
 } from "@mui/material"
 import LinkIcon from "@mui/icons-material/Link"
+import AddIcon from "@mui/icons-material/Add"
 import { NetworkManager, API } from "network/core"
 import SubtypeSeedLinkDialog from "../../inventory/components/SubtypeSeedLinkDialog"
-import RequestPacketsStockUpdateDialog from "./RequestPacketsStockUpdateDialog"
+import RequestPacketsAddStockPanel from "./RequestPacketsAddStockPanel"
 import {
   fmt,
   packKey,
@@ -20,12 +21,13 @@ import {
   plantsPerPacket,
 } from "./sowingPackingUtils"
 
-const rowSx = (checked, blocked) => ({
+const rowSx = (checked, blocked, short) => ({
   p: 1.5,
   borderRadius: 1.5,
   bgcolor: "#fff",
   border: "1px solid #e5e7eb",
-  borderColor: checked && !blocked ? "teal" : "#e5e7eb",
+  borderColor: blocked ? "#e5e7eb" : short ? "#fdba74" : checked ? "teal" : "#e5e7eb",
+  boxShadow: short ? "inset 3px 0 0 #ea580c" : undefined,
   opacity: blocked ? 0.55 : 1,
 })
 
@@ -61,7 +63,7 @@ export default function RequestPacketsLinkedStock({
 }) {
   const [links, setLinks] = useState([])
   const [linkOpen, setLinkOpen] = useState(false)
-  const [stockTarget, setStockTarget] = useState(null)
+  const [addStockKey, setAddStockKey] = useState(null)
 
   const loadLinks = async () => {
     if (!card?.plantId || !card?.subtypeId) return
@@ -137,8 +139,10 @@ export default function RequestPacketsLinkedStock({
             const short = Math.max(0, need - stock)
             const plants = need * plantsPerPacket(p)
             const pending = p.pendingRequest
+            const cover = need > 0 ? Math.min(100, (stock / need) * 100) : stock > 0 ? 100 : 0
+            const adding = addStockKey === key
             return (
-              <Box key={key} sx={rowSx(checked, blocked)}>
+              <Box key={key} sx={rowSx(checked, blocked, short > 0)}>
                 <Stack direction="row" alignItems="flex-start" gap={0.5}>
                   {multi && (
                     <Checkbox
@@ -165,15 +169,48 @@ export default function RequestPacketsLinkedStock({
                         label={p.source || "Biotech"}
                         sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700 }}
                       />
+                      <Chip
+                        size="small"
+                        label={
+                          short > 0
+                            ? `Stock ${fmtFn(stock, 2)} · need ${fmtFn(short, 2)} more`
+                            : `Stock ${fmtFn(stock, 2)} pkt`
+                        }
+                        sx={{
+                          height: 20,
+                          fontSize: "0.65rem",
+                          fontWeight: 700,
+                          bgcolor: short > 0 ? "#ffedd5" : "#d1fae5",
+                          color: short > 0 ? "#9a3412" : "#065f46",
+                        }}
+                      />
                     </Stack>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      1 pkt ≈ {plantsPerPacket(p)} plants · stock {fmtFn(stock, 2)}
+                      1 pkt ≈ {plantsPerPacket(p)} plants
                       {pending
                         ? ` · ${pending.status} ${pending.requestNumber} (will replace)`
                         : ""}
                     </Typography>
+                    <Box
+                      sx={{
+                        mt: 0.75,
+                        height: 5,
+                        borderRadius: 1,
+                        bgcolor: "#f3f4f6",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          height: "100%",
+                          width: `${cover}%`,
+                          bgcolor: short > 0 ? "#ea580c" : "#0d9488",
+                          transition: "width 0.2s ease",
+                        }}
+                      />
+                    </Box>
                     {checked && !blocked && (
-                      <Stack direction="row" spacing={1} alignItems="center" mt={1.25} flexWrap="wrap">
+                      <Stack direction="row" spacing={1} alignItems="center" mt={1.25} flexWrap="wrap" useFlexGap>
                         <TextField
                           size="small"
                           type="number"
@@ -186,24 +223,57 @@ export default function RequestPacketsLinkedStock({
                         <Typography variant="caption" color="text.secondary">
                           ≈ {fmtFn(plants)} plants
                         </Typography>
-                        {short > 0 && p.productId ? (
+                        {p.productId ? (
                           <Button
                             size="small"
-                            variant="contained"
+                            variant={short > 0 ? "contained" : "outlined"}
                             disableElevation
-                            onClick={() => setStockTarget({ packing: p, shortfall: short })}
+                            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+                            onClick={() => setAddStockKey(adding ? null : key)}
                             sx={{
                               textTransform: "none",
                               fontWeight: 700,
-                              bgcolor: "#0f766e",
-                              "&:hover": { bgcolor: "#115e59" },
+                              ...(short > 0
+                                ? {
+                                    bgcolor: "#0f766e",
+                                    "&:hover": { bgcolor: "#115e59" },
+                                  }
+                                : { borderColor: "#0f766e", color: "#0f766e" }),
                             }}
                           >
-                            Update stock (+{fmtFn(short, 2)})
+                            {adding ? "Hide" : short > 0 ? `Add stock (+${fmtFn(short, 2)})` : "Add stock"}
                           </Button>
                         ) : null}
                       </Stack>
                     )}
+                    {!checked && !blocked && p.productId ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+                        onClick={() => setAddStockKey(adding ? null : key)}
+                        sx={{
+                          mt: 1,
+                          textTransform: "none",
+                          fontWeight: 700,
+                          borderColor: "#0f766e",
+                          color: "#0f766e",
+                        }}
+                      >
+                        {adding ? "Hide" : "Add stock"}
+                      </Button>
+                    ) : null}
+                    {adding && p.productId ? (
+                      <RequestPacketsAddStockPanel
+                        packing={p}
+                        shortfall={short}
+                        onSaved={(next) => {
+                          onUpdatedStock(p.productId, next)
+                          setAddStockKey(null)
+                        }}
+                        onCancel={() => setAddStockKey(null)}
+                      />
+                    ) : null}
                   </Box>
                 </Stack>
               </Box>
@@ -234,13 +304,6 @@ export default function RequestPacketsLinkedStock({
         }}
       />
 
-      <RequestPacketsStockUpdateDialog
-        open={Boolean(stockTarget)}
-        packing={stockTarget?.packing}
-        shortfall={stockTarget?.shortfall}
-        onClose={() => setStockTarget(null)}
-        onUpdated={(next) => onUpdatedStock(stockTarget?.packing?.productId, next)}
-      />
     </Box>
   )
 }

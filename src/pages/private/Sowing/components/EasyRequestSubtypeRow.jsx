@@ -243,7 +243,19 @@ export default function EasyRequestSubtypeRow({
           >
             Orders
           </Button>
-          {m.openPacks.length > 0 ? (
+          {m.requestPending && m.canCancel ? (
+            <Button
+              size="small"
+              variant="contained"
+              color="error"
+              disableElevation
+              disabled={cancelling}
+              onClick={handleCancel}
+              sx={{ textTransform: "none", fontWeight: 800 }}
+            >
+              {cancelling ? <CircularProgress size={14} color="inherit" /> : "Cancel"}
+            </Button>
+          ) : m.openPacks.length > 0 ? (
             <Button
               size="small"
               variant="contained"
@@ -257,7 +269,7 @@ export default function EasyRequestSubtypeRow({
                 "&:hover": { bgcolor: "#14532d" },
               }}
             >
-              Request
+              Enter sow
             </Button>
           ) : m.canCancel ? (
             <Button

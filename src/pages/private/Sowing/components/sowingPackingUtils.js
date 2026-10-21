@@ -202,9 +202,12 @@ export function buildSelectedOrderRequestScope(
 ) {
   const openRows = (orderRows || []).filter((row) => !row?.alreadyRequested)
   const selectedSet = new Set((selectedOrderIds || []).map(String))
-  const selectedRows = selectedSet.size
-    ? openRows.filter((row) => selectedSet.has(String(row.orderId)))
-    : openRows
+  const selectedRows =
+    selectedSet.size > 0
+      ? openRows.filter((row) => selectedSet.has(String(row.orderId)))
+      : (orderRows || []).length
+        ? []
+        : openRows
 
   if (!(orderRows || []).length) {
     return {

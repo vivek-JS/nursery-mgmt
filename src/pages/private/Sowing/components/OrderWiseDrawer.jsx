@@ -233,6 +233,8 @@ export default function OrderWiseDrawer({
   }, [open, card, raisingOnly, sowHorizonDays, reloadKey])
 
   const openRows = rows.filter((o) => !isSelectionLocked(o))
+  const requestedRows = rows.filter((o) => o.alreadyRequested)
+  const toRequestRows = rows.filter((o) => !o.alreadyRequested)
   const visibleRaisingInHand = rows.reduce(
     (sum, row) => sum + (Number(row.raisingInHandPackets) || 0),
     0
@@ -352,6 +354,9 @@ export default function OrderWiseDrawer({
               {bufferedRemaining > selectedRemaining
                 ? ` · request with buffer ${fmtQty(bufferedRemaining)}`
                 : ""}
+              {requestedRows.length
+                ? ` · ${requestedRows.length} already requested`
+                : ""}
             </>
           )}
         </Typography>
@@ -369,13 +374,25 @@ export default function OrderWiseDrawer({
           </Typography>
         ) : (
           <Stack spacing={1.25} sx={{ flex: 1, overflow: "auto", pb: 2 }}>
-            {rows.map((o) => {
+            {requestedRows.length > 0 && (
+              <Typography variant="caption" fontWeight={800} color="#0f766e" sx={{ letterSpacing: 0.4 }}>
+                REQUESTED · {requestedRows.length}
+              </Typography>
+            )}
+            {[...requestedRows, ...toRequestRows].map((o, idx) => {
               const id = String(o.orderId)
               const raisingStatus = raisingRowStatus(o)
               const locked = isSelectionLocked(o)
+              const showOpenHeader =
+                requestedRows.length > 0 && idx === requestedRows.length
               return (
+                <React.Fragment key={id}>
+                  {showOpenHeader ? (
+                    <Typography variant="caption" fontWeight={800} color="text.secondary" sx={{ letterSpacing: 0.4, pt: 0.5 }}>
+                      TO REQUEST · {toRequestRows.length}
+                    </Typography>
+                  ) : null}
                 <Box
-                  key={id}
                   sx={{
                     p: 1.5,
                     borderRadius: 2,
@@ -383,12 +400,14 @@ export default function OrderWiseDrawer({
                     borderColor: locked
                       ? raisingStatus?.borderColor || "#e5e7eb"
                       : raisingStatus?.borderColor || "#e6ebf1",
-                    bgcolor: locked
+                    bgcolor: o.alreadyRequested
+                      ? "#f0fdfa"
+                      : locked
                       ? raisingStatus?.bgcolor || "#f9fafb"
                       : selected.includes(id)
                         ? raisingStatus?.bgcolor || "#f0f7ff"
                         : raisingStatus?.bgcolor || "#fff",
-                    opacity: locked ? 0.85 : 1,
+                    opacity: locked && !o.alreadyRequested ? 0.85 : 1,
                   }}
                 >
                   <Stack direction="row" alignItems="flex-start" spacing={0.5}>
@@ -491,12 +510,12 @@ export default function OrderWiseDrawer({
                         {o.alreadyRequested && (
                           <Chip
                             size="small"
-                            label={`Already requested · ${o.existingRequestNumber || "—"}`}
+                            label={`Requested · ${o.existingRequestNumber || "—"}`}
                             sx={{
                               height: 22,
-                              fontWeight: 700,
-                              bgcolor: "#e5e7eb",
-                              color: "#374151",
+                              fontWeight: 800,
+                              bgcolor: "#99f6e4",
+                              color: "#115e59",
                             }}
                           />
                         )}
@@ -526,6 +545,7 @@ export default function OrderWiseDrawer({
                     </Box>
                   </Stack>
                 </Box>
+                </React.Fragment>
               )
             })}
           </Stack>
@@ -567,7 +587,7 @@ export default function OrderWiseDrawer({
             onClick={requestSelected}
             sx={{ mt: 1 }}
           >
-            Request packets ({selected.length})
+            Enter sow ({selected.length})
           </Button>
         </Box>
       </Box>

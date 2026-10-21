@@ -8,18 +8,14 @@ import {
   TextField,
   Stack,
   Typography,
-  Box,
   Divider,
   CircularProgress,
   Alert,
-  Chip,
 } from "@mui/material"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import RaisingIntakeModal from "./RaisingIntakeModal"
 import RequestPacketsStats from "./RequestPacketsStats"
-import RequestPacketsLinkedStock from "./RequestPacketsLinkedStock"
-import RequestPacketsStockUpdateDialog from "./RequestPacketsStockUpdateDialog"
 import RequestPacketsExtras from "./RequestPacketsExtras"
 import {
   buildSelectedOrderRequestScope,
@@ -49,7 +45,6 @@ export default function RequestPacketsDialog({
   orderRows = [],
   selectedOrderIds = [],
   onSuccess,
-  onCardReload,
 }) {
   const cardPackings = useMemo(() => packingsOf(card), [card])
   const [allPackings, setAllPackings] = useState(cardPackings)
@@ -60,8 +55,6 @@ export default function RequestPacketsDialog({
     () => allPackings.filter(packingIsRequestable),
     [allPackings]
   )
-  const multi = selectable.length > 1
-
   const [selectedKeys, setSelectedKeys] = useState([])
   const [alloc, setAlloc] = useState({}) // packKey → company packets for gap
   const [excessPkts, setExcessPkts] = useState("0")
@@ -71,8 +64,6 @@ export default function RequestPacketsDialog({
   const [attachedIntakes, setAttachedIntakes] = useState([])
   const [showRaising, setShowRaising] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [showOtherPackings, setShowOtherPackings] = useState(false)
-  const [shortStock, setShortStock] = useState(null)
   const packingPickLocked = useRef(false)
 
   const requestPool = useMemo(() => {
@@ -164,7 +155,6 @@ export default function RequestPacketsDialog({
   useEffect(() => {
     if (!open) return
     packingPickLocked.current = false
-    setShowOtherPackings(false)
     const raisingStart = Number((planRaising || 0).toFixed(2))
     setRaisingPkts(String(raisingStart))
     setExcessPkts("0")
@@ -183,22 +173,6 @@ export default function RequestPacketsDialog({
     if (!open || !packingPickLocked.current || selectedKeys.length === 0) return
     applyDistribution(selectedKeys, "stockFirst")
   }, [companyPlantsTarget])
-
-  const togglePacking = (key) => {
-    packingPickLocked.current = true
-    setShowOtherPackings(true)
-    setSelectedKeys((prev) => {
-      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-      if (next.length === 0) return prev // keep at least one
-      const packs = selectable.filter((p) => next.includes(packKey(p)))
-      setAlloc(distributePackets(companyPlantsTarget, packs, "stockFirst"))
-      return next
-    })
-  }
-
-  const setPackAlloc = (key, value) => {
-    setAlloc((prev) => ({ ...prev, [key]: value }))
-  }
 
   const companyPlants = plantsFromAlloc(selectedPackings, alloc)
   const raising = raisingNum
@@ -242,47 +216,15 @@ export default function RequestPacketsDialog({
     setExcessClamped(excess + delta)
   }
 
-  const handleSubmit = async (directIssue = false) => {
-    if (selectedPackings.length === 0) {
-      Toast.error("Select at least one packing")
-      return
-    }
-    const lines = selectedPackings
-      .map((p, idx) => {
-        const key = packKey(p)
-        let company = Number(alloc[key]) || 0
-        if (idx === 0) company += excess
-        const raise = idx === 0 ? raising : 0
-        return { packing: p, company, raise, total: company + raise }
-      })
-      .filter((l) => l.total > 0)
-
-    if (!lines.length) {
-      Toast.error("Enter packets for at least one packing")
-      return
-    }
-    if (lines.length > 1) {
-      Toast.error("Only one product can be requested. Keep a single packing.")
-      return
-    }
-
-    const line = lines[0]
-    const packingStock = Number(line.packing.availablePackets) || 0
-    if (line.company > packingStock + 0.001 && line.packing.productId) {
-      setShortStock({
-        packing: line.packing,
-        shortfall: line.company - packingStock,
-      })
-      Toast.error("Packets exceed stock — add stock to continue")
-      return
-    }
-    // Remaining plant gap after raising must request company packets when co. stock can cover.
-    const coStock = Number(card?.availablePackets) || 0
-    if (gapLeft > 0.5 && line.company < 0.01 && coStock > 0.01) {
-      Toast.error(
-        `Gap still uncovered (${fmt(gapLeft)} plants). Add company seed packets so Inventory can issue them.`
-      )
-      applyDistribution(selectedKeys, "stockFirst")
+  const handleSubmit = async () => {
+    const packing = selectedPackings[0] || selectable[0] || requestPool[0] || null
+    const issuedExisting =
+      card?.activeRequest?.status === "issued" || card?.pendingRequest?.status === "issued"
+        ? card.activeRequest || card.pendingRequest
+        : null
+    if (issuedExisting?._id) {
+      onSuccess?.([issuedExisting])
+      onClose?.()
       return
     }
 
@@ -295,22 +237,17 @@ export default function RequestPacketsDialog({
         return
       }
 
-      const cf = plantsPerPacket(line.packing)
-      const packetsNeeded = Number((plantsGap / cf).toFixed(2))
+      const cf = plantsPerPacket(packing) || plantsPerPacket(card) || 1000
+      const packetsNeeded = Math.max(0.01, Number((plantsGap / cf).toFixed(2)))
+      const raise = raising
+      const company = Math.max(0, Number((packetsNeeded - raise).toFixed(2)))
+      const total = Number((company + raise).toFixed(2))
       const source =
-        line.raise > 0 && line.company > 0
-          ? "MIXED"
-          : line.raise > 0
-            ? "RAISING"
-            : "COMPANY"
+        raise > 0 && company > 0 ? "MIXED" : raise > 0 ? "RAISING" : "COMPANY"
       const noteParts = [
-        directIssue ? "Direct sowing request" : "Request packets",
-        line.packing.name || line.packing.code || "Seed",
-        `1 pkt ≈ ${cf} plants`,
+        "Direct sowing request",
+        packing?.name || packing?.code || card?.subtypeName || "Seed",
         `gap ${plantsGap} plants`,
-        line.company > packetsNeeded
-          ? `excess ${(line.company - packetsNeeded).toFixed(2)} pkt`
-          : null,
         notes || null,
       ].filter(Boolean)
 
@@ -318,17 +255,18 @@ export default function RequestPacketsDialog({
         plantId: card.plantId,
         subtypeId: card.subtypeId,
         packetsNeeded,
-        packetsRequested: line.total,
-        packetsFromCompany: line.company,
-        packetsFromRaising: line.raise,
+        packetsRequested: total,
+        packetsFromCompany: company,
+        packetsFromRaising: raise,
         seedSource: source,
-        raisingIntakeIds: line.raise > 0 ? intakeIds : [],
+        raisingIntakeIds: raise > 0 ? intakeIds : [],
         linkedOrderIds: requestScope.linkedOrderIds,
         slotIds: requestScope.slotIds,
         notes: noteParts.join(" · "),
-        directIssue: Boolean(directIssue),
+        directIssue: true,
+        skipStockIssue: true,
       }
-      if (line.packing.productId) body.productId = line.packing.productId
+      if (packing?.productId) body.productId = packing.productId
 
       const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST)
       const res = await instance.request(body)
@@ -336,14 +274,11 @@ export default function RequestPacketsDialog({
         throw new Error(res?.data?.message || `Failed for ${line.packing.name}`)
       }
       const created = res.data.data
-      const tr = res.data.transfer
-      const transferNote = tr?.poNumber
-        ? `PO ${tr.poNumber} (${tr.shortfall} pkt shortfall)`
-        : tr?.skipReason || tr?.error || ""
-      const baseMsg = directIssue
-        ? `Sowing request ${created.requestNumber} created and issued`
-        : `Request ${created.requestNumber} created`
-      Toast.success(transferNote ? `${baseMsg} · ${transferNote}` : baseMsg)
+      Toast.success(
+        res.data.skippedStock
+          ? `${created.requestNumber} ready to sow`
+          : `Sowing request ${created.requestNumber} created — enter sow`
+      )
       onSuccess?.([created])
       onClose?.()
     } catch (e) {
@@ -374,7 +309,7 @@ export default function RequestPacketsDialog({
       >
         <DialogTitle sx={{ pb: 1.5, borderBottom: neutral.border }}>
           <Typography fontWeight={600} fontSize="1.1rem" color="text.primary">
-            Request packets
+            Enter sow
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
             {card?.plantName} · {card?.subtypeName}
@@ -399,104 +334,9 @@ export default function RequestPacketsDialog({
               fmt={fmt}
             />
 
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5} gap={1}>
-                <Typography variant="subtitle2" fontWeight={600} color="text.primary">
-                  {selectedPackings.length > 1 ? "Packings" : "Packing"}
-                </Typography>
-                <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    disableElevation
-                    disabled={saving || selectedPackings.length === 0}
-                    onClick={() => handleSubmit(true)}
-                    sx={{ textTransform: "none", fontWeight: 600 }}
-                  >
-                    Create sowing request
-                  </Button>
-                {multi && (
-                  <Stack direction="row" spacing={0.75}>
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label="Stock first"
-                      clickable
-                      onClick={() => {
-                        packingPickLocked.current = false
-                        applyAutoPick(Number(raisingPkts) || 0)
-                      }}
-                    />
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label="Equal split"
-                      clickable
-                      onClick={() => {
-                        packingPickLocked.current = true
-                        applyDistribution(selectedKeys, "equal")
-                      }}
-                    />
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label="Select all"
-                      clickable
-                      onClick={() => {
-                        packingPickLocked.current = true
-                        setShowOtherPackings(true)
-                        const keys = selectable.map(packKey)
-                        setSelectedKeys(keys)
-                        applyDistribution(keys, "stockFirst")
-                      }}
-                    />
-                  </Stack>
-                )}
-                </Stack>
-              </Stack>
-              {multi && (
-                <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-                  {selectedPackings.length > 1
-                    ? "Only one product can be requested. Uncheck the extra packing first."
-                    : "One packing covers this gap. Create sowing request issues it without Inventory accept."}
-                </Typography>
-              )}
-
-              <RequestPacketsLinkedStock
-                card={card}
-                packings={allPackings}
-                selectedKeys={selectedKeys}
-                alloc={alloc}
-                showOtherPackings={showOtherPackings}
-                multi={multi}
-                onToggle={togglePacking}
-                onAlloc={setPackAlloc}
-                onShowOthers={() => setShowOtherPackings(true)}
-                onPackingsRefresh={(patch) => {
-                  if (patch?.productId) {
-                    setAllPackings((prev) =>
-                      prev.map((p) =>
-                        String(p.productId) === String(patch.productId)
-                          ? { ...p, availablePackets: patch.availablePackets }
-                          : p
-                      )
-                    )
-                  }
-                  if (patch?.merge?.length) {
-                    setAllPackings((prev) => {
-                      const known = new Set(prev.map((p) => String(p.productId || "")))
-                      const add = patch.merge.filter(
-                        (p) => p.productId && !known.has(String(p.productId))
-                      )
-                      return add.length ? [...prev, ...add] : prev
-                    })
-                    return
-                  }
-                  if (!patch?.productId) onCardReload?.()
-                }}
-                fmt={fmt}
-              />
-            </Box>
+            <Alert severity="info" variant="outlined" sx={{ py: 0 }}>
+              Packets and stock are entered on the next screen (Enter sow).
+            </Alert>
 
             <RequestPacketsExtras
               fmt={fmt}
@@ -510,12 +350,6 @@ export default function RequestPacketsDialog({
               onShowRaising={() => setShowRaising(true)}
               attachedIntakes={attachedIntakes}
             />
-
-            {gapLeft > 1 && (
-              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
-                Still short ~{fmt(gapLeft)} plants — add packets or select more packings
-              </Alert>
-            )}
 
             <Divider />
             <TextField
@@ -537,14 +371,14 @@ export default function RequestPacketsDialog({
           <Button
             variant="contained"
             disableElevation
-            onClick={() => handleSubmit(false)}
-            disabled={saving || selectedPackings.length === 0}
+            onClick={handleSubmit}
+            disabled={saving}
             sx={{ textTransform: "none", fontWeight: 600, px: 2.5 }}
           >
             {saving ? (
               <CircularProgress size={20} color="inherit" />
             ) : (
-              `Confirm · ${fmt(totalPkts, 2)} pkt`
+              "Enter sow"
             )}
           </Button>
         </DialogActions>
@@ -578,24 +412,6 @@ export default function RequestPacketsDialog({
         }}
       />
 
-      <RequestPacketsStockUpdateDialog
-        open={Boolean(shortStock)}
-        packing={shortStock?.packing}
-        shortfall={shortStock?.shortfall}
-        onClose={() => setShortStock(null)}
-        onUpdated={(next) => {
-          const pid = shortStock?.packing?.productId
-          if (pid) {
-            setAllPackings((prev) =>
-              prev.map((p) =>
-                String(p.productId) === String(pid)
-                  ? { ...p, availablePackets: next }
-                  : p
-              )
-            )
-          }
-        }}
-      />
     </>
   )
 }

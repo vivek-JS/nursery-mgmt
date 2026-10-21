@@ -169,4 +169,10 @@ describe("buildSelectedOrderRequestScope", () => {
     expect(scope.linkedOrderIds).toEqual([])
     expect(scope.rawPlants).toBe(0)
   })
+
+  it("empty drawer selection does not fall back to every open order", () => {
+    const scope = buildSelectedOrderRequestScope(card, rows, [])
+    expect(scope.linkedOrderIds).toEqual([])
+    expect(scope.rawPlants).toBe(0)
+  })
 })

@@ -18,11 +18,8 @@ export default function SubtypeSeedLinkDialog({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState(null);
-  const [source, setSource] = useState("biotech");
-  const [products, setProducts] = useState([]);
   const [crops, setCrops] = useState([]);
   const [existingLinks, setExistingLinks] = useState([]);
-  const [productId, setProductId] = useState("");
   const [cropId, setCropId] = useState("");
   const [varietyId, setVarietyId] = useState("");
   const [tentativePlantsPerPacket, setTentativePlantsPerPacket] = useState("");
@@ -53,11 +50,7 @@ export default function SubtypeSeedLinkDialog({
     (async () => {
       setLoading(true);
       try {
-        const [prodRes, cropsRes] = await Promise.all([
-          NetworkManager(API.INVENTORY.GET_ALL_PRODUCTS).request(
-            {},
-            { category: "seeds", isActive: true }
-          ),
+        const [cropsRes] = await Promise.all([
           NetworkManager(API.INVENTORY.GET_ALL_RAM_AGRI_INPUTS).request(
             {},
             { productType: "seed" }
@@ -65,15 +58,11 @@ export default function SubtypeSeedLinkDialog({
           loadExisting(),
         ]);
         if (cancelled) return;
-        const prodBody = prodRes?.data?.data ?? prodRes?.data;
-        setProducts(Array.isArray(prodBody) ? prodBody : prodBody?.data || []);
 
         const cropsBody = cropsRes?.data?.data ?? cropsRes?.data;
         const cropList = Array.isArray(cropsBody) ? cropsBody : cropsBody?.data || [];
         setCrops(cropList.filter((c) => (c.productType || "seed") === "seed"));
 
-        setSource("biotech");
-        setProductId("");
         setCropId("");
         setVarietyId("");
         setTentativePlantsPerPacket("");
@@ -93,17 +82,6 @@ export default function SubtypeSeedLinkDialog({
     return (crop?.varieties || []).filter((v) => v.isActive !== false);
   }, [crops, cropId]);
 
-  const linkedProductIds = useMemo(() => {
-    const ids = new Set();
-    for (const l of existingLinks) {
-      if (l.source === "BIOTECH") {
-        const id = l.productId?._id || l.productId;
-        if (id) ids.add(String(id));
-      }
-    }
-    return ids;
-  }, [existingLinks]);
-
   const linkedVarietyIds = useMemo(() => {
     const ids = new Set();
     for (const l of existingLinks) {
@@ -114,50 +92,9 @@ export default function SubtypeSeedLinkDialog({
     return ids;
   }, [existingLinks]);
 
-  const seedProducts = useMemo(
-    () =>
-      products.filter((p) => /^seeds$/i.test(String(p.category || "seeds"))),
-    [products]
-  )
-
-  const selectableProducts = useMemo(() => {
-    return seedProducts.filter((p) => {
-      if (linkedProductIds.has(String(p._id))) return false;
-      const onHere =
-        String(p.plantId) === String(plantId) && String(p.subtypeId) === String(subtypeId);
-      const unassigned = !p.plantId || !p.subtypeId;
-      return onHere || unassigned;
-    });
-  }, [seedProducts, plantId, subtypeId, linkedProductIds]);
-
-  const cropIdOf = (p) =>
-    String(p?.ramAgriCropId?._id || p?.ramAgriCropId || "")
-  const varietyIdOf = (p) =>
-    String(p?.ramAgriVarietyId?._id || p?.ramAgriVarietyId || "")
-
-  const onPickProduct = (id) => {
-    setProductId(id)
-    const p = seedProducts.find((row) => String(row._id) === String(id))
-    if (!p) return
-    const nextCrop = cropIdOf(p)
-    const nextVariety = varietyIdOf(p)
-    if (nextCrop) setCropId(nextCrop)
-    if (nextVariety) setVarietyId(nextVariety)
-  }
-
   const handleSave = async () => {
-    if (source === "biotech") {
-      if (!productId) {
-        Toast.error("Select a Biotech seed product");
-        return;
-      }
-      if (!cropId || !varietyId) {
-        Toast.error("Select crop and variety for this seed product");
-        return;
-      }
-    }
-    if (source === "agri" && (!cropId || !varietyId)) {
-      Toast.error("Select a Ram Agri crop and variety");
+    if (!cropId || !varietyId) {
+      Toast.error("Select crop and variety");
       return;
     }
 
@@ -166,9 +103,10 @@ export default function SubtypeSeedLinkDialog({
       const payload = {
         plantId,
         subtypeId,
-        source,
-        ...(productId ? { productId } : {}),
-        ...(cropId && varietyId ? { cropId, varietyId } : {}),
+        // Crop + variety upserts the Biotech SKU; product picker is not used.
+        source: "agri",
+        cropId,
+        varietyId,
         ...(Number(tentativePlantsPerPacket) > 0
           ? { tentativePlantsPerPacket: Number(tentativePlantsPerPacket) }
           : {}),
@@ -180,10 +118,7 @@ export default function SubtypeSeedLinkDialog({
         return;
       }
 
-      Toast.success(
-        source === "agri" ? "Ram Agri variety linked" : "Biotech product linked"
-      );
-      setProductId("");
+      Toast.success("Crop and variety linked");
       setCropId("");
       setVarietyId("");
       setTentativePlantsPerPacket("");
@@ -226,10 +161,7 @@ export default function SubtypeSeedLinkDialog({
 
   if (!open || !context) return null;
 
-  const canSave =
-    source === "biotech"
-      ? Boolean(productId && cropId && varietyId)
-      : Boolean(cropId && varietyId);
+  const canSave = Boolean(cropId && varietyId);
 
   const linkLabel = (link) => {
     if (link.displayName) return link.displayName;
@@ -272,8 +204,7 @@ export default function SubtypeSeedLinkDialog({
           ) : (
             <>
               <div className="rounded-lg border border-blue-100 bg-blue-50/80 px-3 py-2 text-xs text-blue-900">
-                Seed products need a <strong>SKU + crop + variety</strong>. Biotech and Input
-                links can both sit on this subtype.
+                Link this subtype with a <strong>crop and variety</strong>.
               </div>
 
               {existingLinks.length > 0 && (
@@ -327,164 +258,48 @@ export default function SubtypeSeedLinkDialog({
                 </div>
               )}
 
-              <div className="flex rounded-lg border border-gray-200 p-1 bg-gray-50">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSource("biotech");
-                    setProductId("");
-                    setCropId("");
-                    setVarietyId("");
-                  }}
-                  className={`flex-1 rounded-md py-2 text-sm font-semibold transition-colors ${
-                    source === "biotech"
-                      ? "bg-white text-teal-800 shadow-sm"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  Add Biotech
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSource("agri");
-                    setProductId("");
-                    setCropId("");
-                    setVarietyId("");
-                  }}
-                  className={`flex-1 rounded-md py-2 text-sm font-semibold transition-colors ${
-                    source === "agri"
-                      ? "bg-white text-green-800 shadow-sm"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  Add Ram Agri Input
-                </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Crop <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={cropId}
+                    onChange={(e) => {
+                      setCropId(e.target.value);
+                      setVarietyId("");
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">Select crop</option>
+                    {crops.map((c) => (
+                      <option key={c._id} value={c._id}>
+                        {c.cropName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Variety <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={varietyId}
+                    onChange={(e) => setVarietyId(e.target.value)}
+                    disabled={!cropId}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                  >
+                    <option value="">Select variety</option>
+                    {agriVarieties
+                      .filter((v) => !linkedVarietyIds.has(String(v._id)))
+                      .map((v) => (
+                        <option key={v._id} value={v._id}>
+                          {v.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               </div>
-
-              {source === "biotech" ? (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Seed product <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={productId}
-                      onChange={(e) => onPickProduct(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
-                    >
-                      <option value="">Select seed SKU</option>
-                      {selectableProducts.map((p) => (
-                        <option key={p._id} value={p._id}>
-                          {p.code} — {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Crop <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={cropId}
-                        onChange={(e) => {
-                          setCropId(e.target.value);
-                          setVarietyId("");
-                        }}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      >
-                        <option value="">Select crop</option>
-                        {crops.map((c) => (
-                          <option key={c._id} value={c._id}>
-                            {c.cropName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Variety <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={varietyId}
-                        onChange={(e) => setVarietyId(e.target.value)}
-                        disabled={!cropId}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                      >
-                        <option value="">Select variety</option>
-                        {agriVarieties.map((v) => (
-                          <option key={v._id} value={v._id}>
-                            {v.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Crop <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={cropId}
-                        onChange={(e) => {
-                          setCropId(e.target.value);
-                          setVarietyId("");
-                        }}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      >
-                        <option value="">Select crop</option>
-                        {crops.map((c) => (
-                          <option key={c._id} value={c._id}>
-                            {c.cropName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Variety <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={varietyId}
-                        onChange={(e) => setVarietyId(e.target.value)}
-                        disabled={!cropId}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                      >
-                        <option value="">Select variety</option>
-                        {agriVarieties
-                          .filter((v) => !linkedVarietyIds.has(String(v._id)))
-                          .map((v) => (
-                            <option key={v._id} value={v._id}>
-                              {v.name}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Seed product
-                    </label>
-                    <select
-                      value={productId}
-                      onChange={(e) => onPickProduct(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                    >
-                      <option value="">Optional — pick Biotech SKU</option>
-                      {selectableProducts.map((p) => (
-                        <option key={p._id} value={p._id}>
-                          {p.code} — {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Tentative plants per packet

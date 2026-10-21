@@ -80,7 +80,7 @@ export default function EasyRequestCard({
         border: "1px solid",
         borderColor: inProgress
           ? "#93c5fd"
-          : requestPending && openPacks.length === 0
+          : requestPending
             ? "#fcd34d"
             : raisingPendingCollect
               ? "#fbbf24"
@@ -89,7 +89,7 @@ export default function EasyRequestCard({
                 : "#d7e5dc",
         bgcolor: inProgress
           ? "#eff6ff"
-          : requestPending && openPacks.length === 0
+          : requestPending
             ? "#fffbeb"
             : raisingPendingCollect
               ? "#fffbeb"
@@ -122,7 +122,7 @@ export default function EasyRequestCard({
         </Box>
         {inProgress ? (
           <Chip size="small" label="Sowing in progress" sx={{ height: 22, fontSize: "0.62rem", fontWeight: 800, bgcolor: "#2563eb", color: "#fff" }} />
-        ) : requestPending && openPacks.length === 0 ? (
+        ) : requestPending ? (
           <Chip size="small" label="Request pending" sx={{ height: 22, fontSize: "0.62rem", fontWeight: 800, bgcolor: "#f59e0b", color: "#fff" }} />
         ) : isRaisingPlan ? (
           <Chip

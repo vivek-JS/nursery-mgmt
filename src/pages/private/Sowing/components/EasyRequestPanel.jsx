@@ -11,6 +11,7 @@ import {
   ToggleButtonGroup,
   Alert,
   Skeleton,
+  Backdrop,
 } from "@mui/material"
 import RefreshIcon from "@mui/icons-material/Refresh"
 import LocalFloristRoundedIcon from "@mui/icons-material/LocalFloristRounded"
@@ -18,8 +19,8 @@ import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded"
 import MapRoundedIcon from "@mui/icons-material/MapRounded"
 import PrintIcon from "@mui/icons-material/Print"
 import OrderWiseDrawer from "./OrderWiseDrawer"
-import RequestPacketsDialog from "./RequestPacketsDialog"
 import SowingRoadmapDialog from "./SowingRoadmapDialog"
+import { createEasySowRequest } from "./startEasySowRequest"
 import EasyRequestPlantGroup from "./EasyRequestPlantGroup"
 import SowingInProgressCard from "./SowingInProgressCard"
 import SowingLinkedOrdersDrawer from "./SowingLinkedOrdersDrawer"
@@ -53,7 +54,7 @@ export default function EasyRequestPanel({
   const [drawerCard, setDrawerCard] = useState(null)
   const [drawerRaisingOnly, setDrawerRaisingOnly] = useState(false)
   const [linkedDrawerCard, setLinkedDrawerCard] = useState(null)
-  const [requestCtx, setRequestCtx] = useState(null)
+  const [preparingSow, setPreparingSow] = useState(false)
   const [roadmapOpen, setRoadmapOpen] = useState(false)
   const [sowEntryCard, setSowEntryCard] = useState(null)
   const [gapCard, setGapCard] = useState(null)
@@ -178,17 +179,23 @@ export default function EasyRequestPanel({
       )
       selected = selected.filter((id) => !locked.has(String(id)))
     }
-    const list = Array.isArray(preferredPackings)
-      ? preferredPackings
-      : preferredPackings
-        ? [preferredPackings]
-        : null
-    setRequestCtx({
-      card,
-      packings: list,
-      orderRows: rows,
-      selectedOrderIds: selected,
-    })
+    setPreparingSow(true)
+    try {
+      const created = await createEasySowRequest({
+        card,
+        orderRows: rows,
+        selectedOrderIds: selected,
+      })
+      setSowEntryCard({
+        ...card,
+        activeRequest: created,
+        pendingRequest: created,
+      })
+    } catch (e) {
+      Toast.error(e?.message || "Could not open enter sow")
+    } finally {
+      setPreparingSow(false)
+    }
   }
 
   const useCompanySeedForOrders = useCallback(
@@ -762,25 +769,18 @@ export default function EasyRequestPanel({
         }
         onSeedCollected={() => load(true)}
         onRequestPackets={(orderRows, selectedOrderIds) => {
-          const packs = packingsOf(drawerCard).filter(packingIsRequestable)
-          openRequest(drawerCard, packs, orderRows, selectedOrderIds)
+          openRequest(drawerCard, null, orderRows, selectedOrderIds)
           setDrawerCard(null)
           setDrawerRaisingOnly(false)
         }}
       />
 
-      {requestCtx && (
-        <RequestPacketsDialog
-          open={Boolean(requestCtx)}
-          onClose={() => setRequestCtx(null)}
-          card={requestCtx.card}
-          initialPackings={requestCtx.packings}
-          orderRows={requestCtx.orderRows}
-          selectedOrderIds={requestCtx.selectedOrderIds}
-          onSuccess={() => load(true)}
-          onCardReload={() => load(true)}
-        />
-      )}
+      <Backdrop open={preparingSow} sx={{ zIndex: 1400, color: "#fff" }}>
+        <Stack alignItems="center" spacing={1.5}>
+          <CircularProgress color="inherit" />
+          <Typography fontWeight={700}>Opening enter sow…</Typography>
+        </Stack>
+      </Backdrop>
 
       <SowingRoadmapDialog
         open={roadmapOpen}
