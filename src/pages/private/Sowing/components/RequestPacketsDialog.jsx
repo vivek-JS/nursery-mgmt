@@ -240,7 +240,7 @@ export default function RequestPacketsDialog({
     setExcessClamped(excess + delta)
   }
 
-  const handleSubmit = async (directIssue = false) => {
+  const handleSubmit = async () => {
     if (selectedPackings.length === 0) {
       Toast.error("Select at least one packing")
       return
@@ -293,7 +293,7 @@ export default function RequestPacketsDialog({
             ? "RAISING"
             : "COMPANY"
       const noteParts = [
-        directIssue ? "Direct sowing request" : "Request packets",
+        "Request packets",
         line.packing.name || line.packing.code || "Seed",
         `1 pkt ≈ ${cf} plants`,
         `gap ${plantsGap} plants`,
@@ -312,7 +312,6 @@ export default function RequestPacketsDialog({
         linkedOrderIds: requestScope.linkedOrderIds,
         slotIds: requestScope.slotIds,
         notes: noteParts.join(" · "),
-        directIssue: Boolean(directIssue),
       }
       if (line.packing.productId) body.productId = line.packing.productId
 
@@ -322,11 +321,7 @@ export default function RequestPacketsDialog({
         throw new Error(res?.data?.message || `Failed for ${line.packing.name}`)
       }
       const created = res.data.data
-      Toast.success(
-        directIssue
-          ? `Request ${created.requestNumber} issued — use Enter sow when sowing`
-          : `Request ${created.requestNumber} created`
-      )
+      Toast.success(`Request ${created.requestNumber} created — pending until stock is issued`)
       onSuccess?.([created])
       onClose?.()
     } catch (e) {
@@ -388,16 +383,6 @@ export default function RequestPacketsDialog({
                   {selectedPackings.length > 1 ? "Packings" : "Packing"}
                 </Typography>
                 <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    disableElevation
-                    disabled={saving || selectedPackings.length === 0}
-                    onClick={() => handleSubmit(true)}
-                    sx={{ textTransform: "none", fontWeight: 600 }}
-                  >
-                    Create sowing request
-                  </Button>
                   {multi && (
                     <Stack direction="row" spacing={0.75}>
                       <Chip
@@ -499,7 +484,7 @@ export default function RequestPacketsDialog({
           <Button
             variant="contained"
             disableElevation
-            onClick={() => handleSubmit(false)}
+            onClick={handleSubmit}
             disabled={saving || selectedPackings.length === 0}
             sx={{ textTransform: "none", fontWeight: 600, px: 2.5 }}
           >
