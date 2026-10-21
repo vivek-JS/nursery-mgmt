@@ -257,7 +257,7 @@ export default function EasyRequestSubtypeRow({
                 "&:hover": { bgcolor: "#14532d" },
               }}
             >
-              {m.multi ? "Combine" : "Request"}
+              Request
             </Button>
           ) : m.canCancel ? (
             <Button

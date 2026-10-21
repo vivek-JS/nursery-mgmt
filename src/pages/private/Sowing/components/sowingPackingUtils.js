@@ -15,6 +15,48 @@ export function packKey(p) {
   return String(p?.productId || p?.code || p?.name || "default")
 }
 
+/** Plants this packing can cover from packets currently in stock. */
+export function packingStockPlants(p) {
+  return Math.max(0, (Number(p?.availablePackets) || 0) * plantsPerPacket(p))
+}
+
+export function packingRequestStatus(p) {
+  return p?.pendingRequest?.status || p?.activeRequest?.status || null
+}
+
+/** Issued packings stay locked; unused pending can be replaced on Request packets. */
+export function packingIsIssued(p) {
+  return packingRequestStatus(p) === "issued"
+}
+
+export function packingIsRequestable(p) {
+  return Boolean(p) && !packingIsIssued(p)
+}
+
+/**
+ * Minimum packings for a plant gap.
+ * One packing when its stock covers the gap. Extra packings only when that
+ * stock is short — and only if the next one actually has stock (a real batch).
+ */
+export function pickPackingsForGap(plantsNeeded, packings) {
+  const list = (packings || []).filter(packingIsRequestable)
+  if (!list.length) return []
+  const needed = Math.max(0, Number(plantsNeeded) || 0)
+  const ranked = [...list].sort((a, b) => packingStockPlants(b) - packingStockPlants(a))
+  if (needed <= 0) return [ranked[0]]
+
+  const picked = []
+  let remaining = needed
+  for (const p of ranked) {
+    const cover = packingStockPlants(p)
+    if (picked.length > 0 && cover <= 0) break
+    picked.push(p)
+    remaining -= cover
+    if (remaining <= 0.5) break
+  }
+  return picked
+}
+
 export function packingsOf(card) {
   if (Array.isArray(card?.packings) && card.packings.length) return card.packings
   const pp = plantsPerPacket(card)
@@ -237,7 +279,7 @@ export function buildRoadmapLines(cards = []) {
   const lines = []
   ;(cards || []).forEach((card) => {
     const plants = Number(card.totalPlantsToSowWithBuffer || card.totalGap) || 0
-    const packs = packingsOf(card).filter((p) => !p.pendingRequest)
+    const packs = packingsOf(card).filter(packingIsRequestable)
     if (!packs.length || plants <= 0) return
     const summary = card.orderSeedSummary || {}
     const raisingDefault =

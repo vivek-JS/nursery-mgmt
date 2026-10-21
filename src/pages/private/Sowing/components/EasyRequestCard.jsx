@@ -116,7 +116,8 @@ export default function EasyRequestCard({
           </Typography>
           <Typography variant="caption" color="text.secondary">
             {card.plantReadyDays || "—"}d · {card.orderCount || 0} orders
-            {card.sowingBuffer ? ` · +${card.sowingBuffer}%` : ""}
+            {card.sowingBuffer ? ` · +${card.sowingBuffer}% buf` : ""}
+            {card.sowingMortality ? ` · ${card.sowingMortality}% mort` : ""}
           </Typography>
         </Box>
         {inProgress ? (
@@ -364,7 +365,7 @@ export default function EasyRequestCard({
             onClick={() => onRequest(openPacks)}
             sx={{ flex: 1, textTransform: "none", fontWeight: 800, bgcolor: "#0f766e", "&:hover": { bgcolor: "#0d9488" } }}
           >
-            {multi ? "Combine" : "Request"}
+            Request
           </Button>
         ) : canCancel ? (
           <Button

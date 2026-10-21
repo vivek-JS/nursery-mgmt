@@ -2,6 +2,7 @@ import {
   applyBufferToPlants,
   buildSelectedOrderRequestScope,
   computeRequestPlantsGap,
+  pickPackingsForGap,
   sumRawGapFromCard,
 } from "./sowingPackingUtils"
 
@@ -62,6 +63,37 @@ describe("sumRawGapFromCard", () => {
         slots: [{ rawGap: 3000 }, { rawGap: 2000 }],
       })
     ).toBe(5000)
+  })
+})
+
+describe("pickPackingsForGap", () => {
+  const packs = [
+    { productId: "seed24", name: "Watermelon - Red King", availablePackets: 1, conversionFactor: 1100 },
+    { productId: "wrk21", name: "Redking", availablePackets: 32, conversionFactor: 1030 },
+    { productId: "seed42", name: "Watermelon - RedKing - 50 gm", availablePackets: 50, conversionFactor: 1000 },
+  ]
+
+  it("keeps a single packing when its stock covers the gap", () => {
+    const picked = pickPackingsForGap(28560, packs)
+    expect(picked.map((p) => p.productId)).toEqual(["seed42"])
+  })
+
+  it("adds the next batch only when the first stock is short", () => {
+    const picked = pickPackingsForGap(60000, packs)
+    expect(picked.map((p) => p.productId)).toEqual(["seed42", "wrk21"])
+  })
+
+  it("uses every stocked batch when one is still not enough", () => {
+    const picked = pickPackingsForGap(90000, packs)
+    expect(picked.map((p) => p.productId)).toEqual(["seed42", "wrk21", "seed24"])
+  })
+
+  it("does not add a zero-stock packing once one batch is chosen", () => {
+    const picked = pickPackingsForGap(50000, [
+      { productId: "a", availablePackets: 10, conversionFactor: 1000 },
+      { productId: "b", availablePackets: 0, conversionFactor: 1000 },
+    ])
+    expect(picked.map((p) => p.productId)).toEqual(["a"])
   })
 })
 

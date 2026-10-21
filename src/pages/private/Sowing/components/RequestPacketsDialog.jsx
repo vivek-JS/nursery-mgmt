@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import {
   Dialog,
   DialogTitle,
@@ -13,22 +13,24 @@ import {
   CircularProgress,
   Alert,
   Chip,
-  IconButton,
-  Checkbox,
 } from "@mui/material"
-import AddIcon from "@mui/icons-material/Add"
-import RemoveIcon from "@mui/icons-material/Remove"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
-import SeedPlanChip from "./SeedPlanChip"
 import RaisingIntakeModal from "./RaisingIntakeModal"
+import RequestPacketsStats from "./RequestPacketsStats"
+import RequestPacketsLinkedStock from "./RequestPacketsLinkedStock"
+import RequestPacketsStockUpdateDialog from "./RequestPacketsStockUpdateDialog"
+import RequestPacketsExtras from "./RequestPacketsExtras"
 import {
   buildSelectedOrderRequestScope,
   computeRequestPlantsGap,
   distributePackets,
   fmt,
   packKey,
+  packingIsRequestable,
+  packingStockPlants,
   packingsOf,
+  pickPackingsForGap,
   plantsFromAlloc,
   plantsPerPacket,
 } from "./sowingPackingUtils"
@@ -47,10 +49,15 @@ export default function RequestPacketsDialog({
   orderRows = [],
   selectedOrderIds = [],
   onSuccess,
+  onCardReload,
 }) {
-  const allPackings = useMemo(() => packingsOf(card), [card])
+  const cardPackings = useMemo(() => packingsOf(card), [card])
+  const [allPackings, setAllPackings] = useState(cardPackings)
+  useEffect(() => {
+    setAllPackings(cardPackings)
+  }, [cardPackings, open])
   const selectable = useMemo(
-    () => allPackings.filter((p) => !p.pendingRequest),
+    () => allPackings.filter(packingIsRequestable),
     [allPackings]
   )
   const multi = selectable.length > 1
@@ -64,6 +71,14 @@ export default function RequestPacketsDialog({
   const [attachedIntakes, setAttachedIntakes] = useState([])
   const [showRaising, setShowRaising] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [showOtherPackings, setShowOtherPackings] = useState(false)
+  const [shortStock, setShortStock] = useState(null)
+  const packingPickLocked = useRef(false)
+
+  const requestPool = useMemo(() => {
+    const prefer = (initialPackings || []).filter(packingIsRequestable)
+    return prefer.length ? prefer : selectable
+  }, [initialPackings, selectable])
 
   const selectedPackings = useMemo(
     () => selectable.filter((p) => selectedKeys.includes(packKey(p))),
@@ -128,29 +143,50 @@ export default function RequestPacketsDialog({
     setAlloc(distributePackets(companyPlantsTarget, packs, mode))
   }
 
+  const applyAutoPick = (raisingPackets = Number(raisingPkts) || 0) => {
+    const ranked = [...requestPool].sort(
+      (a, b) => packingStockPlants(b) - packingStockPlants(a)
+    )
+    const preview = computeRequestPlantsGap({
+      card: requestScope.gapCard,
+      raisingPackets,
+      conversionFactor: plantsPerPacket(ranked[0]) || plantsPerPacket(card) || 1,
+    })
+    const picked = pickPackingsForGap(preview.companyBuffered, requestPool)
+    const use = picked.length ? picked : requestPool.slice(0, 1)
+    const keys = use.map(packKey)
+    setSelectedKeys((prev) =>
+      prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys
+    )
+    setAlloc(distributePackets(preview.companyBuffered, use, "stockFirst"))
+  }
+
   useEffect(() => {
     if (!open) return
-    const prefer = (initialPackings || []).filter((p) => !p?.pendingRequest)
-    const start =
-      prefer.length > 0
-        ? prefer.map(packKey)
-        : selectable.map(packKey)
-    const keys = start.length ? start : selectable.slice(0, 1).map(packKey)
-    setSelectedKeys(keys)
-    setRaisingPkts(String(Number((planRaising || 0).toFixed(2))))
+    packingPickLocked.current = false
+    setShowOtherPackings(false)
+    const raisingStart = Number((planRaising || 0).toFixed(2))
+    setRaisingPkts(String(raisingStart))
     setExcessPkts("0")
     setNotes("")
     setIntakeIds(scopedRaisingIntakes.map((intake) => intake._id).filter(Boolean))
     setAttachedIntakes(scopedRaisingIntakes)
-    applyDistribution(keys, "stockFirst")
+    applyAutoPick(raisingStart)
   }, [open, card?.plantId, card?.subtypeId, selectedOrderIds.join("|")])
 
   useEffect(() => {
-    if (!open || selectedKeys.length === 0) return
+    if (!open || packingPickLocked.current) return
+    applyAutoPick(Number(raisingPkts) || 0)
+  }, [raisingPkts])
+
+  useEffect(() => {
+    if (!open || !packingPickLocked.current || selectedKeys.length === 0) return
     applyDistribution(selectedKeys, "stockFirst")
   }, [companyPlantsTarget])
 
   const togglePacking = (key) => {
+    packingPickLocked.current = true
+    setShowOtherPackings(true)
     setSelectedKeys((prev) => {
       const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
       if (next.length === 0) return prev // keep at least one
@@ -206,7 +242,7 @@ export default function RequestPacketsDialog({
     setExcessClamped(excess + delta)
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (directIssue = false) => {
     if (selectedPackings.length === 0) {
       Toast.error("Select at least one packing")
       return
@@ -225,11 +261,24 @@ export default function RequestPacketsDialog({
       Toast.error("Enter packets for at least one packing")
       return
     }
+    if (lines.length > 1) {
+      Toast.error("Only one product can be requested. Keep a single packing.")
+      return
+    }
 
+    const line = lines[0]
+    const packingStock = Number(line.packing.availablePackets) || 0
+    if (line.company > packingStock + 0.001 && line.packing.productId) {
+      setShortStock({
+        packing: line.packing,
+        shortfall: line.company - packingStock,
+      })
+      Toast.error("Packets exceed stock — add stock to continue")
+      return
+    }
     // Remaining plant gap after raising must request company packets when co. stock can cover.
     const coStock = Number(card?.availablePackets) || 0
-    const companyTotal = lines.reduce((s, l) => s + l.company, 0)
-    if (gapLeft > 0.5 && companyTotal < 0.01 && coStock > 0.01) {
+    if (gapLeft > 0.5 && line.company < 0.01 && coStock > 0.01) {
       Toast.error(
         `Gap still uncovered (${fmt(gapLeft)} plants). Add company seed packets so Inventory can issue them.`
       )
@@ -246,68 +295,56 @@ export default function RequestPacketsDialog({
         return
       }
 
-      const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST)
-      const created = []
-      const transferNotes = []
+      const cf = plantsPerPacket(line.packing)
+      const packetsNeeded = Number((plantsGap / cf).toFixed(2))
+      const source =
+        line.raise > 0 && line.company > 0
+          ? "MIXED"
+          : line.raise > 0
+            ? "RAISING"
+            : "COMPANY"
+      const noteParts = [
+        directIssue ? "Direct sowing request" : "Request packets",
+        line.packing.name || line.packing.code || "Seed",
+        `1 pkt ≈ ${cf} plants`,
+        `gap ${plantsGap} plants`,
+        line.company > packetsNeeded
+          ? `excess ${(line.company - packetsNeeded).toFixed(2)} pkt`
+          : null,
+        notes || null,
+      ].filter(Boolean)
 
-      for (const line of lines) {
-        const cf = plantsPerPacket(line.packing)
-        const packetsNeeded = Number((plantsGap / cf).toFixed(2))
-        const source =
-          line.raise > 0 && line.company > 0
-            ? "MIXED"
-            : line.raise > 0
-              ? "RAISING"
-              : "COMPANY"
-        const noteParts = [
-          lines.length > 1 ? "Combined packing request" : "Request packets",
-          line.packing.name || line.packing.code || "Seed",
-          `1 pkt ≈ ${cf} plants`,
-          `gap ${plantsGap} plants`,
-          line.company > packetsNeeded
-            ? `excess ${(line.company - packetsNeeded).toFixed(2)} pkt`
-            : null,
-          notes || null,
-        ].filter(Boolean)
-
-        const body = {
-          plantId: card.plantId,
-          subtypeId: card.subtypeId,
-          packetsNeeded,
-          packetsRequested: line.total,
-          packetsFromCompany: line.company,
-          packetsFromRaising: line.raise,
-          seedSource: source,
-          raisingIntakeIds: line.raise > 0 ? intakeIds : [],
-          linkedOrderIds: requestScope.linkedOrderIds,
-          slotIds: requestScope.slotIds,
-          notes: noteParts.join(" · "),
-        }
-        if (line.packing.productId) body.productId = line.packing.productId
-
-        const res = await instance.request(body)
-        if (!res?.data?.success) {
-          throw new Error(res?.data?.message || `Failed for ${line.packing.name}`)
-        }
-        created.push(res.data.data)
-        const tr = res.data.transfer
-        if (tr?.poNumber) {
-          transferNotes.push(`PO ${tr.poNumber} (${tr.shortfall} pkt shortfall)`)
-        } else if (tr?.skipReason) {
-          transferNotes.push(tr.skipReason)
-        } else if (tr?.error) {
-          transferNotes.push(tr.error)
-        }
+      const body = {
+        plantId: card.plantId,
+        subtypeId: card.subtypeId,
+        packetsNeeded,
+        packetsRequested: line.total,
+        packetsFromCompany: line.company,
+        packetsFromRaising: line.raise,
+        seedSource: source,
+        raisingIntakeIds: line.raise > 0 ? intakeIds : [],
+        linkedOrderIds: requestScope.linkedOrderIds,
+        slotIds: requestScope.slotIds,
+        notes: noteParts.join(" · "),
+        directIssue: Boolean(directIssue),
       }
+      if (line.packing.productId) body.productId = line.packing.productId
 
-      const baseMsg =
-        created.length > 1
-          ? `${created.length} requests created (combined packings)`
-          : `Request ${created[0].requestNumber} created`
-      Toast.success(
-        transferNotes.length ? `${baseMsg} · ${transferNotes.join(" · ")}` : baseMsg
-      )
-      onSuccess?.(created)
+      const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST)
+      const res = await instance.request(body)
+      if (!res?.data?.success) {
+        throw new Error(res?.data?.message || `Failed for ${line.packing.name}`)
+      }
+      const created = res.data.data
+      const tr = res.data.transfer
+      const transferNote = tr?.poNumber
+        ? `PO ${tr.poNumber} (${tr.shortfall} pkt shortfall)`
+        : tr?.skipReason || tr?.error || ""
+      const baseMsg = directIssue
+        ? `Sowing request ${created.requestNumber} created and issued`
+        : `Request ${created.requestNumber} created`
+      Toast.success(transferNote ? `${baseMsg} · ${transferNote}` : baseMsg)
+      onSuccess?.([created])
       onClose?.()
     } catch (e) {
       Toast.error(e?.response?.data?.message || e.message || "Request failed")
@@ -316,12 +353,13 @@ export default function RequestPacketsDialog({
     }
   }
 
-  const statItems = [
-    { label: "Gap", value: fmt(plantsGap) },
-    { label: "Covered", value: fmt(coveredPlants) },
-    { label: "Remaining", value: fmt(gapLeft), warn: gapLeft > 0 },
-    { label: "Request", value: `${fmt(totalPkts, 2)} pkt` },
-  ]
+  const bufferPct = Number(card?.sowingBuffer) || gapMetrics.bufferPct || 0
+  const mortalityPct = Number(card?.sowingMortality) || 10
+  const orderCount =
+    requestScope.linkedOrderIds?.length ||
+    selectedRows.length ||
+    Number(card?.orderCount) ||
+    0
 
   return (
     <>
@@ -336,7 +374,7 @@ export default function RequestPacketsDialog({
       >
         <DialogTitle sx={{ pb: 1.5, borderBottom: neutral.border }}>
           <Typography fontWeight={600} fontSize="1.1rem" color="text.primary">
-            {multi ? "Combine packings & request" : "Request packets"}
+            Request packets
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
             {card?.plantName} · {card?.subtypeName}
@@ -345,83 +383,38 @@ export default function RequestPacketsDialog({
 
         <DialogContent sx={{ pt: 2.5 }}>
           <Stack spacing={2.5}>
-            <Box
-              sx={{
-                p: 2,
-                borderRadius: neutral.radius,
-                bgcolor: neutral.sectionBg,
-                border: neutral.border,
-              }}
-            >
-              <Stack
-                direction="row"
-                spacing={0}
-                divider={<Divider orientation="vertical" flexItem />}
-                flexWrap="wrap"
-              >
-                {statItems.map((item) => (
-                  <Box key={item.label} sx={{ flex: "1 1 22%", minWidth: 72, px: 1.5, py: 0.5 }}>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      fontWeight={500}
-                      letterSpacing={0.3}
-                      display="block"
-                    >
-                      {item.label}
-                    </Typography>
-                    <Typography
-                      fontWeight={600}
-                      fontSize="1.125rem"
-                      color={item.warn ? "warning.dark" : "text.primary"}
-                    >
-                      {item.value}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
-              <Box
-                sx={{
-                  mt: 1.5,
-                  height: 4,
-                  borderRadius: 1,
-                  bgcolor: "#e5e7eb",
-                  overflow: "hidden",
-                }}
-              >
-                <Box
-                  sx={{
-                    height: "100%",
-                    width: `${coverPct}%`,
-                    bgcolor: "primary.main",
-                    transition: "width 0.2s ease",
-                  }}
-                />
-              </Box>
-              <Stack
-                direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-                flexWrap="wrap"
-                gap={1}
-                mt={1.25}
-              >
-                <Typography variant="caption" color="text.secondary">
-                  {coverPct}% of gap covered · buffer on company seed only
-                </Typography>
-                <SeedPlanChip
-                  seedSource={seedSource}
-                  companyPackets={totalCompanyPkts}
-                  raisingPackets={raising}
-                />
-              </Stack>
-            </Box>
+            <RequestPacketsStats
+              orderCount={orderCount}
+              rawPlants={gapMetrics.rawTotal}
+              bufferPct={bufferPct}
+              mortalityPct={mortalityPct}
+              packets={totalPkts}
+              coveredPlants={coveredPlants}
+              gapLeft={gapLeft}
+              plantsGap={plantsGap}
+              coverPct={coverPct}
+              seedSource={seedSource}
+              companyPackets={totalCompanyPkts}
+              raisingPackets={raising}
+              fmt={fmt}
+            />
 
             <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5} gap={1}>
                 <Typography variant="subtitle2" fontWeight={600} color="text.primary">
-                  {multi ? "Packings" : "Packing"}
+                  {selectedPackings.length > 1 ? "Packings" : "Packing"}
                 </Typography>
+                <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disableElevation
+                    disabled={saving || selectedPackings.length === 0}
+                    onClick={() => handleSubmit(true)}
+                    sx={{ textTransform: "none", fontWeight: 600 }}
+                  >
+                    Create sowing request
+                  </Button>
                 {multi && (
                   <Stack direction="row" spacing={0.75}>
                     <Chip
@@ -429,14 +422,20 @@ export default function RequestPacketsDialog({
                       variant="outlined"
                       label="Stock first"
                       clickable
-                      onClick={() => applyDistribution(selectedKeys, "stockFirst")}
+                      onClick={() => {
+                        packingPickLocked.current = false
+                        applyAutoPick(Number(raisingPkts) || 0)
+                      }}
                     />
                     <Chip
                       size="small"
                       variant="outlined"
                       label="Equal split"
                       clickable
-                      onClick={() => applyDistribution(selectedKeys, "equal")}
+                      onClick={() => {
+                        packingPickLocked.current = true
+                        applyDistribution(selectedKeys, "equal")
+                      }}
                     />
                     <Chip
                       size="small"
@@ -444,6 +443,8 @@ export default function RequestPacketsDialog({
                       label="Select all"
                       clickable
                       onClick={() => {
+                        packingPickLocked.current = true
+                        setShowOtherPackings(true)
                         const keys = selectable.map(packKey)
                         setSelectedKeys(keys)
                         applyDistribution(keys, "stockFirst")
@@ -451,201 +452,64 @@ export default function RequestPacketsDialog({
                     />
                   </Stack>
                 )}
-              </Stack>
-
-              <Stack spacing={1}>
-                {allPackings.map((p) => {
-                  const key = packKey(p)
-                  const blocked = Boolean(p.pendingRequest)
-                  const checked = selectedKeys.includes(key)
-                  const pkts = alloc[key] ?? ""
-                  const plants = (Number(pkts) || 0) * plantsPerPacket(p)
-                  return (
-                    <Box
-                      key={key}
-                      sx={{
-                        p: 1.5,
-                        borderRadius: neutral.radius,
-                        bgcolor: "#fff",
-                        border: neutral.border,
-                        borderColor: checked && !blocked ? "primary.main" : neutral.border,
-                        opacity: blocked ? 0.55 : 1,
-                      }}
-                    >
-                      <Stack direction="row" alignItems="flex-start" gap={0.5}>
-                        {multi && (
-                          <Checkbox
-                            size="small"
-                            checked={checked}
-                            disabled={blocked}
-                            onChange={() => togglePacking(key)}
-                            sx={{ p: 0.5, mt: -0.25 }}
-                          />
-                        )}
-                        <Box flex={1} minWidth={0}>
-                          <Typography fontWeight={600} fontSize="0.875rem">
-                            {p.name || p.code || "Seed"}
-                            {p.code ? (
-                              <Typography component="span" color="text.secondary" fontWeight={400}>
-                                {" "}
-                                ({p.code})
-                              </Typography>
-                            ) : null}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            1 pkt ≈ {plantsPerPacket(p)} plants · stock {fmt(p.availablePackets, 2)}
-                            {blocked ? ` · pending ${p.pendingRequest.requestNumber}` : ""}
-                          </Typography>
-                          {checked && !blocked && (
-                            <Stack direction="row" spacing={1} alignItems="center" mt={1.25}>
-                              <TextField
-                                size="small"
-                                type="number"
-                                label="Company packets"
-                                value={pkts}
-                                onChange={(e) => setPackAlloc(key, e.target.value)}
-                                inputProps={{ min: 0, step: 0.01 }}
-                                sx={{ width: 140 }}
-                              />
-                              <Typography variant="caption" color="text.secondary">
-                                ≈ {fmt(plants)} plants
-                              </Typography>
-                            </Stack>
-                          )}
-                        </Box>
-                      </Stack>
-                    </Box>
-                  )
-                })}
-              </Stack>
-            </Box>
-
-            <Box
-              sx={{
-                p: 1.5,
-                borderRadius: neutral.radius,
-                border: neutral.border,
-                bgcolor: "#fff",
-              }}
-            >
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography fontWeight={600} fontSize="0.875rem">
-                    Excess sowing
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Max {fmt(maxExcess, 2)} pkt on {firstPacking?.name || "first packing"}
-                    {maxExcess <= 0 ? " (no stock left)" : ""}
-                  </Typography>
-                </Box>
-                <Stack direction="row" alignItems="center" spacing={0.25}>
-                  <IconButton size="small" onClick={() => bumpExcess(-1)} disabled={excess <= 0}>
-                    <RemoveIcon fontSize="small" />
-                  </IconButton>
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={excessPkts}
-                    onChange={(e) => setExcessClamped(e.target.value)}
-                    disabled={maxExcess <= 0}
-                    inputProps={{
-                      min: 0,
-                      max: maxExcess,
-                      step: 0.01,
-                      style: { textAlign: "center", width: 64 },
-                    }}
-                  />
-                  <IconButton
-                    size="small"
-                    onClick={() => bumpExcess(1)}
-                    disabled={excess >= maxExcess}
-                  >
-                    <AddIcon fontSize="small" />
-                  </IconButton>
                 </Stack>
               </Stack>
-            </Box>
-
-            <Box>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                <TextField
-                  label="Customer seed packets"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  value={raisingPkts}
-                  disabled
-                  helperText="Calculated from collected customer-seed batches"
-                />
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => setShowRaising(true)}
-                  sx={{
-                    minWidth: 190,
-                    height: 40,
-                    textTransform: "none",
-                    fontWeight: 700,
-                  }}
-                >
-                  Add customer seed
-                </Button>
-              </Stack>
-              {attachedIntakes.length > 0 && (
-                <Stack spacing={0.75} mt={1}>
-                  {attachedIntakes.map((intake) => {
-                    const batches =
-                      intake.batches?.length > 0
-                        ? intake.batches
-                        : [
-                            {
-                              batchNumber: intake.batchNumber,
-                              packets:
-                                intake.packetsRemaining ??
-                                intake.packetsReceived,
-                              expiryDate: intake.expiryDate,
-                            },
-                          ]
-                    return batches.map((batch, index) => {
-                      const attached =
-                        Number(batch.packets ?? intake.packetsReceived) || 0
-                      const available =
-                        Number(
-                          batch.packetsRemaining ??
-                            intake.packetsRemaining ??
-                            attached
-                        ) || 0
-                      return (
-                      <Box
-                        key={`${intake._id || intake.intakeNumber}-${batch._id || index}`}
-                        sx={{
-                          px: 1.25,
-                          py: 0.75,
-                          border: neutral.border,
-                          borderRadius: 1,
-                          bgcolor: "#f8fafc",
-                        }}
-                      >
-                        <Typography variant="caption" fontWeight={700}>
-                          {batch.batchNumber || "Customer seed batch"}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {" "}
-                          · attached {fmt(attached, 2)} pkt
-                          {Math.abs(available - attached) > 0.01
-                            ? ` · available ${fmt(available, 2)} pkt`
-                            : ""}
-                          {batch.expiryDate
-                            ? ` · expiry ${new Date(batch.expiryDate).toLocaleDateString("en-IN")}`
-                            : ""}
-                        </Typography>
-                      </Box>
-                      )
-                    })
-                  })}
-                </Stack>
+              {multi && (
+                <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+                  {selectedPackings.length > 1
+                    ? "Only one product can be requested. Uncheck the extra packing first."
+                    : "One packing covers this gap. Create sowing request issues it without Inventory accept."}
+                </Typography>
               )}
+
+              <RequestPacketsLinkedStock
+                card={card}
+                packings={allPackings}
+                selectedKeys={selectedKeys}
+                alloc={alloc}
+                showOtherPackings={showOtherPackings}
+                multi={multi}
+                onToggle={togglePacking}
+                onAlloc={setPackAlloc}
+                onShowOthers={() => setShowOtherPackings(true)}
+                onPackingsRefresh={(patch) => {
+                  if (patch?.productId) {
+                    setAllPackings((prev) =>
+                      prev.map((p) =>
+                        String(p.productId) === String(patch.productId)
+                          ? { ...p, availablePackets: patch.availablePackets }
+                          : p
+                      )
+                    )
+                  }
+                  if (patch?.merge?.length) {
+                    setAllPackings((prev) => {
+                      const known = new Set(prev.map((p) => String(p.productId || "")))
+                      const add = patch.merge.filter(
+                        (p) => p.productId && !known.has(String(p.productId))
+                      )
+                      return add.length ? [...prev, ...add] : prev
+                    })
+                    return
+                  }
+                  if (!patch?.productId) onCardReload?.()
+                }}
+                fmt={fmt}
+              />
             </Box>
+
+            <RequestPacketsExtras
+              fmt={fmt}
+              maxExcess={maxExcess}
+              firstPackingName={firstPacking?.name}
+              excess={excess}
+              excessPkts={excessPkts}
+              onBump={bumpExcess}
+              onClamp={setExcessClamped}
+              raisingPkts={raisingPkts}
+              onShowRaising={() => setShowRaising(true)}
+              attachedIntakes={attachedIntakes}
+            />
 
             {gapLeft > 1 && (
               <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
@@ -673,14 +537,12 @@ export default function RequestPacketsDialog({
           <Button
             variant="contained"
             disableElevation
-            onClick={handleSubmit}
+            onClick={() => handleSubmit(false)}
             disabled={saving || selectedPackings.length === 0}
             sx={{ textTransform: "none", fontWeight: 600, px: 2.5 }}
           >
             {saving ? (
               <CircularProgress size={20} color="inherit" />
-            ) : multi && selectedPackings.length > 1 ? (
-              `Confirm · ${selectedPackings.length} packings · ${fmt(totalPkts, 2)} pkt`
             ) : (
               `Confirm · ${fmt(totalPkts, 2)} pkt`
             )}
@@ -713,6 +575,25 @@ export default function RequestPacketsDialog({
             setRaisingPkts(String(Number(packets.toFixed(2))))
             return next
           })
+        }}
+      />
+
+      <RequestPacketsStockUpdateDialog
+        open={Boolean(shortStock)}
+        packing={shortStock?.packing}
+        shortfall={shortStock?.shortfall}
+        onClose={() => setShortStock(null)}
+        onUpdated={(next) => {
+          const pid = shortStock?.packing?.productId
+          if (pid) {
+            setAllPackings((prev) =>
+              prev.map((p) =>
+                String(p.productId) === String(pid)
+                  ? { ...p, availablePackets: next }
+                  : p
+              )
+            )
+          }
         }}
       />
     </>

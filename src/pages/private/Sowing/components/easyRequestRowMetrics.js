@@ -1,11 +1,11 @@
-import { fmt, packingsOf } from "./sowingPackingUtils"
+import { fmt, packingsOf, packingIsRequestable } from "./sowingPackingUtils"
 
 /** Shared metrics / status for Inventory Requests rows & legacy cards. */
 export function getEasyRequestRowMetrics(card) {
   const plants = card.totalPlantsToSowWithBuffer || card.totalGap || 0
   const packs = packingsOf(card)
   const multi = packs.length > 1
-  const openPacks = packs.filter((p) => !p.pendingRequest && !p.activeRequest)
+  const openPacks = packs.filter(packingIsRequestable)
   const coStock = Number(card.availablePackets) || 0
   const summary = card.orderSeedSummary || {}
   const raising =
@@ -48,7 +48,7 @@ export function getEasyRequestRowMetrics(card) {
     activeReq?.displayStatus === "processing" ||
     activeReq?.status === "pending" ||
     activeReq?.status === "processing"
-  const statusLocked = inProgress || (requestPending && openPacks.length === 0)
+  const statusLocked = inProgress
 
   const reqId = activeReq?._id || activeReq?.id
   const reqStatus = String(activeReq?.status || activeReq?.displayStatus || "").toLowerCase()

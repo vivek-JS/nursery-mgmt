@@ -8,7 +8,13 @@ import { isApiErrorResponse } from "network/core/responseParser";
 /**
  * Add Biotech products and/or Ram Agri varieties to the same plant + subtype (1:N both sides).
  */
-export default function SubtypeSeedLinkDialog({ open, context, onClose, onSaved }) {
+export default function SubtypeSeedLinkDialog({
+  open,
+  context,
+  onClose,
+  onSaved,
+  accent = "inventory",
+}) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState(null);
@@ -135,7 +141,7 @@ export default function SubtypeSeedLinkDialog({ open, context, onClose, onSaved 
         subtypeId,
         source,
         ...(source === "biotech" ? { productId } : { cropId, varietyId }),
-        ...(source === "agri" && tentativePlantsPerPacket
+        ...(Number(tentativePlantsPerPacket) > 0
           ? { tentativePlantsPerPacket: Number(tentativePlantsPerPacket) }
           : {}),
       };
@@ -208,12 +214,16 @@ export default function SubtypeSeedLinkDialog({ open, context, onClose, onSaved 
     );
   };
 
+  const sowingLook = accent === "sowing"
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 shrink-0">
+      <div className={`w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col ${sowingLook ? "ring-1 ring-teal-200" : ""}`}>
+        <div className={`flex items-center justify-between border-b px-5 py-4 shrink-0 ${sowingLook ? "border-teal-100 bg-teal-50/70" : "border-gray-200"}`}>
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Manage subtype seed links</h2>
+            <h2 className={`text-lg font-bold ${sowingLook ? "text-teal-900" : "text-gray-900"}`}>
+              {sowingLook ? "Link products" : "Manage subtype seed links"}
+            </h2>
             <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
               <Sprout className="h-3.5 w-3.5" />
               {plantName} · {subtypeName}
@@ -368,21 +378,21 @@ export default function SubtypeSeedLinkDialog({ open, context, onClose, onSaved 
                       </select>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Tentative plants per packet
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={tentativePlantsPerPacket}
-                      onChange={(e) => setTentativePlantsPerPacket(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      placeholder="e.g. 1000"
-                    />
-                  </div>
                 </div>
               )}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Tentative plants per packet
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={tentativePlantsPerPacket}
+                  onChange={(e) => setTentativePlantsPerPacket(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  placeholder="e.g. 1000"
+                />
+              </div>
             </>
           )}
         </div>

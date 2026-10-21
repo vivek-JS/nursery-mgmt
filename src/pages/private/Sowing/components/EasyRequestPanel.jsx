@@ -29,7 +29,7 @@ import UnsowedVarietyTab from "./UnsowedVarietyTab"
 import { SowHorizonChips, useSowHorizon } from "./SowHorizonContext"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
-import { colorForIndex, fmt, packingsOf } from "./sowingPackingUtils"
+import { colorForIndex, fmt, packingIsRequestable, packingsOf } from "./sowingPackingUtils"
 import { groupCardsByPlant } from "./easyRequestRowMetrics"
 import { printEasyRequestReport } from "./easyRequestPrint"
 import { useIsSuperAdmin, useIsOfficeAdmin } from "utils/roleUtils"
@@ -591,7 +591,7 @@ export default function EasyRequestPanel({
                 <Stack spacing={1}>
                   {cards.map((card, idx) => {
                     const packs = packingsOf(card)
-                    const open = packs.filter((p) => !p.pendingRequest && !p.activeRequest)
+                    const open = packs.filter(packingIsRequestable)
                     const c = colorForIndex(idx)
                     const raising =
                       Number(card.raisingInHandPackets) ||
@@ -664,7 +664,7 @@ export default function EasyRequestPanel({
                               onClick={() => openRequest(card, open)}
                               sx={{ textTransform: "none", fontWeight: 800, bgcolor: c.bar }}
                             >
-                              {open.length > 1 ? "Combine" : "Request"}
+                              Request
                             </Button>
                           )}
                         </Stack>
@@ -762,7 +762,7 @@ export default function EasyRequestPanel({
         }
         onSeedCollected={() => load(true)}
         onRequestPackets={(orderRows, selectedOrderIds) => {
-          const packs = packingsOf(drawerCard).filter((p) => !p.pendingRequest && !p.activeRequest)
+          const packs = packingsOf(drawerCard).filter(packingIsRequestable)
           openRequest(drawerCard, packs, orderRows, selectedOrderIds)
           setDrawerCard(null)
           setDrawerRaisingOnly(false)
@@ -778,6 +778,7 @@ export default function EasyRequestPanel({
           orderRows={requestCtx.orderRows}
           selectedOrderIds={requestCtx.selectedOrderIds}
           onSuccess={() => load(true)}
+          onCardReload={() => load(true)}
         />
       )}
 

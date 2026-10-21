@@ -7,7 +7,7 @@ import {
   Button,
   Paper,
 } from "@mui/material"
-import { fmt, packingsOf, colorForIndex } from "./sowingPackingUtils"
+import { fmt, packingsOf, packingIsRequestable, colorForIndex } from "./sowingPackingUtils"
 
 /**
  * Variety-wise unsowed ranking: highest need-to-sow plants first.
@@ -55,7 +55,7 @@ export default function UnsowedVarietyTab({
       <Stack spacing={1}>
         {ranked.map(({ card, unsowed, orderCount }, idx) => {
           const packs = packingsOf(card)
-          const open = packs.filter((p) => !p.pendingRequest && !p.activeRequest)
+          const open = packs.filter(packingIsRequestable)
           const c = colorForIndex(idx)
           const due = Number(card.dueGap) || 0
           const today = Number(card.todayGap) || 0
@@ -174,7 +174,7 @@ export default function UnsowedVarietyTab({
                       bgcolor: c.bar,
                     }}
                   >
-                    {open.length > 1 ? "Combine" : "Request"}
+                    Request
                   </Button>
                 )}
               </Stack>
