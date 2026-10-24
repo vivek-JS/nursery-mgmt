@@ -75,6 +75,17 @@ function fmtAdded(d) {
   })
 }
 
+function fmtTime(d) {
+  if (!d) return ""
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleTimeString("en-IN", {
+    timeZone: IST,
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
 function fmtDay(d) {
   if (!d) return "—"
   const day = parseDayString(d)
@@ -625,7 +636,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
           <Box>
             <Typography fontWeight={900}>Sowing entries</Typography>
             <Typography variant="caption" sx={{ opacity: 0.9 }}>
-              Click a row for the rest · dates are IST, date added has no time
+              Click a row for the rest · dates are IST
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -830,8 +841,13 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         </Typography>
                       ) : null}
                     </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.added, color: "#1d4ed8", fontWeight: 700 }}>
-                      {fmtAdded(row.createdAt)}
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.added, whiteSpace: "normal", minWidth: 118 }}>
+                      <Typography fontSize="0.8rem" fontWeight={800} color="#1d4ed8" lineHeight={1.2}>
+                        {fmtAdded(row.createdAt)}
+                      </Typography>
+                      <Typography fontSize="0.7rem" fontWeight={700} color="#64748b" lineHeight={1.3}>
+                        {fmtTime(row.createdAt) || "—"}
+                      </Typography>
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.sowDate, fontWeight: 800, color: "#047857" }}>
                       {fmtDay(row.sowingDate || row.sowingCompletedDate)}
