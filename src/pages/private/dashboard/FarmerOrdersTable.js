@@ -143,7 +143,7 @@ import { useFillViewportHeight } from "hooks/useFillViewportHeight"
 import OrderEditPanel from "./OrderEditPanel"
 import OrderRaisingIntakePanel from "./OrderRaisingIntakePanel"
 import OrderSowingDetailsPanel from "./OrderSowingDetailsPanel"
-import { resolveOrderSowStatus } from "./orderSowStatus"
+import { isNotSownOrder, resolveOrderSowStatus, sowRemainingPlants } from "./orderSowStatus"
 import ExcessBatchCoverDialog, {
   SOW_LABEL,
   fetchExcessWithFallback,
@@ -892,6 +892,22 @@ function farmerOrderStatusSelectCurrentHint(orderStatus) {
 const ORDER_CELL_PILL =
   "inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold leading-none whitespace-nowrap"
 
+function UnsownSowButton({ disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title="Check excess sowing, or show that plants are not available"
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
+      Sow
+    </button>
+  )
+}
+
 /** Matches `<th>` count in farmer orders table (incl. Actions). */
 const getFarmerOrdersTableColumnCount = ({
   showAgriSalesOrders,
@@ -967,6 +983,7 @@ function buildRegularOrderListParams({
     viewMode === "booking" ||
     viewMode === "pending" ||
     viewMode === "accepted" ||
+    viewMode === "unsown" ||
     isCancelledTab
   const isReadyForDispatchTab = viewMode === "ready_for_dispatch"
   const isCompletedTab = viewMode === "completed"
@@ -1018,8 +1035,11 @@ function buildRegularOrderListParams({
     params.status = "CANCELLED,TEMPORARY_CANCELLED"
   } else if (viewMode === "pending") {
     params.status = "PENDING"
-  } else if (viewMode === "accepted") {
+  } else if (viewMode === "accepted" || viewMode === "unsown") {
     params.status = "ACCEPTED,ASSIGNED"
+  }
+  if (viewMode === "unsown") {
+    params.unsown = "true"
   }
 
   if (viewMode === "farmready") {
@@ -2780,6 +2800,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     booking: 0,
     pending: 0,
     accepted: 0,
+    unsown: 0,
     cancelled: 0,
     farmready: 0,
     ready_for_dispatch: 0,
@@ -4446,6 +4467,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
         booking: 0,
         pending: 0,
         accepted: 0,
+        unsown: 0,
         cancelled: 0,
         farmready: 0,
         ready_for_dispatch: 0,
@@ -4485,6 +4507,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           booking: Number(d.booking) || 0,
           pending: Number(d.pending) || 0,
           accepted: Number(d.accepted) || 0,
+          unsown: Number(d.unsown) || 0,
           cancelled: Number(d.cancelled) || 0,
           farmready: Number(d.farmready) || 0,
           ready_for_dispatch: Number(d.ready_for_dispatch) || 0,
@@ -6499,8 +6522,12 @@ const mapSlotForUi = (slotData) => {
     }
   }
 
-  const mapRegularOrdersForUi = (ordersData = []) =>
-    (ordersData || [])
+  const mapRegularOrdersForUi = (ordersData = []) => {
+    const source =
+      viewMode === "unsown"
+        ? (ordersData || []).filter((row) => isNotSownOrder(row))
+        : ordersData || []
+    return source
       .map((data) => {
         const {
           farmer,
@@ -6732,6 +6759,7 @@ const mapSlotForUi = (slotData) => {
         }
       })
       .filter((order) => order != null && order.order != null && order.order !== "")
+  }
 
   const getOrders = async () => {
     getOrdersAbortRef.current?.abort()
@@ -7319,6 +7347,35 @@ const mapSlotForUi = (slotData) => {
       const excessChecked = Boolean(dataToSend.__excessChecked)
       delete dataToSend.__excessChecked
       let subtypeChangeNeedsSowing = false
+
+      // Qty increase on sowing plant → same excess popup as accept (which batch covers the extra).
+      if (
+        !isAgriSalesOrder &&
+        !excessChecked &&
+        isSowingCoverCandidate(row) &&
+        Boolean(row?.details?.deliveryDate || dataToSend.deliveryDate) &&
+        dataToSend.quantity != null &&
+        String(dataToSend.quantity).trim() !== ""
+      ) {
+        const newQuantity = Number(dataToSend.quantity)
+        const currentQuantity = Number(row?.quantity ?? row?.details?.numberOfPlants ?? 0)
+        const qtyDelta = Math.floor(newQuantity - currentQuantity)
+        if (Number.isFinite(newQuantity) && qtyDelta > 0) {
+          const deliveryDate = dataToSend.deliveryDate || row.details.deliveryDate
+          const result = await loadExcessForRow(row, deliveryDate, { need: qtyDelta })
+          if (!result) {
+            Toast.error("Could not check excess sowing for the quantity increase. Order not updated — try again.")
+            return
+          }
+          openAcceptCover(row, result, "beforeQtyIncrease", {
+            pendingPatch: patchObj,
+            need: qtyDelta,
+            qtyDelta,
+          })
+          return
+        }
+      }
+
       if (!isAgriSalesOrder && !excessChecked && needsDeliveryExcessCheck(row, dataToSend)) {
         const subtypeChange = isSubtypeChangePatch(row, dataToSend)
         const result = await loadExcessForRow(
@@ -7895,17 +7952,23 @@ const mapSlotForUi = (slotData) => {
   const loadExcessForRow = async (
     row,
     deliveryDate,
-    { releaseOrderId = null, subtypeId = null } = {}
+    { releaseOrderId = null, subtypeId = null, need = null } = {}
   ) => {
     const d = row.details
     setpatchLoading(true)
     try {
+      const plantName =
+        String(row?.plantType || "").split(" -> ")[0] ||
+        d?.plantName?.name ||
+        d?.plantType?.name ||
+        ""
       return await fetchExcessWithFallback({
         plantId: d.plantID,
         subtypeId: subtypeId || d.plantSubtypeID,
         deliveryDate,
-        need: orderPlantsNeed(d),
-        releaseOrderId
+        need: need == null ? orderPlantsNeed(d) : need,
+        releaseOrderId,
+        plantName
       })
     } catch (err) {
       console.error("Excess sowing check failed:", err)
@@ -7982,9 +8045,9 @@ const mapSlotForUi = (slotData) => {
     pacthOrders({ id: row?.details?.orderid, orderStatus: "ACCEPTED", ...extra }, row)
 
   const handleAcceptCover = async (picks, _rowPicks, windowDays) => {
-    const { row, mode, pendingPatch } = acceptCover
+    const { row, mode, pendingPatch, qtyDelta, need } = acceptCover
     if (!row || !picks?.length) return
-    if (mode === "beforeDeliveryChange") {
+    if (mode === "beforeDeliveryChange" || mode === "beforeQtyIncrease") {
       closeAcceptCover()
       await pacthOrders(
         {
@@ -7995,7 +8058,10 @@ const mapSlotForUi = (slotData) => {
             slotId: p.slotId,
             plants: p.plants
           })),
-          excessCoverWindowDays: windowDays || acceptCover.windowDays || 5
+          excessCoverWindowDays: windowDays || acceptCover.windowDays || 5,
+          ...(mode === "beforeQtyIncrease"
+            ? { excessCoverNeed: Math.max(0, Number(qtyDelta || need) || 0) }
+            : {}),
         },
         row
       )
@@ -8014,7 +8080,11 @@ const mapSlotForUi = (slotData) => {
       if (!res?.data?.success) throw new Error(res?.data?.message || "Cover failed")
       Toast.success(res.data.message || "Order covered from excess sowing")
       closeAcceptCover()
-      if (mode === "afterSave") {
+      if (mode === "unsownSow") {
+        const coveredId = String(row?.details?.orderid || "")
+        setOrders((prev) => prev.filter((r) => String(r?.details?.orderid || "") !== coveredId))
+        refreshComponent()
+      } else if (mode === "afterSave") {
         refreshComponent()
       } else {
         await acceptAfterCoverChoice(row)
@@ -8037,15 +8107,39 @@ const mapSlotForUi = (slotData) => {
     await pacthOrders({ ...pendingPatch, deliveryDate: ymd, bookingSlot: slotId }, row)
   }
 
+  const openUnsownSow = async (row) => {
+    if (!isNotSownOrder(row) || !isSowingCoverCandidate(row)) return
+    const deliveryDate = row?.details?.deliveryDate
+    if (!deliveryDate) {
+      Toast.error("Delivery date is missing — cannot check excess")
+      return
+    }
+    const need = sowRemainingPlants(row.details)
+    if (need <= 0) return
+    const result = await loadExcessForRow(row, deliveryDate, { need })
+    if (!result) {
+      Toast.error("Could not check excess sowing. Try again.")
+      return
+    }
+    openAcceptCover(row, result, "unsownSow", { need })
+  }
+
   const handleAcceptSow = async (totalFree) => {
-    const { row, mode, windowDays, pendingPatch } = acceptCover
+    const { row, mode, windowDays, pendingPatch, qtyDelta } = acceptCover
     if (!row) return
     closeAcceptCover()
-    if (mode === "beforeDeliveryChange") {
+    if (mode === "beforeDeliveryChange" || mode === "beforeQtyIncrease") {
+      if (mode === "beforeQtyIncrease") {
+        Toast.info(
+          `Order #${row.order ?? row?.details?.orderId ?? ""}: +${Number(
+            qtyDelta || 0
+          ).toLocaleString("en-IN")} plants — new sowing needed for the increase`
+        )
+      }
       await pacthOrders({ ...pendingPatch, __excessChecked: true }, row)
       return
     }
-    if (mode === "afterSave") {
+    if (mode === "afterSave" || mode === "unsownSow") {
       Toast.info(`Order #${row.order ?? row?.details?.orderId ?? ""}: new sowing needs to be created`)
       return
     }
@@ -9268,6 +9362,18 @@ const mapSlotForUi = (slotData) => {
                 </span>
               </button>
               <button
+                onClick={() => setViewMode("unsown")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "unsown"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🌾 </span>Not sown{" "}
+                <span className="ml-1 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.unsown})
+                </span>
+              </button>
+              <button
                 onClick={() => setViewMode("cancelled")}
                 className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   viewMode === "cancelled"
@@ -9596,7 +9702,9 @@ const mapSlotForUi = (slotData) => {
                 if (agriDispatchStatusFilter === "PENDING_RETURNS") return true
                 return true
               })
-            : orders
+            : viewMode === "unsown"
+              ? orders.filter((o) => isNotSownOrder(o) && isSowingCoverCandidate(o))
+              : orders
 
           if (viewMode === "dispatch_process" && !showAgriSalesOrders) {
             return null
@@ -10698,6 +10806,12 @@ const mapSlotForUi = (slotData) => {
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex flex-col gap-0.5 items-start">
+                        {viewMode === "unsown" && isNotSownOrder(row) && isSowingCoverCandidate(row) && (
+                          <UnsownSowButton
+                            disabled={patchLoading}
+                            onClick={() => openUnsownSow(row)}
+                          />
+                        )}
                         {canAddPayment && !(showAgriSalesOrders && hidePaymentDetails) && (
                           <button
                             type="button"
@@ -10918,6 +11032,12 @@ const mapSlotForUi = (slotData) => {
                                     </span>
                                     )
                                   })()}
+                                  {viewMode === "unsown" && isNotSownOrder(row) && isSowingCoverCandidate(row) && (
+                                    <UnsownSowButton
+                                      disabled={patchLoading}
+                                      onClick={() => openUnsownSow(row)}
+                                    />
+                                  )}
                                   {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                                     <span
                                       className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
@@ -13830,6 +13950,12 @@ const mapSlotForUi = (slotData) => {
               blockWhenNoSowing: true,
               onPickDate: handlePickDeliveryDay,
               isDatePickable: (ymd) => Boolean(getSlotIdForDate(ymd))
+            }
+          : acceptCover.mode === "beforeQtyIncrease"
+          ? {
+              coverLabel: "Cover increase from excess",
+              sowLabel: "Increase without cover — new sowing",
+              requireFullCover: true,
             }
           : {})}
       />
