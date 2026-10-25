@@ -1,34 +1,14 @@
 import React, { useState } from "react"
-import {
-  Box,
-  Typography,
-  Button,
-  Chip,
-  LinearProgress,
-  CircularProgress,
-  TableRow,
-  TableCell,
-  Stack,
-} from "@mui/material"
-import SpaIcon from "@mui/icons-material/Spa"
+import { Box, Typography, Button, CircularProgress, TableRow, TableCell, Stack } from "@mui/material"
 import NorthEastIcon from "@mui/icons-material/NorthEast"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import { getEasyRequestRowMetrics } from "./easyRequestRowMetrics"
-
-const STATUS_SX = {
-  ok: { bgcolor: "#dcfce7", color: "#166534" },
-  progress: { bgcolor: "#dbeafe", color: "#1d4ed8" },
-  pending: { bgcolor: "#fef3c7", color: "#92400e" },
-  raising: { bgcolor: "#ffedd5", color: "#9a3412" },
-  raisingOk: { bgcolor: "#d1fae5", color: "#065f46" },
-  gap: { bgcolor: "#ffedd5", color: "#c2410c" },
-}
+import SowUrgencyChip from "./SowUrgencyChip"
 
 export default function EasyRequestSubtypeRow({
   card,
   onOrders,
   onWhatsApp,
-  onRaisingOrders,
   onRequest,
   onGapClick,
   onCancelRequest,
@@ -55,69 +35,26 @@ export default function EasyRequestSubtypeRow({
       sx={{
         cursor: onRowClick ? "pointer" : "default",
         "& td": { borderColor: "#e8f5e9", py: 1.25 },
-        bgcolor: m.inProgress
-          ? "#f8fafc"
-          : m.requestPending && m.openPacks.length === 0
-            ? "#fffbeb"
-            : "#fff",
+        bgcolor: m.inProgress ? "#f8fafc" : m.requestPending && m.openPacks.length === 0 ? "#fffbeb" : "#fff",
       }}
     >
       <TableCell sx={{ minWidth: 140 }}>
         <Typography fontWeight={800} fontSize="0.9rem" color="#14532d">
           {card.subtypeName}
         </Typography>
-        {m.sku ? (
-          <Typography variant="caption" color="text.secondary" fontWeight={600}>
-            {m.sku}
-          </Typography>
-        ) : null}
         {(m.inProgress || (m.requestPending && m.activeReq)) && (
           <Typography variant="caption" display="block" fontWeight={700} color="text.secondary">
             {m.activeReq?.requestNumber || "—"}
-            {m.activeReq?.packetsRequested != null
-              ? ` · ${m.fmt(m.activeReq.packetsRequested, 2)} pkt`
-              : ""}
           </Typography>
         )}
       </TableCell>
 
       <TableCell>
         <Typography fontWeight={800} fontSize="0.85rem">
-          {m.ageDays === "—" ? "—" : `${m.ageDays} days`}
+          {m.ageDays === "—" ? "—" : `${m.ageDays}d ready`}
         </Typography>
         <Typography variant="caption" color="text.secondary" fontWeight={600}>
           {m.orderCount} orders
-        </Typography>
-        <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: "0.62rem" }}>
-          until delivery-ready
-        </Typography>
-      </TableCell>
-
-      <TableCell sx={{ minWidth: 130 }}>
-        <Typography
-          fontSize="0.75rem"
-          fontWeight={800}
-          color={m.stockOk ? "#15803d" : "#ea580c"}
-          mb={0.25}
-        >
-          {m.stockOk ? "Enough seed" : `Seed covers ${m.coverPct}%`}
-        </Typography>
-        <LinearProgress
-          variant="determinate"
-          value={m.coverPct}
-          sx={{
-            height: 6,
-            borderRadius: 3,
-            bgcolor: "#e8f5e9",
-            mb: 0.35,
-            "& .MuiLinearProgress-bar": {
-              borderRadius: 3,
-              bgcolor: m.stockOk ? "#166534" : "#ea580c",
-            },
-          }}
-        />
-        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ fontSize: "0.65rem" }}>
-          {m.fmt(m.availPlants)} seed-plants / {m.fmt(m.plants)} need
         </Typography>
       </TableCell>
 
@@ -144,67 +81,6 @@ export default function EasyRequestSubtypeRow({
       </TableCell>
 
       <TableCell>
-        <Typography fontWeight={800} fontSize="0.9rem" color="#0e7490">
-          {m.fmt(m.coStock, 2)}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          packets in store
-        </Typography>
-      </TableCell>
-
-      <TableCell
-        onClick={(e) => {
-          e.stopPropagation()
-          if (m.raisingOrders > 0) onRaisingOrders?.(card)
-        }}
-        sx={{
-          cursor: m.raisingOrders > 0 ? "pointer" : "default",
-          "&:hover": m.raisingOrders > 0 ? { bgcolor: "#ecfdf5" } : undefined,
-        }}
-      >
-        <Typography
-          fontWeight={800}
-          fontSize="0.9rem"
-          color={
-            m.raisingAvailable ? "#047857" : m.raisingPendingCollect ? "#b45309" : "text.secondary"
-          }
-        >
-          {m.raisingAvailable
-            ? m.fmt(m.raising, 2)
-            : m.raisingPendingCollect
-              ? "0"
-              : "—"}{" "}
-          <Typography component="span" variant="caption" color="text.secondary">
-            pkt
-          </Typography>
-        </Typography>
-        {m.raisingOrders > 0 ? (
-          <Typography
-            variant="caption"
-            fontWeight={700}
-            color={m.raisingPendingCount > 0 ? "#b45309" : "#065f46"}
-            sx={{ textDecoration: "underline" }}
-          >
-            {m.raisingOrdersCollected}/{m.raisingOrdersPlanned} collected · click
-          </Typography>
-        ) : m.raisingPendingCollect ? (
-          <Typography variant="caption" fontWeight={700} color="#b45309">
-            not collected
-          </Typography>
-        ) : (
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.62rem" }}>
-            —
-          </Typography>
-        )}
-      </TableCell>
-
-      <TableCell sx={{ maxWidth: 140 }}>
-        <Typography fontSize="0.78rem" fontWeight={600} color="text.secondary" noWrap>
-          {m.packingLabel}
-        </Typography>
-      </TableCell>
-
-      <TableCell>
         <Typography fontWeight={800} fontSize="0.85rem">
           {m.fmt(m.needPkt, 1)} need
         </Typography>
@@ -214,18 +90,7 @@ export default function EasyRequestSubtypeRow({
       </TableCell>
 
       <TableCell>
-        <Chip
-          size="small"
-          icon={m.statusKind === "ok" || m.statusKind === "raisingOk" ? <SpaIcon /> : undefined}
-          label={m.statusLabel}
-          sx={{
-            height: 26,
-            fontWeight: 800,
-            fontSize: "0.68rem",
-            ...STATUS_SX[m.statusKind],
-            "& .MuiChip-icon": { color: "inherit", fontSize: 14 },
-          }}
-        />
+        <SowUrgencyChip urgency={m.urgency} />
       </TableCell>
 
       <TableCell align="right" onClick={(e) => e.stopPropagation()}>

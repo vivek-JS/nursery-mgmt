@@ -1,18 +1,31 @@
-import React, { useState } from "react"
+import React, { useRef, useState } from "react"
 import { Box, Typography, Button, IconButton } from "@mui/material"
 import { Add as AddIcon, Refresh as RefreshIcon, LocalFlorist } from "@mui/icons-material"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import ExcessiveSowingModal from "components/Modals/ExcessiveSowingModal"
 import EasyRequestPanel from "./components/EasyRequestPanel"
 import CompletedSowingEntries from "./components/CompletedSowingEntries"
+import UnsownSowBoard from "./components/UnsownSowBoard"
+import SowingSowBatchStockTab from "./components/SowingSowBatchStockTab"
 import SowingPageTabs from "./components/SowingPageTabs"
 import { SowHorizonProvider } from "./components/SowHorizonContext"
+import SowAllTable from "./components/SowAllTable"
+import { useIsOfficeAdmin, useIsSuperAdmin } from "utils/roleUtils"
 
 export default function SowingGapAnalysis() {
+  const canSow = useIsSuperAdmin() || useIsOfficeAdmin()
   const [tab, setTab] = useState(0)
   const [excessiveSowingModalOpen, setExcessiveSowingModalOpen] = useState(false)
+  const [sowAllOpen, setSowAllOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
+  const requestPanelRef = useRef(null)
 
   const bumpRefresh = () => setRefreshToken((n) => n + 1)
+
+  const openWhatsAppAll = () => {
+    setTab(0)
+    requestPanelRef.current?.openWhatsAppAll?.()
+  }
 
   return (
     <Box p={3} sx={{ bgcolor: "#f5f5f5", minHeight: "100vh" }}>
@@ -24,11 +37,25 @@ export default function SowingGapAnalysis() {
               Sowing Gap Analysis
             </Typography>
             <Typography variant="body2" color="text.secondary" fontWeight={600}>
-              Request & sow · sowing entries
+              Request & sow · sowing entries · not sown · stock
             </Typography>
           </Box>
         </Box>
-        <Box display="flex" gap={1}>
+        <Box display="flex" gap={1} flexWrap="wrap">
+          <Button
+            variant="contained"
+            disableElevation
+            startIcon={<WhatsAppIcon />}
+            onClick={openWhatsAppAll}
+            sx={{
+              fontWeight: 800,
+              textTransform: "none",
+              bgcolor: "#16a34a",
+              "&:hover": { bgcolor: "#15803d" },
+            }}
+          >
+            WhatsApp sow needed
+          </Button>
           <Button
             variant="contained"
             color="success"
@@ -48,15 +75,29 @@ export default function SowingGapAnalysis() {
         </Box>
       </Box>
 
+      <SowAllTable
+        open={sowAllOpen}
+        onClose={() => setSowAllOpen(false)}
+        refreshToken={refreshToken}
+        onSowed={bumpRefresh}
+      />
+
       <SowingPageTabs
         tab={tab}
         onTabChange={setTab}
         requestPanel={
           <SowHorizonProvider defaultDays={0}>
-            <EasyRequestPanel refreshToken={refreshToken} embedded />
+            <EasyRequestPanel
+              ref={requestPanelRef}
+              refreshToken={refreshToken}
+              embedded
+              onSowAll={canSow ? () => setSowAllOpen(true) : null}
+            />
           </SowHorizonProvider>
         }
         entriesPanel={<CompletedSowingEntries refreshToken={refreshToken} />}
+        unsownPanel={<UnsownSowBoard refreshToken={refreshToken} />}
+        stockPanel={<SowingSowBatchStockTab refreshToken={refreshToken} />}
       />
 
       <ExcessiveSowingModal

@@ -7,6 +7,7 @@ import {
   Button,
   Paper,
 } from "@mui/material"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import { fmt, packingsOf, packingIsRequestable, colorForIndex } from "./sowingPackingUtils"
 
 /**
@@ -15,6 +16,7 @@ import { fmt, packingsOf, packingIsRequestable, colorForIndex } from "./sowingPa
 export default function UnsowedVarietyTab({
   cards = [],
   onOrders,
+  onWhatsApp,
   onRequest,
   onGapClick,
 }) {
@@ -161,6 +163,21 @@ export default function UnsowedVarietyTab({
                   sx={{ textTransform: "none", fontWeight: 700 }}
                 >
                   Orders
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disableElevation
+                  startIcon={<WhatsAppIcon sx={{ fontSize: "16px !important" }} />}
+                  onClick={() => onWhatsApp?.(card)}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 800,
+                    bgcolor: "#16a34a",
+                    "&:hover": { bgcolor: "#15803d" },
+                  }}
+                >
+                  WhatsApp
                 </Button>
                 {open.length > 0 && (
                   <Button

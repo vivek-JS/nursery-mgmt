@@ -17,12 +17,6 @@ import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { formatOrderFarmerDisplayName, normalizeOrderFor } from "utils/orderCustomerDisplay"
 import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel"
-import TentativeFreightEntry, {
-  emptyFreightEntry,
-  freightEntryError,
-  freightEntryPayload
-} from "components/fleet/TentativeFreightEntry"
-import { printFreightSlip } from "./FreightSlipPrint"
 import {
   emptyFleetAssignment,
   formatFleetDriverLabel,
@@ -42,6 +36,7 @@ import {
   resolveTrayLabelById,
 } from "utils/dispatchOrderCavityUtils"
 import OrderCavitySelect from "./OrderCavitySelect"
+import { packFromOrder } from "./packCratesFromOrder"
 import { useUserData } from "utils/roleUtils"
 import {
   dispatchExtraQtyForUser,
@@ -53,6 +48,7 @@ import OrderDispatchGiftLines from "../Dispatch/components/OrderDispatchGiftLine
 import { useDispatchOrderGifts } from "../Dispatch/components/useDispatchOrderGifts"
 import { syncDispatchOrderGiftLines } from "utils/dispatchOrderGifts"
 import { formatSplitAttributionLineage } from "./orderEditUtils"
+import { transformGetDispatchToMap } from "../DispatchedVehicles/dispatchFormHelpers"
 import {
   buildDispatchOrderQuantityMaps,
   orderRowKeyFromOrder,
@@ -180,58 +176,50 @@ const mapOrderToDispatchRow = (order) => {
 }
 
 /**
- * Matches FINAL_NURSERY_BE `calculateDispatchCrates` — trays = floor(qty/traySize),
- * full crates = floor(trays / traysPerCrate), remainder = qty - plants in full crates.
+ * Pack crates from original dispatch qty (order + free on full crates).
+ * plantCount = pack qty. DC/invoice must keep using dispatchQuantity.
  */
 const buildCratesPayloadForQuantity = ({
   dispatchQuantity,
   cavityId,
   cavityName,
   cavitySize,
-  numberPerCrate
+  numberPerCrate,
+  freePlantsPerCrate = 0,
 }) => {
-  const qty = Number(dispatchQuantity) || 0
-  const traySize = Number(cavitySize) || 0
-  const traysPerCrate = Number(numberPerCrate) || 0
-  if (qty <= 0 || traySize <= 0 || traysPerCrate <= 0) return null
-
-  const numberOfTrays = Math.floor(qty / traySize)
-  const fullCrates = Math.floor(numberOfTrays / traysPerCrate)
-  const plantsInFullCrates = fullCrates * traysPerCrate * traySize
-  const remainingPlants = Math.max(0, qty - plantsInFullCrates)
-
-  const crateDetails = []
-  if (fullCrates > 0) {
-    crateDetails.push({
-      crateCount: fullCrates,
-      plantCount: plantsInFullCrates
-    })
-  }
-  if (remainingPlants > 0) {
-    crateDetails.push({
-      crateCount: 1,
-      plantCount: remainingPlants
-    })
-  }
-  if (!crateDetails.length) return null
+  const pack = packFromOrder({
+    orderQty: dispatchQuantity,
+    cavitySize,
+    numberPerCrate,
+    freePlantsPerCrate,
+  })
+  if (!pack.crateDetails.length) return null
 
   return {
     cavity: cavityId,
     cavityName: cavityName || "",
-    crateCount: crateDetails.reduce((s, r) => s + Number(r.crateCount || 0), 0),
-    plantCount: crateDetails.reduce((s, r) => s + Number(r.plantCount || 0), 0),
-    crateDetails
+    crateCount: pack.crateCount,
+    plantCount: pack.plantCount,
+    orderPlantCount: pack.orderQty,
+    freePlantBonus: pack.bonus,
+    crateDetails: pack.crateDetails,
   }
 }
 
 /** UI rows for Crate Details (numberOfCrates + plant quantity per line). */
-const buildDisplayCrateLines = (qty, cavitySize, numberPerCrate) => {
+const buildDisplayCrateLines = (
+  qty,
+  cavitySize,
+  numberPerCrate,
+  freePlantsPerCrate = 0,
+) => {
   const row = buildCratesPayloadForQuantity({
     dispatchQuantity: qty,
     cavityId: "",
     cavityName: "",
     cavitySize,
-    numberPerCrate
+    numberPerCrate,
+    freePlantsPerCrate,
   })
   if (!row?.crateDetails?.length) return []
   return row.crateDetails.map((d) => ({
@@ -240,20 +228,59 @@ const buildDisplayCrateLines = (qty, cavitySize, numberPerCrate) => {
   }))
 }
 
-const formatCratePreviewLine = (qty, cavitySize, numberPerCrate) => {
-  const lines = buildDisplayCrateLines(qty, cavitySize, numberPerCrate)
+const formatCratePreviewLine = (
+  qty,
+  cavitySize,
+  numberPerCrate,
+  freePlantsPerCrate = 0,
+) => {
+  const lines = buildDisplayCrateLines(
+    qty,
+    cavitySize,
+    numberPerCrate,
+    freePlantsPerCrate,
+  )
   if (!lines.length) return "—"
-  return lines
+  const pack = packFromOrder({
+    orderQty: qty,
+    cavitySize,
+    numberPerCrate,
+    freePlantsPerCrate,
+  })
+  const base = lines
     .map((l) => `${l.numberOfCrates} crate(s) · ${Number(l.quantity).toLocaleString("en-IN")} plants`)
     .join(" + ")
+  if (pack.bonus > 0) {
+    return `${base} (order ${Number(pack.orderQty).toLocaleString("en-IN")} + ${pack.bonus} free)`
+  }
+  return base
 }
 
 const QTY_STEP = 1000
 
+const freePerCrateForPlant = (plant, plantCmsById) => {
+  const direct = Number(plant?.freePlantsPerCrate)
+  if (Number.isFinite(direct) && direct > 0) return direct
+  const id = String(plant?.id || plant?.plantId || "")
+  if (id && plantCmsById?.has(id)) {
+    return Math.max(0, Number(plantCmsById.get(id)?.freePlantsPerCrate) || 0)
+  }
+  const name = String(plant?.name || "").trim().toLowerCase()
+  if (name && plantCmsById) {
+    for (const p of plantCmsById.values()) {
+      if (String(p?.name || "").trim().toLowerCase() === name) {
+        return Math.max(0, Number(p.freePlantsPerCrate) || 0)
+      }
+    }
+  }
+  return 0
+}
+
 /** Office dispatch: crates from order cavity + dispatch qty — no shed/pickup UI. */
-const syncPlantsWithAutoTargets = (plants, qtyMap, cavities, getId) =>
+const syncPlantsWithAutoTargets = (plants, qtyMap, cavities, getId, plantCmsById) =>
   (plants || [])
     .map((plant) => {
+    const freePlantsPerCrate = freePerCrateForPlant(plant, plantCmsById)
     const orders = (plant.orders || []).filter((order) => {
       const rk = orderRowKeyFromOrder(order)
       return rk && Number(qtyMap.get(rk) || 0) > 0
@@ -287,12 +314,24 @@ const syncPlantsWithAutoTargets = (plants, qtyMap, cavities, getId) =>
       cavityName: g.cavityName,
       cavitySize: g.cavitySize,
       numberPerCrate: g.numberPerCrate,
+      freePlantsPerCrate,
       pickupDetails: [],
       autoSelected: true,
-      crates: buildDisplayCrateLines(g.qty, g.cavitySize, g.numberPerCrate),
+      crates: buildDisplayCrateLines(
+        g.qty,
+        g.cavitySize,
+        g.numberPerCrate,
+        freePlantsPerCrate,
+      ),
     }))
 
-    return { ...plant, orders, quantity: plantQty, cavityGroups }
+    return {
+      ...plant,
+      orders,
+      quantity: plantQty,
+      freePlantsPerCrate,
+      cavityGroups,
+    }
   })
     .filter((plant) => plant.quantity > 0 && (plant.cavityGroups || []).length > 0)
 
@@ -400,11 +439,11 @@ const DispatchForm = ({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [fleetAssignment, setFleetAssignment] = useState(emptyFleetAssignment)
-  const [freightEntry, setFreightEntry] = useState(emptyFreightEntry)
   const [fleetDrivers, setFleetDrivers] = useState([])
   const [fleetVehicles, setFleetVehicles] = useState([])
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
+  const [plantCmsById, setPlantCmsById] = useState(() => new Map())
   /** `"${plantIndex}-${groupIndex}-${detailIndex}"` while fetching FIFO batch for shade */
   const [pickupBatchLoadingKey, setPickupBatchLoadingKey] = useState("")
   const [isEditing, setIsEditing] = useState(false)
@@ -450,42 +489,18 @@ const DispatchForm = ({
   const getSelectedOrdersArray = () =>
     Array.from(getOrdersSourceMap()?.values?.() || []).filter((order) => Boolean(orderRowKey(order)))
 
+  /** Order was topped up after load — remaining > 0 means this vehicle can take more plants. */
+  const ordersNeedMoreLoad = useMemo(() => {
+    return getSelectedOrdersArray().some((order) => orderRemainingForDispatch(order) > 0)
+  }, [open, mode, isEditing, editOrdersMap, createOrdersMap, selectedOrders])
+
+  const transportStatus = String(dispatchData?.transportStatus || "").toUpperCase()
+  const canEditDispatch = transportStatus !== "DELIVERED" && transportStatus !== "CANCELLED"
+
   const dispatchOrderKeys = useMemo(
     () => getSelectedOrdersArray().map((order) => orderRowKey(order)).filter(Boolean),
     [open, mode, isEditing, editOrdersMap, createOrdersMap, selectedOrders]
   )
-
-  /** Crop / plants / crates per plant row for the tentative freight slip. */
-  const freightLoadSummary = useMemo(
-    () =>
-      (formData.plants || [])
-        .map((p) => ({
-          crop: p.name || "Plants",
-          plants: Number(p.quantity) || 0,
-          crates: totalCratesOnPlant(p)
-        }))
-        .filter((l) => l.plants > 0),
-    [formData.plants]
-  )
-
-  /** Delivery villages (farmer village of each order) with dispatch quantities. */
-  const freightVillages = useMemo(() => {
-    const byName = new Map()
-    for (const order of getSelectedOrdersArray()) {
-      const name = String(order?.details?.farmer?.village || "").trim()
-      if (!name) continue
-      const qty = Number(orderQuantities.get(orderRowKey(order)) || 0)
-      const key = name.toLowerCase()
-      const prev = byName.get(key)
-      if (prev) prev.plants += qty
-      else byName.set(key, { name, plants: qty })
-    }
-    return [...byName.values()]
-  }, [open, mode, createOrdersMap, selectedOrders, orderQuantities])
-
-  useEffect(() => {
-    if (open && mode !== "view") setFreightEntry(emptyFreightEntry())
-  }, [open, mode])
 
   const {
     giftCatalog,
@@ -576,7 +591,7 @@ const DispatchForm = ({
 
   const refreshDispatchViewData = async () => {
     const dispatchId = dispatchData?._id
-    if (!dispatchId) return
+    if (!dispatchId) return null
     const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
     const response = await inst.request({}, [String(dispatchId)])
     const raw = response?.data?.data ?? response?.data
@@ -586,6 +601,29 @@ const DispatchForm = ({
         : raw?.data
     if (!doc?._id) throw new Error("Could not refresh dispatch data")
     applyDispatchDataToForm(doc)
+    return doc
+  }
+
+  /** Enter edit with live remainingPlants so +qty on a loaded order can raise dispatch qty. */
+  const startDispatchEdit = async () => {
+    let liveOrdersMap = selectedOrders ? new Map(selectedOrders) : new Map()
+    let docForQty = dispatchData
+    try {
+      const doc = await refreshDispatchViewData()
+      if (doc?._id) {
+        docForQty = doc
+        const live = transformGetDispatchToMap(doc)
+        if (live?.size) liveOrdersMap = live
+      }
+    } catch {
+      /* keep current snapshot */
+    }
+    const { qtyMap } = buildDispatchOrderQuantityMaps(docForQty, [...liveOrdersMap.values()])
+    setEditOrdersMap(liveOrdersMap)
+    setOrderQuantities(qtyMap)
+    orderQuantitiesRef.current = qtyMap
+    savedDispatchQtyRef.current = new Map(qtyMap)
+    setIsEditing(true)
   }
 
   const fetchEligibleOrdersForEditAdd = async () => {
@@ -705,7 +743,8 @@ const DispatchForm = ({
               updatedPlants,
               orderQuantitiesRef.current,
               cavities,
-              getId
+              getId,
+              plantCmsById
             ),
             updatedPlants
           ),
@@ -900,6 +939,22 @@ const DispatchForm = ({
     }
   }
 
+  const getPlantCms = async () => {
+    try {
+      const instance = NetworkManager(API.plantCms.GET_PLANTS)
+      const response = await instance.request({}, {})
+      const list = response.data?.data?.data || response.data?.data || []
+      const map = new Map()
+      for (const p of Array.isArray(list) ? list : []) {
+        const id = String(p?._id || p?.id || "")
+        if (id) map.set(id, p)
+      }
+      setPlantCmsById(map)
+    } catch (error) {
+      console.error("Error fetching plants for free/crate:", error)
+    }
+  }
+
   // Validation
   const validateForm = () => {
     setError("")
@@ -975,7 +1030,8 @@ const DispatchForm = ({
         formData.plants,
         orderQuantitiesRef.current,
         cavities,
-        getId
+        getId,
+        plantCmsById
       ),
       formData.plants
     )
@@ -1017,7 +1073,8 @@ const DispatchForm = ({
         formData.plants,
         orderQuantitiesRef.current,
         cavities,
-        getId
+        getId,
+        plantCmsById
       ),
       formData.plants
     )
@@ -1087,7 +1144,11 @@ const DispatchForm = ({
             cavityId: matchingCavityGroup.cavity,
             cavityName: matchingCavityGroup.cavityName,
             cavitySize: matchingCavityGroup.cavitySize,
-            numberPerCrate: matchingCavityGroup.numberPerCrate
+            numberPerCrate: matchingCavityGroup.numberPerCrate,
+            freePlantsPerCrate:
+              matchingCavityGroup.freePlantsPerCrate ??
+              plantForOrder.freePlantsPerCrate ??
+              0,
           })
           if (built) cratesForOrder.push(built)
         }
@@ -1221,14 +1282,10 @@ const DispatchForm = ({
     setLoading(true)
     try {
       validateForm()
-      const freightError = freightEntryError(freightEntry)
-      if (freightError) throw new Error(freightError)
       const payload = transformDispatchData(formData, selectedOrders)
       if (readyDispatchGroupId) {
         payload.readyDispatchGroupId = readyDispatchGroupId
       }
-      const freightSlip = freightEntryPayload(freightEntry, freightVillages)
-      if (freightSlip) payload.freightSlip = freightSlip
       if (linkedAgriBlockedBy.length > 0) {
         payload.autoMarkLinkedAgriLoaded = true
       }
@@ -1238,12 +1295,6 @@ const DispatchForm = ({
       if (response.data) {
         await syncDispatchOrderGiftLines(giftDraftsByOrder)
         console.log("[DispatchForm] Dispatch created successfully:", response.data)
-        const createdSlip = response.data?.data?.freightSlip
-        if (createdSlip) {
-          printFreightSlip(createdSlip, "tentative")
-          Toast.success(`Freight slip ${createdSlip.slipNumber} saved (tentative)`)
-        }
-        setFreightEntry(emptyFreightEntry())
         // Trigger refresh of parent components
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("dispatchCreated"))
@@ -1686,7 +1737,8 @@ const DispatchForm = ({
         Object.values(plantGroups),
         orderQuantitiesRef.current,
         cavities,
-        getId
+        getId,
+        plantCmsById
       )
 
       return {
@@ -1727,7 +1779,7 @@ const DispatchForm = ({
           return { ...p, quantity: q }
         })
       const synced = withDispatchPlantFallback(
-        syncPlantsWithAutoTargets(nextPlants, nextQty, cavities, getId),
+        syncPlantsWithAutoTargets(nextPlants, nextQty, cavities, getId, plantCmsById),
         nextPlants
       )
       return { ...prev, plants: synced }
@@ -1737,6 +1789,7 @@ const DispatchForm = ({
   useEffect(() => {
     getShades()
     getCavities()
+    getPlantCms()
   }, [])
 
   useEffect(() => {
@@ -1750,7 +1803,8 @@ const DispatchForm = ({
             prev.plants,
             orderQuantitiesRef.current,
             cavities,
-            getId
+            getId,
+            plantCmsById
           ),
           prev.plants
         ),
@@ -1945,7 +1999,8 @@ const DispatchForm = ({
           Object.values(plantGroups),
           initialQuantities,
           cavities,
-          getId
+          getId,
+          plantCmsById
         )
       }))
 
@@ -2130,6 +2185,20 @@ const DispatchForm = ({
         {isViewMode && isEditing && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             Qty changes recalculate crates on save. Shed app will show +/− office adjustment.
+          </div>
+        )}
+        {isViewMode && !isEditing && ordersNeedMoreLoad && canEditDispatch && (
+          <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div className="text-sm text-amber-950 font-semibold">
+              Orders have plants left to load (e.g. after +qty edit). Use Edit to raise dispatch qty,
+              then save — shed can load the extra.
+            </div>
+            <Button
+              variant="contained"
+              onClick={() => void startDispatchEdit()}
+              className="bg-amber-600 hover:bg-amber-700 text-white shrink-0">
+              Edit — load more
+            </Button>
           </div>
         )}
         {isViewMode && isEditing && (
@@ -2462,16 +2531,6 @@ const DispatchForm = ({
             )}
           </div>
 
-          {!isViewMode && (
-            <TentativeFreightEntry
-              value={freightEntry}
-              onChange={setFreightEntry}
-              loadSummary={freightLoadSummary}
-              villages={freightVillages}
-              disabled={loading}
-            />
-          )}
-
           <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "text-base" : ""}`}>
             <label className="text-sm text-gray-600 shrink-0">Expected nursery</label>
             <select
@@ -2606,6 +2665,7 @@ const DispatchForm = ({
                             const tray = cavities.find((t) => getId(t) === cKey)
                             const cavitySize = Number(tray?.cavity) || 0
                             const numberPerCrate = Number(tray?.numberPerCrate) || 0
+                            const free = freePerCrateForPlant(plant, plantCmsById)
                             return (
                               <div
                                 key={rk}
@@ -2618,7 +2678,12 @@ const DispatchForm = ({
                                 </span>
                                 <span className="text-gray-600">
                                   {Number(dispatchQty).toLocaleString("en-IN")} plants ·{" "}
-                                  {formatCratePreviewLine(dispatchQty, cavitySize, numberPerCrate)}
+                                  {formatCratePreviewLine(
+                                    dispatchQty,
+                                    cavitySize,
+                                    numberPerCrate,
+                                    free,
+                                  )}
                                 </span>
                               </div>
                             )
@@ -2645,22 +2710,16 @@ const DispatchForm = ({
           className={`text-gray-600 border-gray-400 hover:bg-gray-100 ${isMobile ? "flex-1 min-h-[42px]" : ""}`}>
           {isEditing || !isViewMode ? "Cancel" : "Close"}
         </Button>
-        {isViewMode && !isEditing && (
+        {isViewMode && !isEditing && canEditDispatch && (
           <Button
-            onClick={() => {
-              const base = selectedOrders ? new Map(selectedOrders) : new Map()
-              const { qtyMap } = buildDispatchOrderQuantityMaps(dispatchData, [
-                ...base.values(),
-              ])
-              setEditOrdersMap(base)
-              setOrderQuantities(qtyMap)
-              orderQuantitiesRef.current = qtyMap
-              savedDispatchQtyRef.current = new Map(qtyMap)
-              setIsEditing(true)
-            }}
+            onClick={() => void startDispatchEdit()}
             variant="contained"
-            className="bg-blue-600 hover:bg-blue-700 text-white">
-            Edit
+            className={
+              ordersNeedMoreLoad
+                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                : "bg-blue-600 hover:bg-blue-700 text-white"
+            }>
+            {ordersNeedMoreLoad ? "Edit — load more" : "Edit"}
           </Button>
         )}
         {isEditing && (

@@ -11,32 +11,24 @@ import {
   TableHead,
   TableRow,
   Paper,
+  Stack,
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
 import SpaIcon from "@mui/icons-material/Spa"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import EasyRequestSubtypeRow from "./EasyRequestSubtypeRow"
+import SowUrgencyChip from "./SowUrgencyChip"
+import { groupSowUrgency } from "./sowUrgency"
+import { fmt } from "./sowingPackingUtils"
 
-const HEAD = [
-  "Variety",
-  "Ready days",
-  "Seed cover",
-  "To sow",
-  "Company seed",
-  "Raising seed",
-  "Packing",
-  "Need / seed pkt",
-  "Status",
-  "Actions",
-]
+const HEAD = ["Variety", "Ready", "To sow", "Need / seed pkt", "Status", "Actions"]
 
 export default function EasyRequestPlantGroup({
   group,
-  defaultOpen = true,
+  defaultOpen = false,
   onOrders,
   onWhatsApp,
   onCropWhatsApp,
-  onRaisingOrders,
   onRequest,
   onGapClick,
   onCancelRequest,
@@ -44,6 +36,7 @@ export default function EasyRequestPlantGroup({
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const count = group.cards?.length || 0
+  const urgency = groupSowUrgency(group.cards)
 
   return (
     <Paper
@@ -87,16 +80,31 @@ export default function EasyRequestPlantGroup({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            flexShrink: 0,
           }}
         >
           <SpaIcon sx={{ fontSize: 16 }} />
         </Box>
-        <Typography fontWeight={900} fontSize="1.05rem" color="#14532d" flex={1}>
-          {group.plantName}
-        </Typography>
-        <Typography variant="caption" fontWeight={700} color="text.secondary" mr={0.5}>
-          {count} subtype{count === 1 ? "" : "s"}
-        </Typography>
+        <Box flex={1} minWidth={0}>
+          <Typography fontWeight={900} fontSize="1.05rem" color="#14532d" noWrap>
+            {group.plantName}
+          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Typography variant="caption" fontWeight={700} color="text.secondary">
+              {count} subtype{count === 1 ? "" : "s"}
+            </Typography>
+            {urgency.due > 0 ? (
+              <Typography variant="caption" fontWeight={800} color="#b91c1c">
+                Overdue {fmt(urgency.due)}
+              </Typography>
+            ) : urgency.today > 0 ? (
+              <Typography variant="caption" fontWeight={800} color="#c2410c">
+                Today {fmt(urgency.today)}
+              </Typography>
+            ) : null}
+          </Stack>
+        </Box>
+        <SowUrgencyChip urgency={urgency} />
         <IconButton
           size="small"
           title="WhatsApp this crop"
@@ -153,7 +161,6 @@ export default function EasyRequestPlantGroup({
                   card={card}
                   onOrders={onOrders}
                   onWhatsApp={onWhatsApp}
-                  onRaisingOrders={onRaisingOrders}
                   onRequest={onRequest}
                   onGapClick={onGapClick}
                   onCancelRequest={onCancelRequest}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useState, forwardRef } from "react"
 import {
   Box,
   Typography,
@@ -22,10 +22,11 @@ import OrderWiseDrawer from "./OrderWiseDrawer"
 import RequestPacketsDialog from "./RequestPacketsDialog"
 import SowingRoadmapDialog from "./SowingRoadmapDialog"
 import EasyRequestPlantGroup from "./EasyRequestPlantGroup"
+import { useEasyRequestWhatsApp } from "./useEasyRequestWhatsApp"
 import SowingInProgressCard from "./SowingInProgressCard"
+import { useCancelInProgressSowing } from "./cancelInProgressSowing"
 import SowingLinkedOrdersDrawer from "./SowingLinkedOrdersDrawer"
 import AdminSowEntryDialog from "./AdminSowEntryDialog"
-import { useEasyRequestWhatsApp } from "./useEasyRequestWhatsApp"
 import GapDaysDrawer from "./GapDaysDrawer"
 import UnsowedVarietyTab from "./UnsowedVarietyTab"
 import { SowHorizonChips, useSowHorizon } from "./SowHorizonContext"
@@ -36,12 +37,16 @@ import { groupCardsByPlant } from "./easyRequestRowMetrics"
 import { printEasyRequestReport } from "./easyRequestPrint"
 import { useIsSuperAdmin, useIsOfficeAdmin } from "utils/roleUtils"
 
-export default function EasyRequestPanel({
-  canCoverFromStock = false,
-  onCoverFromStock = null,
-  refreshToken = 0,
-  embedded = false,
-}) {
+const EasyRequestPanel = forwardRef(function EasyRequestPanel(
+  {
+    canCoverFromStock = false,
+    onCoverFromStock = null,
+    refreshToken = 0,
+    embedded = false,
+    onSowAll = null,
+  },
+  ref
+) {
   const isSuperAdmin = useIsSuperAdmin()
   const isOfficeAdmin = useIsOfficeAdmin()
   const canEnterSow = isSuperAdmin || isOfficeAdmin
@@ -62,6 +67,15 @@ export default function EasyRequestPanel({
   const [sowEntryCard, setSowEntryCard] = useState(null)
   const [gapCard, setGapCard] = useState(null)
   const [excessSowPrompt, setExcessSowPrompt] = useState(null)
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      openWhatsAppAll: () => openAllWhatsApp(cards),
+      hasWhatsAppCards: () => cards.length > 0 && !loading,
+    }),
+    [cards, loading, openAllWhatsApp]
+  )
 
   const load = useCallback(async (force = false) => {
     try {
@@ -287,6 +301,7 @@ export default function EasyRequestPanel({
       0
     return orders > 0 && pkt <= 0
   }).length
+  const { cancellingKey, cancelCard } = useCancelInProgressSowing(load)
   const inProgressCount = inProgressCards.length
   const pendingReqCount = cards.filter(
     (c) =>
@@ -340,7 +355,7 @@ export default function EasyRequestPanel({
               Inventory Requests
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.95 }}>
-              Company + raising seed · combine packings
+              1–2 days late = Urgent · 3+ days = Super urgent · future = not urgent
               {loadMs != null ? ` · ${loadMs}ms` : ""}
             </Typography>
           </Box>
@@ -575,16 +590,13 @@ export default function EasyRequestPanel({
                     <EasyRequestPlantGroup
                       key={String(group.plantId || group.plantName)}
                       group={group}
+                      defaultOpen={false}
                       onOrders={(card) => {
                         setDrawerRaisingOnly(false)
                         setDrawerCard(card)
                       }}
                       onWhatsApp={openWhatsApp}
                       onCropWhatsApp={openCropWhatsApp}
-                      onRaisingOrders={(card) => {
-                        setDrawerRaisingOnly(true)
-                        setDrawerCard(card)
-                      }}
                       onRequest={(card, packs) => openRequest(card, packs)}
                       onCancelRequest={cancelPendingRequest}
                       onGapClick={(c) => setGapCard(c)}
@@ -607,6 +619,7 @@ export default function EasyRequestPanel({
                     setDrawerRaisingOnly(false)
                     setDrawerCard(card)
                   }}
+                  onWhatsApp={openWhatsApp}
                   onRequest={(card, packs) => openRequest(card, packs)}
                   onGapClick={(c) => setGapCard(c)}
                 />
@@ -679,6 +692,21 @@ export default function EasyRequestPanel({
                           >
                             Orders
                           </Button>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disableElevation
+                            startIcon={<WhatsAppIcon sx={{ fontSize: "16px !important" }} />}
+                            onClick={() => openWhatsApp(card)}
+                            sx={{
+                              textTransform: "none",
+                              fontWeight: 800,
+                              bgcolor: "#16a34a",
+                              "&:hover": { bgcolor: "#15803d" },
+                            }}
+                          >
+                            WhatsApp
+                          </Button>
                           {open.length > 0 && (
                             <Button
                               size="small"
@@ -717,15 +745,34 @@ export default function EasyRequestPanel({
                   border: "1px solid #bfdbfe",
                 }}
               >
-                <Stack direction="row" alignItems="center" spacing={1} mb={1.25}>
-                  <Typography fontWeight={900} fontSize="0.95rem" color="#1d4ed8">
-                    Sowing in progress
-                  </Typography>
-                  <Chip
-                    size="small"
-                    label={`${inProgressCards.length}`}
-                    sx={{ height: 22, fontWeight: 800, bgcolor: "#2563eb", color: "#fff" }}
-                  />
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  spacing={1}
+                  mb={1.25}
+                  gap={1}
+                >
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Typography fontWeight={900} fontSize="0.95rem" color="#1d4ed8">
+                      Sowing in progress
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={`${inProgressCards.length}`}
+                      sx={{ height: 22, fontWeight: 800, bgcolor: "#2563eb", color: "#fff" }}
+                    />
+                  </Stack>
+                  {onSowAll ? (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={onSowAll}
+                      sx={{ fontWeight: 800, textTransform: "none", bgcolor: "#0f766e" }}
+                    >
+                      Sow all
+                    </Button>
+                  ) : null}
                 </Stack>
                 <Typography variant="caption" color="text.secondary" display="block" mb={1.25}>
                   Stock issued — no new packet request needed until primary sowing completes.
@@ -744,6 +791,10 @@ export default function EasyRequestPanel({
                         onClick={() => setLinkedDrawerCard(card)}
                         showEnterSow={canEnterSow}
                         onEnterSow={(c) => setSowEntryCard(c)}
+                        onCancel={cancelCard}
+                        cancelling={
+                          cancellingKey === `${card.plantId || ""}-${card.subtypeId || ""}`
+                        }
                       />
                     </Grid>
                   ))}
@@ -772,7 +823,6 @@ export default function EasyRequestPanel({
         }
       />
 
-      {waDialog}
 
       <OrderWiseDrawer
         open={Boolean(drawerCard)}
@@ -870,6 +920,9 @@ export default function EasyRequestPanel({
         card={gapCard}
         onClose={() => setGapCard(null)}
       />
+      {waDialog}
     </Box>
   )
-}
+})
+
+export default EasyRequestPanel
