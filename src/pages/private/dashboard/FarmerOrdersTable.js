@@ -7348,34 +7348,6 @@ const mapSlotForUi = (slotData) => {
       delete dataToSend.__excessChecked
       let subtypeChangeNeedsSowing = false
 
-      // Qty increase on sowing plant → same excess popup as accept (which batch covers the extra).
-      if (
-        !isAgriSalesOrder &&
-        !excessChecked &&
-        isSowingCoverCandidate(row) &&
-        Boolean(row?.details?.deliveryDate || dataToSend.deliveryDate) &&
-        dataToSend.quantity != null &&
-        String(dataToSend.quantity).trim() !== ""
-      ) {
-        const newQuantity = Number(dataToSend.quantity)
-        const currentQuantity = Number(row?.quantity ?? row?.details?.numberOfPlants ?? 0)
-        const qtyDelta = Math.floor(newQuantity - currentQuantity)
-        if (Number.isFinite(newQuantity) && qtyDelta > 0) {
-          const deliveryDate = dataToSend.deliveryDate || row.details.deliveryDate
-          const result = await loadExcessForRow(row, deliveryDate, { need: qtyDelta })
-          if (!result) {
-            Toast.error("Could not check excess sowing for the quantity increase. Order not updated — try again.")
-            return
-          }
-          openAcceptCover(row, result, "beforeQtyIncrease", {
-            pendingPatch: patchObj,
-            need: qtyDelta,
-            qtyDelta,
-          })
-          return
-        }
-      }
-
       if (!isAgriSalesOrder && !excessChecked && needsDeliveryExcessCheck(row, dataToSend)) {
         const subtypeChange = isSubtypeChangePatch(row, dataToSend)
         const result = await loadExcessForRow(
@@ -7405,6 +7377,41 @@ const mapSlotForUi = (slotData) => {
           return
         }
         setpatchLoading(true)
+      }
+
+      // Qty increase on sowing plant → same excess popup as accept (which batch covers the extra).
+      // Runs after delivery/subtype check so both can still apply on a combined edit.
+      if (
+        !isAgriSalesOrder &&
+        !excessChecked &&
+        isSowingCoverCandidate(row) &&
+        Boolean(row?.details?.deliveryDate || dataToSend.deliveryDate)
+      ) {
+        const qtyRaw =
+          dataToSend.quantity != null && String(dataToSend.quantity).trim() !== ""
+            ? dataToSend.quantity
+            : dataToSend.numberOfPlants
+        if (qtyRaw != null && String(qtyRaw).trim() !== "") {
+          const newQuantity = Number(qtyRaw)
+          const currentQuantity = Number(row?.quantity ?? row?.details?.numberOfPlants ?? 0)
+          const qtyDelta = Math.floor(newQuantity - currentQuantity)
+          if (Number.isFinite(newQuantity) && qtyDelta > 0) {
+            const deliveryDate = dataToSend.deliveryDate || row.details.deliveryDate
+            const result = await loadExcessForRow(row, deliveryDate, { need: qtyDelta })
+            if (!result) {
+              Toast.error(
+                "Could not check excess sowing for the quantity increase. Order not updated — try again."
+              )
+              return
+            }
+            openAcceptCover(row, result, "beforeQtyIncrease", {
+              pendingPatch: patchObj,
+              need: qtyDelta,
+              qtyDelta,
+            })
+            return
+          }
+        }
       }
 
       console.log("=== PATCH ORDER PAYLOAD DEBUG ===")
@@ -7804,15 +7811,22 @@ const mapSlotForUi = (slotData) => {
         }
 
         const excessCoverResult = emps?.data?.excessCover
+        const qtyCoverNeed = Math.max(0, Math.floor(Number(dataToSend?.excessCoverNeed) || 0))
         if (excessCoverResult?.success) {
           Toast.success(
-            `Delivery changed and covered from ${excessCoverResult.sources} sowing entr${
-              excessCoverResult.sources === 1 ? "y" : "ies"
-            } (${fmtNum(excessCoverResult.plants)} plants)`
+            qtyCoverNeed > 0
+              ? `+${fmtNum(qtyCoverNeed)} plants covered from ${excessCoverResult.sources} sowing entr${
+                  excessCoverResult.sources === 1 ? "y" : "ies"
+                } (${fmtNum(excessCoverResult.plants)} plants)`
+              : `Delivery changed and covered from ${excessCoverResult.sources} sowing entr${
+                  excessCoverResult.sources === 1 ? "y" : "ies"
+                } (${fmtNum(excessCoverResult.plants)} plants)`
           )
         } else if (excessCoverResult) {
           Toast.error(
-            `Delivery changed, but cover from excess failed: ${excessCoverResult.message}. New sowing needs to be created.`
+            qtyCoverNeed > 0
+              ? `Quantity saved, but cover from excess failed: ${excessCoverResult.message}. New sowing needed for the increase.`
+              : `Delivery changed, but cover from excess failed: ${excessCoverResult.message}. New sowing needs to be created.`
           )
         } else if (subtypeChangeNeedsSowing) {
           Toast.info("Subtype changed — no excess of the new subtype nearby, new sowing needs to be created.")
@@ -13953,9 +13967,16 @@ const mapSlotForUi = (slotData) => {
             }
           : acceptCover.mode === "beforeQtyIncrease"
           ? {
+              title: `Quantity increase +${fmtNum(acceptCover.qtyDelta || acceptCover.need || 0)} — pick sowing`,
+              titleMr: `प्रमाण वाढ +${fmtNum(acceptCover.qtyDelta || acceptCover.need || 0)} — पेरणी निवडा`,
               coverLabel: "Cover increase from excess",
               sowLabel: "Increase without cover — new sowing",
               requireFullCover: true,
+            }
+          : acceptCover.mode === "accept"
+          ? {
+              title: "Accept order — cover from excess sowing?",
+              titleMr: "ऑर्डर स्वीकार — जास्तीच्या पेरणीतून cover?",
             }
           : {})}
       />

@@ -63,6 +63,11 @@ export async function fetchExcessBatches({
 
 export const NEAR_WINDOW_DAYS = 5
 export const WIDE_WINDOW_DAYS = 15
+export const PAPAYA_WINDOW_DAYS = 40
+
+export function isPapayaPlantName(name) {
+  return String(name || "").trim().toLowerCase() === "papaya"
+}
 
 /**
  * Excess near delivery (±5d); when that cannot cover the whole order, widen to ±15d.
@@ -73,9 +78,26 @@ export async function fetchExcessWithFallback({
   subtypeId,
   deliveryDate,
   need,
-  releaseOrderId = null
+  releaseOrderId = null,
+  plantName = ""
 }) {
   const needQty = Math.max(0, Math.floor(Number(need) || 0))
+  if (isPapayaPlantName(plantName)) {
+    const preview = await fetchExcessBatches({
+      plantId,
+      subtypeId,
+      deliveryDate,
+      need: needQty,
+      windowDays: PAPAYA_WINDOW_DAYS,
+      releaseOrderId
+    })
+    return {
+      preview,
+      windowDays: PAPAYA_WINDOW_DAYS,
+      widened: false,
+      nearFree: Number(preview?.totalFree) || 0
+    }
+  }
   const near = await fetchExcessBatches({
     plantId,
     subtypeId,
@@ -402,6 +424,8 @@ export default function ExcessBatchCoverDialog({
   requireFullCover = false,
   onPickDate,
   isDatePickable,
+  title = null,
+  titleMr = null,
 }) {
   const rows = useMemo(() => groupExcessEntries(preview?.entries || []), [preview])
   const sowPossible = (newSowingPossible ?? preview?.newSowingPossible) !== false
@@ -459,15 +483,19 @@ export default function ExcessBatchCoverDialog({
       <DialogTitle sx={{ fontWeight: 900, pb: 1 }}>
         {blocked
           ? "Delivery date cannot be changed"
-          : totalFree > 0 || loading
-            ? `Excess sowing available (±${windowDays} days)`
-            : "Excess sowing check"}
+          : title
+            ? title
+            : totalFree > 0 || loading
+              ? `Excess sowing available (±${windowDays} days)`
+              : "Excess sowing check"}
         <Typography component="div" fontWeight={800} fontSize="0.9rem" color="text.secondary">
           {blocked
             ? "डिलिव्हरी तारीख बदलता येणार नाही"
-            : totalFree > 0 || loading
-              ? `जास्तीची पेरणी उपलब्ध (±${windowDays} दिवस)`
-              : "जास्तीची पेरणी तपासणी"}
+            : titleMr
+              ? titleMr
+              : totalFree > 0 || loading
+                ? `जास्तीची पेरणी उपलब्ध (±${windowDays} दिवस)`
+                : "जास्तीची पेरणी तपासणी"}
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
@@ -558,9 +586,11 @@ export default function ExcessBatchCoverDialog({
           ) : rows.length === 0 ? null : (
             <Stack spacing={0.75}>
               <Typography variant="caption" color="text.secondary" fontWeight={700}>
-                Delivery is based on the ready date · ±days = ready date vs delivery
+                All leftover already ready, plus sowings ready within +{windowDays} days of
+                delivery
                 <br />
-                डिलिव्हरी रोपे तयार होण्याच्या तारखेवर ठरते · ±दिवस = तयार तारीख व डिलिव्हरीमधील फरक
+                आधी तयार झालेली जास्तीची रोपे, आणि डिलिव्हरीनंतर +{windowDays} दिवसांत तयार होणारी
+                पेरणी
               </Typography>
               {rows.map((r) => {
                 const qty = Math.max(0, Math.floor(Number(picks[r.key]) || 0))
