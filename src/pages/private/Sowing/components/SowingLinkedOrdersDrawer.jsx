@@ -57,7 +57,11 @@ export default function SowingLinkedOrdersDrawer({
       setRows([])
       return
     }
-    if (!linkedIds.length) {
+    const slotIds = (card.slotIds || card.slots || [])
+      .map((s) => (typeof s === "object" ? s._id || s.slotId : s))
+      .filter(Boolean)
+      .join(",")
+    if (!linkedIds.length && !slotIds) {
       setRows([])
       return
     }
@@ -66,17 +70,37 @@ export default function SowingLinkedOrdersDrawer({
       try {
         setLoading(true)
         const instance = NetworkManager(API.sowing.GET_ORDER_WISE_SOWING)
-        const res = await instance.request(
-          {},
-          {
-            plantId: card.plantId,
-            subtypeId: card.subtypeId,
-            orderIds: linkedIds.join(","),
-          }
-        )
+        const [linkedRes, slotRes] = await Promise.all([
+          linkedIds.length
+            ? instance.request(
+                {},
+                {
+                  plantId: card.plantId,
+                  subtypeId: card.subtypeId,
+                  orderIds: linkedIds.join(","),
+                }
+              )
+            : null,
+          slotIds
+            ? instance.request(
+                {},
+                {
+                  plantId: card.plantId,
+                  subtypeId: card.subtypeId,
+                  slotIds,
+                  days: 0,
+                }
+              )
+            : null,
+        ])
         if (cancelled) return
-        const data = res?.data?.data || []
-        setRows(Array.isArray(data) ? data : [])
+        const linked = Array.isArray(linkedRes?.data?.data) ? linkedRes.data.data : []
+        const slotRows = Array.isArray(slotRes?.data?.data) ? slotRes.data.data : []
+        const seen = new Set(linked.map((o) => String(o.orderId)))
+        const unsown = slotRows.filter(
+          (o) => !o.sowingDone && !seen.has(String(o.orderId))
+        )
+        setRows([...unsown, ...linked])
       } catch {
         if (!cancelled) setRows([])
       } finally {
@@ -239,7 +263,22 @@ export default function SowingLinkedOrdersDrawer({
                     #{o.orderNumber} · {o.farmerName || "Farmer"}
                   </Typography>
                   <Stack direction="row" spacing={0.5} alignItems="center">
-                    {o.sowingDone ? (
+                    {o.dispatched ||
+                    ["DISPATCHED", "DISPATCH_PROCESS", "COMPLETED", "PARTIALLY_COMPLETED"].includes(
+                      String(o.orderStatus || "").toUpperCase()
+                    ) ? (
+                      <Chip
+                        size="small"
+                        label="Dispatched"
+                        sx={{
+                          height: 20,
+                          fontWeight: 800,
+                          fontSize: "0.65rem",
+                          bgcolor: "#dbeafe",
+                          color: "#1d4ed8",
+                        }}
+                      />
+                    ) : o.sowingDone ? (
                       <Chip
                         size="small"
                         label="Sown"
