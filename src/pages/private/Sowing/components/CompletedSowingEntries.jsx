@@ -3,403 +3,37 @@ import {
   Box,
   Typography,
   Stack,
-  Chip,
   TextField,
   InputAdornment,
   IconButton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TableSortLabel,
   CircularProgress,
-  Drawer,
   Alert,
   Button,
-  Tooltip,
   Popover,
   Divider,
   Autocomplete,
 } from "@mui/material"
 import SearchIcon from "@mui/icons-material/Search"
 import RefreshIcon from "@mui/icons-material/Refresh"
-import CloseIcon from "@mui/icons-material/Close"
-import PrintIcon from "@mui/icons-material/Print"
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline"
 import { NetworkManager, API } from "network/core"
-import DrawerExportButton from "components/DrawerExportButton"
-import { clock12, durationLabel } from "./MachineTimeField"
 import SowBatchDestroyDialog from "./SowBatchDestroyDialog"
-import SowBatchIrrelevantButton, { IrrelevantChip } from "./SowBatchIrrelevantButton"
-import SowBatchMortalityButton from "./SowBatchMortalityButton"
-import { requestOrderSowLine } from "./requestOrderSowLine"
-import SowEntryCoverOrders, { SowEntryCoverCell } from "./SowEntryCoverOrders"
-
-const IST = "Asia/Kolkata"
-
-/** "YYYY-MM-DD" / "DD-MM-YYYY" are calendar days, not instants. */
-function parseDayString(d) {
-  if (typeof d !== "string") return null
-  const ymd = d.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (ymd) return { y: ymd[1], m: ymd[2], d: ymd[3] }
-  const dmy = d.match(/^(\d{2})-(\d{2})-(\d{4})$/)
-  if (dmy) return { y: dmy[3], m: dmy[2], d: dmy[1] }
-  return null
-}
-
-function fmtDate(d) {
-  if (!d) return "—"
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return "—"
-  return date.toLocaleString("en-IN", {
-    timeZone: IST,
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
-function fmtAdded(d) {
-  if (!d) return "—"
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return "—"
-  return date.toLocaleDateString("en-IN", {
-    timeZone: IST,
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-}
-
-function fmtTime(d) {
-  if (!d) return ""
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return ""
-  return date.toLocaleTimeString("en-IN", {
-    timeZone: IST,
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
-function fmtDay(d) {
-  if (!d) return "—"
-  const day = parseDayString(d)
-  if (day) return `${day.d} ${MONTHS[Number(day.m) - 1] || day.m} ${day.y}`
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return "—"
-  return date.toLocaleDateString("en-IN", {
-    timeZone: IST,
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-}
-
-/** Sort key for a sow day: "YYYY-MM-DD" in IST. */
-function sowDayKey(d) {
-  if (!d) return ""
-  const day = parseDayString(d)
-  if (day) return `${day.y}-${day.m}-${day.d}`
-  const date = new Date(d)
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-CA", { timeZone: IST })
-}
-
-const TRAY_SIZE = 126
-
-/** Older rows may lack trays; a part-filled tray is still a tray. */
-function traysOf(row) {
-  if (row?.trays != null && Number.isFinite(Number(row.trays))) return Number(row.trays)
-  const p = Number(row?.sowedQuantity) || 0
-  return p > 0 ? Math.ceil(p / (Number(row?.traySize) || TRAY_SIZE)) : 0
-}
-
-function fmtPkt(n) {
-  const v = Number(n)
-  return Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "0"
-}
-
-/** CMS percent of plants sowed. Null when the entry has no slot batch. */
-function mortalityOf(row) {
-  const s = row?.affectedSlot
-  if (!s?.batchId) return null
-  if (s.bufferPlants != null) {
-    return Math.max(0, Number(s.bufferPlants) - (Number(s.mortalityMovedToExcess) || 0))
-  }
-  return Number(s.batchExpectedMortality) || 0
-}
-
-/** Plants the move-to-excess action can still take off this sowing. */
-function reserveOf(row) {
-  const s = row?.affectedSlot
-  if (!s?.batchId) return 0
-  if (s.mortalityReserve != null) return Math.max(0, Number(s.mortalityReserve) || 0)
-  return Number(s.batchExpectedMortality) || 0
-}
-
-/** Excess from the API. The server already subtracted orders and the plant's sowing buffer. */
-function excessOf(row) {
-  if (row?.isIrrelevant || row?.affectedSlot?.isIrrelevant) return 0
-  if (row?.affectedSlot?.batchId) return Math.max(0, Number(row.affectedSlot.excessPlants) || 0)
-  return Math.max(0, Number(row?.excessPlants) || 0)
-}
-
-function coverOf(row) {
-  const n = Number(row?.bookedPlants ?? row?.affectedSlot?.bookedPlants)
-  return Number.isFinite(n) && n > 0 ? n : 0
-}
-
-function readyDateOf(row) {
-  return row?.affectedSlot?.plantReadyDate || row?.plantReadyDate || ""
-}
-
-function fmtNum(n) {
-  return (Number(n) || 0).toLocaleString("en-IN")
-}
-
-function addedByOf(row) {
-  return row?.addedByName || row?.completedBy?.name || ""
-}
-
-/** The slot sowing batch this entry put sow-ready stock into. */
-function sowBatchOf(row) {
-  const s = row?.affectedSlot || {}
-  const sowed = Number(s.batchPlantsSowed) || 0
-  const destroyed = Number(s.batchDestroyedPlants) || 0
-  return {
-    slotId: s.slotId,
-    batchId: s.batchId,
-    plantsSowed: sowed,
-    destroyedPlants: destroyed,
-    plantsLeft: Math.max(0, sowed - destroyed),
-    requestNumber: row?.requestNumber,
-    sowingDate: s.sowingDate,
-    shedName: s.shedName
-  }
-}
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
-/** "15-08-2026" → "15 Aug"; other formats pass through. */
-function shortDmy(s) {
-  const m = String(s || "").match(/^(\d{2})-(\d{2})-(\d{4})$/)
-  if (!m) return s || ""
-  return `${m[1]} ${MONTHS[Number(m[2]) - 1] || m[2]}`
-}
-
-function SlotCell({ slot, onOpen }) {
-  if (!slot) {
-    return (
-      <Typography fontSize="0.75rem" color="text.secondary">
-        —
-      </Typography>
-    )
-  }
-  const start = shortDmy(slot.startDay)
-  const end = shortDmy(slot.endDay)
-  const range = !end || start === end ? start : `${start} → ${end}`
-  const ready = shortDmy(slot.plantReadyDate)
-  return (
-    <Tooltip title="Click for slot details">
-      <Box
-        component="button"
-        type="button"
-        onClick={onOpen}
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-start",
-          gap: 0.25,
-          px: 1,
-          py: 0.5,
-          borderRadius: 1.5,
-          border: "1px solid #bfdbfe",
-          bgcolor: "#eff6ff",
-          cursor: "pointer",
-          font: "inherit",
-          textAlign: "left",
-          "&:hover": { bgcolor: "#dbeafe", borderColor: "#60a5fa" },
-        }}
-      >
-        <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: "#1d4ed8", lineHeight: 1.2 }}>
-          {range || slot.label}
-          {slot.year ? (
-            <Typography component="span" sx={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>
-              {" "}
-              {slot.year}
-            </Typography>
-          ) : null}
-        </Typography>
-        {ready || slot.plantReadyDays != null ? (
-          <Typography sx={{ fontSize: 11, fontWeight: 700, color: "#0f766e", lineHeight: 1.2 }}>
-            {ready ? `Ready ${ready}` : ""}
-            {slot.plantReadyDays != null ? `${ready ? " · " : ""}+${slot.plantReadyDays}d` : ""}
-          </Typography>
-        ) : null}
-      </Box>
-    </Tooltip>
-  )
-}
-
-function esc(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
-
-/** Browser print → Save as PDF. Orders sowed that day + batch + date. */
-function printCompletionPdf(row) {
-  if (!row) return
-  const sowDate = fmtDay(row.sowingDate || row.sowingCompletedDate)
-  const batch =
-    row.batchNumber ||
-    (Array.isArray(row.batchNumbers) ? row.batchNumbers.join(", ") : "") ||
-    "—"
-  const orders = row.linkedOrders || []
-  const orderRows = orders.length
-    ? orders
-        .map(
-          (o, i) => {
-            const off = o.coverOffsetDays
-            const coverLbl =
-              off == null
-                ? ""
-                : off === 0
-                  ? "ready day"
-                  : off > 0
-                    ? `+${off}d cover`
-                    : `${off}d cover`
-            return `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${esc(o.orderNumber || o.orderId || "—")}</td>
-        <td>${esc(o.farmerName || "—")}</td>
-        <td style="text-align:right">${esc(o.plants ?? 0)}</td>
-        <td>${esc(fmtDay(o.bookingDate || o.orderBookingDate || o.createdAt))}</td>
-        <td>${esc(fmtDay(o.deliveryDate))}${coverLbl ? ` (${esc(coverLbl)})` : ""}</td>
-        <td>${esc(fmtDay(o.sowingDoneAt || row.sowingCompletedDate))}</td>
-        <td>${esc(batch)}</td>
-      </tr>`
-          }
-        )
-        .join("")
-    : `<tr><td colspan="8" style="text-align:center;padding:16px">
-        ${row.isExcess ? "Excess sowing — no farmer orders covered in ±4d window." : "No orders covered."}
-      </td></tr>`
-
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Sow completion ${esc(row.requestNumber)}</title>
-  <style>
-    body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 24px; }
-    h1 { font-size: 18px; margin: 0 0 4px; }
-    .sub { color: #555; font-size: 12px; margin-bottom: 16px; }
-    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 18px; }
-    .meta strong { display: inline-block; min-width: 110px; color: #333; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    th { background: #f3f4f6; }
-    .foot { margin-top: 18px; font-size: 11px; color: #666; }
-    @media print { body { margin: 12px; } }
-  </style>
-</head>
-<body>
-  <h1>Sowing completion — orders</h1>
-  <div class="sub">Printed ${esc(fmtDate(new Date()))}</div>
-  <div class="meta">
-    <div><strong>Request</strong> ${esc(row.requestNumber)}${
-      row.entryCount > 1 ? ` · entry ${esc(row.entryNo)}/${esc(row.entryCount)}` : ""
-    }${row.entryCount && !row.requestCompleted ? " (open)" : ""}</div>
-    <div><strong>Sow date</strong> ${esc(sowDate)}</div>
-    <div><strong>Ready date</strong> ${esc(fmtDay(readyDateOf(row)))}</div>
-    <div><strong>Plant</strong> ${esc(row.plantName)} · ${esc(row.subtypeName)}</div>
-    <div><strong>Batch no.</strong> ${esc(batch)}</div>
-    <div><strong>Plants sowed</strong> ${esc(row.sowedQuantity ?? 0)}</div>
-    <div><strong>Cover</strong> ${esc(fmtNum(coverOf(row)))}</div>
-    <div><strong>Excess</strong> ${esc(fmtNum(excessOf(row)))}</div>
-    <div><strong>Trays</strong> ${esc(traysOf(row))} × ${esc(row.traySize || TRAY_SIZE)}</div>
-    <div><strong>Packets used</strong> ${esc(fmtPkt(row.packetsUsed))}
-      ${row.packetsReturned ? ` · returned ${esc(fmtPkt(row.packetsReturned))}` : ""}</div>
-    <div><strong>Shed</strong> ${esc(row.shedName || "—")}</div>
-    <div><strong>Outward</strong> ${esc(row.outwardNumber || "—")}</div>
-    <div><strong>Added by</strong> ${esc(addedByOf(row) || "—")} · ${esc(fmtDate(row.createdAt))}</div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Order</th>
-        <th>Farmer</th>
-        <th>Plants</th>
-        <th>Booked date</th>
-        <th>Delivery date</th>
-        <th>Sowed date</th>
-        <th>Batch no.</th>
-      </tr>
-    </thead>
-    <tbody>${orderRows}</tbody>
-  </table>
-  <div class="foot">Ram Biotech · Sow completion report</div>
-  <script>window.onload = function () { window.focus(); window.print(); }</script>
-</body>
-</html>`
-
-  const w = window.open("", "_blank")
-  if (!w) return
-  w.document.write(html)
-  w.document.close()
-}
+import SowEntryCoverOrders from "./SowEntryCoverOrders"
+import SowingEntryDetailDrawer from "./SowingEntryDetailDrawer"
+import SowingEntryChangeLogDrawer from "./SowingEntryChangeLogDrawer"
+import CompletedSowingEntriesGrid from "./CompletedSowingEntriesGrid"
+import EditSowEntryDialog from "./EditSowEntryDialog"
+import { printCompletionPdf } from "./sowingEntryPrint"
+import {
+  excessOf,
+  expectedReadyOf,
+  fmtPkt,
+  mortalityOf,
+  readyDateOf,
+  sowDayKey,
+  traysOf,
+} from "./sowingEntryMeta"
 
 const PAGE_SIZE = 40
-
-const COLUMNS = [
-  { id: "plant", label: "Plant", align: "left" },
-  { id: "added", label: "Date added", align: "left" },
-  { id: "sowDate", label: "Sow date", align: "left" },
-  { id: "readyDate", label: "Ready date", align: "left" },
-  { id: "plants", label: "Sowed", align: "right" },
-  { id: "cover", label: "Cover", align: "right" },
-  { id: "excess", label: "Excess", align: "right" },
-  { id: "mortality", label: "Exp. mortality", align: "right" },
-  { id: "addedBy", label: "Added by", align: "left" },
-]
-
-const gridCell = {
-  borderRight: "1px solid #d1fae5",
-  borderBottom: "1px solid #e2e8f0",
-  fontSize: 12.5,
-  py: 0.85,
-  px: 1.15,
-  whiteSpace: "nowrap",
-  color: "#134e4a",
-}
-
-const COL_TINT = {
-  sowDate: "#ecfdf5",
-  readyDate: "#f0fdf4",
-  added: "#eff6ff",
-  addedBy: "#f5f3ff",
-  plant: "#ffffff",
-  status: "#f8fafc",
-  plants: "#fffbeb",
-  cover: "#ecfdf5",
-  excess: "#fff7ed",
-  trays: "#f0fdf4",
-  mortality: "#fff1f2",
-  packets: "#f8fafc",
-  labour: "#faf5ff",
-  orders: "#fff7ed",
-  slot: "#f0f9ff",
-  batch: "#f8fafc",
-}
 
 function sortValue(row, key) {
   if (key === "orders") return row.linkedOrders?.length || 0
@@ -408,6 +42,7 @@ function sortValue(row, key) {
   if (key === "status") return `${row.requestCompleted ? 1 : 0} ${row.requestNumber || ""}`
   if (key === "labour") return (Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)
   if (key === "plants") return Number(row.sowedQuantity) || 0
+  if (key === "expectedReady") return expectedReadyOf(row) ?? -1
   if (key === "excess") return excessOf(row)
   if (key === "cover") return row.linkedOrders?.length || 0
   if (key === "trays") return traysOf(row)
@@ -442,6 +77,8 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
   const [detail, setDetail] = useState(null)
   const [coverPop, setCoverPop] = useState(null)
   const [destroyBatch, setDestroyBatch] = useState(null)
+  const [changeLogRow, setChangeLogRow] = useState(null)
+  const [editRow, setEditRow] = useState(null)
   const [slotPop, setSlotPop] = useState({ anchor: null, slot: null, row: null })
   const scrollRef = useRef(null)
   const sentinelRef = useRef(null)
@@ -584,6 +221,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
       sortKey === "status" ||
       sortKey === "addedBy" ||
       sortKey === "excess" ||
+      sortKey === "expectedReady" ||
       sortKey === "cover" ||
       sortKey === "readyDate"
     if (!pageOnly) return items
@@ -757,195 +395,23 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
         ) : items.length === 0 ? (
           <Alert severity="info">No sowing entries yet.</Alert>
         ) : (
-          <TableContainer
-            ref={scrollRef}
-            sx={{
-              maxHeight: "68vh",
-              borderRadius: 2,
-              border: "1px solid #99f6e4",
-              boxShadow: "inset 0 0 0 1px rgba(15,118,110,0.06)",
-              background: "linear-gradient(180deg, #f0fdfa 0%, #ffffff 80px)",
-            }}
-          >
-            <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0 }}>
-              <TableHead>
-                <TableRow>
-                  {COLUMNS.map((col) => (
-                    <TableCell
-                      key={col.id}
-                      align={col.align}
-                      sortDirection={sortKey === col.id ? sortDir : false}
-                      sx={{
-                        ...gridCell,
-                        fontWeight: 800,
-                        letterSpacing: 0.2,
-                        color: "#ecfeff",
-                        bgcolor: "#0f766e",
-                        borderBottom: "2px solid #115e59",
-                        borderRight: "1px solid rgba(255,255,255,0.12)",
-                        position: "sticky",
-                        top: 0,
-                        zIndex: 2,
-                        "& .MuiTableSortLabel-root": { color: "#ecfeff" },
-                        "& .MuiTableSortLabel-root.Mui-active": { color: "#fff" },
-                        "& .MuiTableSortLabel-icon": { color: "#99f6e4 !important" },
-                      }}
-                    >
-                      <TableSortLabel
-                        active={sortKey === col.id}
-                        direction={sortKey === col.id ? sortDir : "asc"}
-                        onClick={() => toggleSort(col.id)}
-                      >
-                        {col.label}
-                      </TableSortLabel>
-                    </TableCell>
-                  ))}
-                  <TableCell
-                    align="center"
-                    sx={{
-                      ...gridCell,
-                      width: 72,
-                      fontWeight: 800,
-                      color: "#ecfeff",
-                      bgcolor: "#0f766e",
-                      borderBottom: "2px solid #115e59",
-                      position: "sticky",
-                      top: 0,
-                      zIndex: 2,
-                    }}
-                  />
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, idx) => (
-                  <TableRow
-                    key={row._id || row.requestNumber}
-                    hover
-                    sx={{
-                      cursor: "pointer",
-                      bgcolor: idx % 2 === 0 ? "#ffffff" : "#f0fdfa",
-                      transition: "background 0.15s ease",
-                      "&:hover": { bgcolor: "#ccfbf1" },
-                    }}
-                    onClick={() => setDetail(row)}
-                  >
-                    <TableCell sx={{ ...gridCell, bgcolor: idx % 2 === 0 ? "#fff" : "#f7fee7", fontWeight: 800 }}>
-                      {row.plantName}
-                      <Typography component="span" sx={{ color: "#64748b", fontWeight: 600 }}>
-                        {" "}
-                        · {row.subtypeName}
-                      </Typography>
-                      {row.isIrrelevant || row.affectedSlot?.isIrrelevant ? (
-                        <Typography component="span" sx={{ ml: 0.75, color: "#be123c", fontSize: 11, fontWeight: 800 }}>
-                          Old
-                        </Typography>
-                      ) : null}
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.added, whiteSpace: "normal", minWidth: 118 }}>
-                      <Typography fontSize="0.8rem" fontWeight={800} color="#1d4ed8" lineHeight={1.2}>
-                        {fmtAdded(row.createdAt)}
-                      </Typography>
-                      <Typography fontSize="0.7rem" fontWeight={700} color="#64748b" lineHeight={1.3}>
-                        {fmtTime(row.createdAt) || "—"}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.sowDate, fontWeight: 800, color: "#047857" }}>
-                      {fmtDay(row.sowingDate || row.sowingCompletedDate)}
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.readyDate, fontWeight: 800, color: "#166534" }}>
-                      {fmtDay(readyDateOf(row))}
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.plants, fontWeight: 900, color: "#b45309" }} align="right">
-                      {row.sowedQuantity ?? "—"}
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        ...gridCell,
-                        bgcolor: COL_TINT.cover,
-                        whiteSpace: "normal",
-                        cursor: (row.linkedOrders || []).length ? "pointer" : "default",
-                      }}
-                      align="right"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const orders = row.linkedOrders || []
-                        if (!orders.length) return
-                        setCoverPop({ anchor: e.currentTarget, orders, title: row.requestNumber || "" })
-                      }}
-                    >
-                      <SowEntryCoverCell orders={row.linkedOrders || []} />
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        ...gridCell,
-                        bgcolor: COL_TINT.excess,
-                        fontWeight: 900,
-                        color: excessOf(row) > 0 ? "#c2410c" : "#94a3b8",
-                      }}
-                      align="right"
-                    >
-                      {excessOf(row) > 0 ? fmtNum(excessOf(row)) : "—"}
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.mortality, fontWeight: 800, color: "#be123c", fontVariantNumeric: "tabular-nums" }} align="right">
-                      {mortalityOf(row) == null ? "—" : fmtNum(mortalityOf(row))}
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        ...gridCell,
-                        bgcolor: COL_TINT.addedBy,
-                        whiteSpace: "normal",
-                        minWidth: 128,
-                      }}
-                    >
-                      <Typography fontSize="0.8rem" fontWeight={800} color="#5b21b6" lineHeight={1.2}>
-                        {addedByOf(row) || "—"}
-                      </Typography>
-                      <Typography fontSize="0.7rem" fontWeight={700} color="#64748b" lineHeight={1.3}>
-                        {fmtDate(row.createdAt)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell
-                      sx={{ ...gridCell, px: 0.25 }}
-                      align="center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Stack direction="row" spacing={0} justifyContent="center" alignItems="center">
-                        <SowBatchIrrelevantButton
-                          slotId={row.affectedSlot?.slotId}
-                          batchId={row.affectedSlot?.batchId}
-                          isIrrelevant={Boolean(row.isIrrelevant || row.affectedSlot?.isIrrelevant)}
-                          onDone={() => load(1, true)}
-                        />
-                        <SowBatchMortalityButton
-                          slotId={row.affectedSlot?.slotId}
-                          batchId={row.affectedSlot?.batchId}
-                          mortality={reserveOf(row)}
-                          released={Boolean(row.affectedSlot?.noMortalityReserve)}
-                          irrelevant={Boolean(row.isIrrelevant || row.affectedSlot?.isIrrelevant)}
-                          onDone={() => load(1, true)}
-                        />
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                <TableRow ref={sentinelRef}>
-                  <TableCell colSpan={COLUMNS.length + 1} sx={{ border: 0, py: 1.5, textAlign: "center", bgcolor: "#f8fffc" }}>
-                    {loadingMore ? (
-                      <CircularProgress size={22} sx={{ color: "#0f766e" }} />
-                    ) : hasMore ? (
-                      <Typography variant="caption" color="text.secondary" fontWeight={700}>
-                        Scroll for more · {items.length} of {total}
-                      </Typography>
-                    ) : (
-                      <Typography variant="caption" sx={{ color: "#0f766e", fontWeight: 800 }}>
-                        {total} entries
-                      </Typography>
-                    )}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <CompletedSowingEntriesGrid
+            scrollRef={scrollRef}
+            sentinelRef={sentinelRef}
+            rows={rows}
+            itemsLength={items.length}
+            total={total}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onToggleSort={toggleSort}
+            onOpenDetail={setDetail}
+            onOpenCover={setCoverPop}
+            onOpenLog={setChangeLogRow}
+            onEdit={setEditRow}
+            onMortalityDone={() => load(1, true)}
+          />
         )}
       </Box>
 
@@ -1025,387 +491,32 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
         )}
       </Popover>
 
-      <Drawer
-        anchor="right"
-        open={Boolean(detail)}
-        onClose={() => setDetail(null)}
-        PaperProps={{ sx: { width: { xs: "100%", sm: 460 }, bgcolor: "#f8fafc" } }}
-      >
-        {detail && (
-          <Box sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1.5}>
-              <Box
-                sx={{
-                  flex: 1,
-                  mr: 1,
-                  px: 1.5,
-                  py: 1.25,
-                  borderRadius: 2,
-                  color: "#fff",
-                  background: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
-                }}
-              >
-                <Typography fontWeight={900} fontSize="1.05rem" lineHeight={1.2}>
-                  {detail.plantName}
-                </Typography>
-                <Typography sx={{ opacity: 0.92, fontWeight: 700, fontSize: 13 }}>
-                  {detail.subtypeName}
-                  {detail.shedName ? ` · Shed ${detail.shedName}` : ""}
-                </Typography>
-                <Typography sx={{ opacity: 0.8, fontSize: 12, mt: 0.25 }}>
-                  {detail.requestNumber}
-                </Typography>
-              </Box>
-              <Stack direction="row" alignItems="center" spacing={0.5}>
-                <DrawerExportButton
-                  fileName={`sowing-entry-${detail.requestNumber || ""}`}
-                  getSheets={() => [
-                    {
-                      title: "Sowing entry",
-                      headers: ["Request", "Entry", "Request status", "Plant", "Subtype", "Shed", "Batch", "Outward", "Sow date", "Ready date", "Plants sowed", "Cover plants", "Excess plants", "Tray size", "Trays", "Expected mortality", "Labour ladies", "Labour gents", "Machine start", "Machine end", "Machine time", "Packets issued", "Packets used", "Packets returned", "Excess sowing", "Slot affected", "Added by", "Added at", "Notes"],
-                      rows: [[
-                        detail.requestNumber,
-                        detail.entryCount ? `${detail.entryNo}/${detail.entryCount}` : "",
-                        detail.requestCompleted ? "Completed" : "Open",
-                        detail.plantName,
-                        detail.subtypeName,
-                        detail.shedName,
-                        detail.batchNumber,
-                        detail.outwardNumber,
-                        fmtDay(detail.sowingDate || detail.sowingCompletedDate),
-                        fmtDay(readyDateOf(detail)),
-                        detail.sowedQuantity,
-                        coverOf(detail),
-                        excessOf(detail),
-                        detail.traySize || TRAY_SIZE,
-                        traysOf(detail),
-                        mortalityOf(detail) ?? "",
-                        detail.laboursLadies || 0,
-                        detail.laboursGents || 0,
-                        clock12(detail.machineStartTime),
-                        clock12(detail.machineEndTime),
-                        detail.machineMinutes ? durationLabel(detail.machineMinutes) : "",
-                        Number(fmtPkt(detail.packetsIssued ?? detail.packetsRequested)),
-                        Number(fmtPkt(detail.packetsUsed)),
-                        Number(fmtPkt(detail.packetsReturned)),
-                        detail.isExcess ? "Yes" : "No",
-                        detail.affectedSlot?.label,
-                        addedByOf(detail),
-                        fmtDate(detail.createdAt),
-                        detail.completionNotes,
-                      ]],
-                    },
-                    {
-                      title: "Orders covered",
-                      headers: ["Order", "Farmer", "Plants", "Booked", "Delivery", "Cover offset (days)", "Sowing done", "Sowed on"],
-                      rows: (detail.linkedOrders || []).map((o) => [
-                        o.orderNumber,
-                        o.farmerName,
-                        requestOrderSowLine(o),
-                        o.bookingDate ? fmtDay(o.bookingDate) : "",
-                        o.deliveryDate ? fmtDay(o.deliveryDate) : "",
-                        o.coverOffsetDays,
-                        o.sowingDone ? "Yes" : o.partiallyCovered ? "Partial" : "No",
-                        o.sowingDoneAt ? fmtDay(o.sowingDoneAt) : "",
-                      ]),
-                    },
-                    {
-                      title: "Event history",
-                      headers: ["Event", "Quantity", "Unit", "Message", "At"],
-                      rows: (detail.completionEvents || []).map((ev) => [ev.type, ev.quantity, ev.unit, ev.message, fmtDate(ev.at)]),
-                    },
-                  ]}
-                />
-                <IconButton onClick={() => setDetail(null)}>
-                  <CloseIcon />
-                </IconButton>
-              </Stack>
-            </Stack>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 1,
-                mb: 1.5,
-              }}
-            >
-              {[
-                ["Date added", fmtDate(detail.createdAt), "#1d4ed8", "#eff6ff"],
-                ["Added by", addedByOf(detail) || "—", "#5b21b6", "#f5f3ff"],
-                ["Sow date", fmtDay(detail.sowingDate || detail.sowingCompletedDate), "#047857", "#ecfdf5"],
-                ["Ready", fmtDay(readyDateOf(detail)), "#166534", "#f0fdf4"],
-                ["Sowed", fmtNum(detail.sowedQuantity), "#b45309", "#fffbeb"],
-                ["Cover", fmtNum(coverOf(detail)), "#047857", "#ecfdf5"],
-                ["Excess", fmtNum(excessOf(detail)), "#c2410c", "#fff7ed"],
-                ["Mortality", mortalityOf(detail) == null ? "—" : fmtNum(mortalityOf(detail)), "#be123c", "#fff1f2"],
-                ["Trays", traysOf(detail).toLocaleString("en-IN"), "#166534", "#f0fdf4"],
-              ].map(([label, value, color, bg]) => (
-                <Box key={label} sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: bg }}>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>{label}</Typography>
-                  <Typography sx={{ fontSize: 15, fontWeight: 900, color, fontVariantNumeric: "tabular-nums" }}>
-                    {value}
-                  </Typography>
-                </Box>
-              ))}
-            </Box>
-            {detail.entryCount ? (
-              <Alert severity={detail.requestCompleted ? "success" : "warning"} sx={{ mb: 1.5, py: 0.25 }}>
-                Entry {detail.entryNo} of {detail.entryCount}
-                {detail.requestCompleted ? " · request completed" : " · request still open"}
-                {detail.entryCount > 1
-                  ? ` · request total ${detail.requestPlants} plants, ${fmtPkt(detail.requestPacketsUsed)} pkt used`
-                  : ""}
-              </Alert>
-            ) : null}
-            <Typography variant="body2" mb={1}>
-              Plants sowed: <strong>{detail.sowedQuantity}</strong>
-              {" · Trays: "}
-              <strong>{traysOf(detail).toLocaleString()}</strong>
-              {` (${detail.traySize || TRAY_SIZE})`}
-              {" · "}
-              Labour:{" "}
-              <strong>
-                {(Number(detail.laboursLadies) || 0) + (Number(detail.laboursGents) || 0)}
-              </strong>
-              {" (L "}
-              {detail.laboursLadies || 0}
-              {" / G "}
-              {detail.laboursGents || 0})
-            </Typography>
-            {detail.machineStartTime && detail.machineEndTime ? (
-              <Typography variant="body2" mb={1}>
-                Machine: <strong>{clock12(detail.machineStartTime)}</strong>
-                {" – "}
-                <strong>{clock12(detail.machineEndTime)}</strong>
-                {detail.machineMinutes ? ` · ${durationLabel(detail.machineMinutes)}` : ""}
-              </Typography>
-            ) : null}
-            <Typography variant="body2" mb={1}>
-              Packets issued: <strong>{fmtPkt(detail.packetsIssued ?? detail.packetsRequested)}</strong>
-              {" · used: "}
-              <strong>{fmtPkt(detail.packetsUsed)}</strong>
-              {" · returned: "}
-              <strong>{fmtPkt(detail.packetsReturned)}</strong>
-            </Typography>
-            <Typography variant="body2" mb={1.5}>
-              Batch: <strong>{detail.batchNumber || "—"}</strong>
-              {detail.outwardNumber ? ` · Outward ${detail.outwardNumber}` : ""}
-            </Typography>
-            {detail.affectedSlot ? (
-              <Typography variant="body2" mb={1.5}>
-                Slot affected:{" "}
-                <Chip
-                  size="small"
-                  clickable
-                  color="primary"
-                  variant="outlined"
-                  label={detail.affectedSlot.label}
-                  onClick={(e) => openSlotPop(e, detail)}
-                  sx={{ fontWeight: 700, height: 22 }}
-                />
-                {detail.affectedSlot.plantReadyDate
-                  ? ` · ready ${detail.affectedSlot.plantReadyDate}`
-                  : ""}
-              </Typography>
-            ) : null}
-            {detail.affectedSlot?.batchId ? (
-              <Stack
-                direction="row"
-                alignItems="center"
-                justifyContent="space-between"
-                spacing={1}
-                mb={1.5}>
-                <Typography variant="body2">
-                  Sown on slot: <strong>{fmtNum(detail.affectedSlot.batchPlantsSowed)}</strong>
-                  {" · exp. mortality "}
-                  <strong>{fmtNum(mortalityOf(detail))}</strong>
-                  {" · cover "}
-                  <strong>{fmtNum(coverOf(detail))}</strong>
-                  {" · excess "}
-                  <strong>{fmtNum(excessOf(detail))}</strong>
-                  {Number(detail.affectedSlot.batchDestroyedPlants) > 0 ? (
-                    <Box component="span" sx={{ color: "#e11d48", fontWeight: 700 }}>
-                      {` · destroyed ${fmtNum(detail.affectedSlot.batchDestroyedPlants)}`}
-                    </Box>
-                  ) : null}
-                </Typography>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <IrrelevantChip irrelevant={detail.isIrrelevant || detail.affectedSlot?.isIrrelevant} />
-                  <SowBatchMortalityButton
-                    slotId={detail.affectedSlot?.slotId}
-                    batchId={detail.affectedSlot?.batchId}
-                    mortality={reserveOf(detail)}
-                    released={Boolean(detail.affectedSlot?.noMortalityReserve)}
-                    irrelevant={Boolean(detail.isIrrelevant || detail.affectedSlot?.isIrrelevant)}
-                    onDone={() => {
-                      setDetail(null)
-                      load(1, true)
-                    }}
-                  />
-                  <SowBatchIrrelevantButton
-                    slotId={detail.affectedSlot?.slotId}
-                    batchId={detail.affectedSlot?.batchId}
-                    isIrrelevant={Boolean(detail.isIrrelevant || detail.affectedSlot?.isIrrelevant)}
-                    onDone={() => {
-                      setDetail(null)
-                      load(1, true)
-                    }}
-                  />
-                  {sowBatchOf(detail).plantsLeft > 0 ? (
-                    <Button
-                      size="small"
-                      color="error"
-                      variant="outlined"
-                      startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />}
-                      onClick={() => setDestroyBatch(sowBatchOf(detail))}
-                      sx={{ textTransform: "none", fontWeight: 800, flexShrink: 0 }}>
-                      Destroy
-                    </Button>
-                  ) : null}
-                </Stack>
-              </Stack>
-            ) : null}
-            {detail.completionNotes ? (
-              <Typography variant="body2" color="text.secondary" mb={1.5}>
-                {detail.completionNotes}
-              </Typography>
-            ) : null}
-
-            {(detail.completionEvents || []).length > 0 && (
-              <Box sx={{ mb: 2 }}>
-                <Typography fontWeight={800} fontSize="0.85rem" mb={0.75}>
-                  Event history
-                </Typography>
-                <Stack spacing={0.75}>
-                  {[...(detail.completionEvents || [])]
-                    .slice()
-                    .reverse()
-                    .map((ev, i) => (
-                      <Box
-                        key={`${ev.type}-${ev.at || i}`}
-                        sx={{
-                          p: 1,
-                          borderRadius: 1.5,
-                          border: "1px solid #e2e8f0",
-                          bgcolor: "#f8fafc",
-                        }}
-                      >
-                        <Typography fontSize="0.75rem" fontWeight={700}>
-                          {ev.type}
-                          {ev.quantity ? ` · ${ev.quantity}${ev.unit ? ` ${ev.unit}` : ""}` : ""}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          {ev.message || "—"}
-                        </Typography>
-                        <Typography variant="caption" color="text.disabled">
-                          {fmtDate(ev.at)}
-                        </Typography>
-                      </Box>
-                    ))}
-                </Stack>
-              </Box>
-            )}
-
-            {detail.isExcess && !(detail.linkedOrders || []).length && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                Excessive sowing — no farmer orders covered in ready-date ±4d window.
-              </Alert>
-            )}
-            {detail.isExcess && (detail.linkedOrders || []).length > 0 && (
-              <Alert severity="info" sx={{ mb: 1.5, py: 0.5 }}>
-                Excess sowing still covered {(detail.linkedOrders || []).length} order
-                {(detail.linkedOrders || []).length === 1 ? "" : "s"} (±4d of ready date).
-              </Alert>
-            )}
-            <Stack spacing={1} mb={2}>
-              {(detail.linkedOrders || []).map((o) => {
-                const off = o.coverOffsetDays
-                const coverLbl =
-                  off == null
-                    ? null
-                    : off === 0
-                      ? "ready day"
-                      : off > 0
-                        ? `+${off}d cover`
-                        : `${off}d cover`
-                return (
-                  <Box
-                    key={String(o.orderId)}
-                    sx={{
-                      p: 1.25,
-                      borderRadius: 2,
-                      border: "1px solid #bbf7d0",
-                      bgcolor: o.sowingDone ? "#f0fdf4" : "#f8fafc",
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" gap={1}>
-                      <Typography fontWeight={700} fontSize="0.85rem">
-                        #{o.orderNumber} · {o.farmerName || "Farmer"}
-                      </Typography>
-                      {coverLbl && (
-                        <Chip
-                          size="small"
-                          label={coverLbl}
-                          sx={{
-                            height: 20,
-                            fontWeight: 800,
-                            fontSize: "0.65rem",
-                            bgcolor: off === 0 ? "#dbeafe" : "#fef3c7",
-                            color: off === 0 ? "#1d4ed8" : "#92400e",
-                          }}
-                        />
-                      )}
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary">
-                      {requestOrderSowLine(o)}
-                      {o.bookingDate ? ` · booked ${fmtDay(o.bookingDate)}` : ""}
-                      {o.deliveryDate ? ` · delivery ${fmtDay(o.deliveryDate)}` : ""}
-                      {o.sowingDoneAt ? ` · sowed ${fmtDay(o.sowingDoneAt)}` : ""}
-                    </Typography>
-                  </Box>
-                )
-              })}
-            </Stack>
-
-            {(detail.completionPhotos || []).length > 0 && (
-              <Stack direction="row" flexWrap="wrap" gap={1}>
-                {detail.completionPhotos.map((p, i) => (
-                  <Box
-                    key={p.url || i}
-                    component="a"
-                    href={p.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    sx={{
-                      width: 88,
-                      height: 88,
-                      borderRadius: 1.5,
-                      overflow: "hidden",
-                      border: "1px solid #e5e7eb",
-                      display: "block",
-                    }}
-                  >
-                    <Box component="img" src={p.url} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  </Box>
-                ))}
-              </Stack>
-            )}
-
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<PrintIcon />}
-              sx={{ mt: 2, mb: 1, textTransform: "none", fontWeight: 800 }}
-              onClick={() => printCompletionPdf(detail)}
-            >
-              Print PDF
-            </Button>
-            <Button fullWidth onClick={() => setDetail(null)}>
-              Close
-            </Button>
-          </Box>
-        )}
-      </Drawer>
+      {detail ? (
+        <SowingEntryDetailDrawer
+          detail={detail}
+          onClose={() => setDetail(null)}
+          onPrint={printCompletionPdf}
+          onOpenSlot={openSlotPop}
+          onDestroy={setDestroyBatch}
+          onEdit={setEditRow}
+          onMortalityDone={() => {
+            setDetail(null)
+            load(1, true)
+          }}
+          onOpenLog={(row) => setChangeLogRow(row)}
+        />
+      ) : null}
+      <EditSowEntryDialog
+        open={Boolean(editRow)}
+        row={editRow}
+        onClose={() => setEditRow(null)}
+        onDone={() => {
+          setEditRow(null)
+          setDetail(null)
+          load(1, true)
+        }}
+      />
+      <SowingEntryChangeLogDrawer row={changeLogRow} onClose={() => setChangeLogRow(null)} />
       <SowEntryCoverOrders
         anchor={coverPop?.anchor}
         title={coverPop?.title}

@@ -90,6 +90,17 @@ export function mortalityOf(row) {
   return Number(s.batchExpectedMortality) || 0
 }
 
+/** Expected ready after sow = sowed − exp. mortality (saleable pool before cover). */
+export function expectedReadyOf(row) {
+  const sowed =
+    Number(row?.sowedQuantity) ||
+    Number(row?.affectedSlot?.batchPlantsSowed) ||
+    0
+  const mort = mortalityOf(row)
+  if (!(sowed > 0) || mort == null || !row?.affectedSlot?.batchId) return null
+  return Math.max(0, sowed - mort)
+}
+
 export function reserveOf(row) {
   const s = row?.affectedSlot
   if (!s?.batchId) return 0
