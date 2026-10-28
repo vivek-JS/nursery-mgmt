@@ -24,6 +24,7 @@ import CalendarTodayOutlinedIcon from "@mui/icons-material/CalendarTodayOutlined
 import ViewDayOutlinedIcon from "@mui/icons-material/ViewDayOutlined"
 import ViewWeekOutlinedIcon from "@mui/icons-material/ViewWeekOutlined"
 import WarehouseOutlinedIcon from "@mui/icons-material/WarehouseOutlined"
+import YardOutlinedIcon from "@mui/icons-material/YardOutlined"
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore"
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
@@ -33,6 +34,7 @@ import { NetworkManager, API } from "network/core"
 import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
 import SowingCapacityAsk from "./components/SowingCapacityAsk"
 import SowingShedStockTab from "./components/SowingShedStockTab"
+import SmartShedTab from "./components/SmartShedTab"
 import CapacityBoardTable from "./components/CapacityBoardTable"
 import CapacityBoardSummary from "./components/CapacityBoardSummary"
 import StockOnlyTable from "./components/StockOnlyTable"
@@ -44,6 +46,7 @@ import {
   GROUP_OPTIONS,
   MAX_GROUP_DAYS,
   SHED_TAB,
+  SMART_TAB,
   SHOW_OPTIONS,
   STOCK_ONLY_DAYS,
   boardColumns,
@@ -129,7 +132,10 @@ export default function SowingCapacitySheet() {
 
   const tabs = useMemo(() => slotTabs(board.rows), [board.rows])
   const requested = searchParams.get("tab")
-  let tab = requested === SHED_TAB || tabs.some((t) => t.key === requested) ? requested : tabs[0]?.key
+  let tab =
+    requested === SHED_TAB || requested === SMART_TAB || tabs.some((t) => t.key === requested)
+      ? requested
+      : tabs[0]?.key
   if (!tab) tab = loading ? "" : SHED_TAB
   const activeTab = tabs.find((t) => t.key === tab)
   const stockOnly = activeTab?.days === STOCK_ONLY_DAYS
@@ -316,19 +322,21 @@ export default function SowingCapacitySheet() {
             />
           ))}
           <Tab value={SHED_TAB} icon={<WarehouseOutlinedIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Shed-wise stock" />
+          <Tab value={SMART_TAB} icon={<YardOutlinedIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Smart shed" />
         </Tabs>
       </Box>
 
       {tab === SHED_TAB ? <SowingShedStockTab /> : null}
+      {tab === SMART_TAB ? <SmartShedTab /> : null}
 
-      {tab !== SHED_TAB && !stockOnly && board.summary ? (
+      {tab !== SHED_TAB && tab !== SMART_TAB && !stockOnly && board.summary ? (
         <CapacityBoardSummary
           summary={board.summary}
           onOpen={(slotIds, focus) => setDetail({ slotIds, focus })}
         />
       ) : null}
 
-      {tab !== SHED_TAB ? (
+      {tab !== SHED_TAB && tab !== SMART_TAB ? (
         <Box sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 3, overflow: "hidden", boxShadow: "0 8px 24px rgba(15,23,42,0.04)" }}>
           <Stack
             direction={{ xs: "column", md: "row" }}

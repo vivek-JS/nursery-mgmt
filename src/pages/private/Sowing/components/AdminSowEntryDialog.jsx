@@ -15,6 +15,7 @@ import {
   Box,
 } from "@mui/material"
 import { NetworkManager, API } from "network/core"
+import { cropPool, findSmartShed, shedWouldOverflow } from "../smartShedWarn"
 import { Toast } from "helpers/toasts/toastHelper"
 import MachineTimeField, {
   EMPTY_CLOCK,
@@ -195,6 +196,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   const [shedName, setShedName] = useState("")
   const [shedOptions, setShedOptions] = useState([])
   const [shedsLoading, setShedsLoading] = useState(false)
+  const [smartSheds, setSmartSheds] = useState([])
   const [ladies, setLadies] = useState("")
   const [gents, setGents] = useState("")
   const [notes, setNotes] = useState("")
@@ -229,6 +231,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   }, [req, raisingCap])
 
   const plantsNum = Number(plants) || 0
+  const plantLabel = card?.plantName || req?.plantName || card?.name || ""
+  const shedOverflow = shedWouldOverflow(findSmartShed(smartSheds, shedName), cropPool(plantLabel), plantsNum)
   const traysNum = plantsNum > 0 ? Math.ceil(plantsNum / TRAY_SIZE) : 0
   const usedNum = Number(packetsUsed) || 0
   const returnedNum = Number(packetsReturned) || 0
@@ -301,6 +305,22 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
         if (!cancelled) setShedOptions([])
       } finally {
         if (!cancelled) setShedsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await NetworkManager(API.sowing.GET_SMART_SHED).request()
+        if (!cancelled && res?.data?.success) setSmartSheds(res.data.sheds || [])
+      } catch {
+        if (!cancelled) setSmartSheds([])
       }
     })()
     return () => {
@@ -613,6 +633,12 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
               helperText="No CMS list loaded — type the shed name"
             />
           )}
+
+          {shedOverflow ? (
+            <Alert severity="warning" sx={{ py: 0.5 }}>
+              This sow would push {shedName} over 100% of its shared papaya and watermelon space. You can still save.
+            </Alert>
+          ) : null}
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
             <TextField

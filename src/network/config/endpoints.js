@@ -1539,6 +1539,7 @@ export const API = {
     GET_PLANTS_GAP_SUMMARY: new APIRouter("/sowing/plants-gap-summary", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_CAPACITY_BOARD: new APIRouter("/sowing/capacity-sheet/board", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_CAPACITY_SHED_STOCK: new APIRouter("/sowing/capacity-sheet/shed-stock", HTTP_METHODS.GET),
+    GET_SMART_SHED: new APIRouter("/sowing/capacity-sheet/smart-shed", HTTP_METHODS.GET),
     ASK_CAPACITY: new APIRouter("/sowing/capacity-ask", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_CAPACITY_SLOT: new APIRouter("/sowing/capacity-sheet/slot/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     DESTROY_SOW_BATCH: new APIRouter("/sowing/sow-batch/destroy", HTTP_METHODS.POST),

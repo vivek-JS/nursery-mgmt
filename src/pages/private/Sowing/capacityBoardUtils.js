@@ -1,6 +1,7 @@
 import { slotRangeLabel } from "./capacitySheetUtils"
 
 export const SHED_TAB = "shed"
+export const SMART_TAB = "smart"
 
 /** Column grouping the board API understands (?group=N). */
 export const GROUP_OPTIONS = [
