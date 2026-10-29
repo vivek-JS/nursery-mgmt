@@ -31,6 +31,27 @@ export function shedWouldOverflow(shed, pool, addPlants) {
   return shedWouldOverflowMix(shed, pool === "papaya" ? add : 0, pool === "melon" ? add : 0)
 }
 
+/** Shed after adding plants of one pool: share used, overfull, and room left as papaya OR melon. */
+export function fitAfter(shed, pool, addPlants) {
+  const add = Math.max(0, Math.floor(Number(addPlants) || 0))
+  const papayaMax = Number(shed?.papayaMax) || 0
+  const melonMax = Number(shed?.melonMax) || 0
+  if (papayaMax < 1 || melonMax < 1) return null
+  const papayaUsed = (Number(shed.papayaOccupied) || 0) + (pool === "papaya" ? add : 0)
+  const melonUsed = (Number(shed.melonOccupied) || 0) + (pool === "melon" ? add : 0)
+  const before = (Number(shed.papayaOccupied) || 0) / papayaMax + (Number(shed.melonOccupied) || 0) / melonMax
+  const used = papayaUsed / papayaMax + melonUsed / melonMax
+  const vacant = Math.max(0, 1 - used)
+  return {
+    before,
+    used,
+    over: used > 1,
+    papayaRoom: Math.floor(vacant * papayaMax + 1e-6),
+    melonRoom: Math.floor(vacant * melonMax + 1e-6),
+    maxAdd: Math.floor(Math.max(0, 1 - before) * (pool === "papaya" ? papayaMax : melonMax) + 1e-6),
+  }
+}
+
 export function shedWouldOverflowMix(shed, papayaAdd, melonAdd) {
   const addPapaya = Math.max(0, Number(papayaAdd) || 0)
   const addMelon = Math.max(0, Number(melonAdd) || 0)
