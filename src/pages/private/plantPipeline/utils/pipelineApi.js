@@ -297,10 +297,10 @@ export async function fetchSowingAllowedPlants() {
   return mapPlantCmsRows(unpackData(res)).filter((p) => p.sowingAllowed);
 }
 
-/** All CMS plants — secondary lagwad includes Banana (direct, not lab sowing). */
+/** Lagwad crops are sowing-not-allowed plants (Banana G9 and the same kind). */
 export async function fetchLagwadPlants() {
   const res = await request(API.plantCms.GET_PLANTS, {}, {});
-  return mapPlantCmsRows(unpackData(res));
+  return mapPlantCmsRows(unpackData(res)).filter((p) => !p.sowingAllowed);
 }
 
 export { apiErrText };

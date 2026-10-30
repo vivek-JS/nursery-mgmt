@@ -5,6 +5,19 @@ import { NetworkManager, API } from "network/core"
 import { PageLoader } from "components"
 import debounce from "lodash.debounce"
 import { batchPlantSubtypeLabel } from "utils/batchPlantDisplay"
+import { G9_BATCH_READY_DAYS, isG9SubtypeName } from "pages/private/plantPipeline/utils/lagwadWizardHelpers"
+
+const blankBatchForm = () => ({
+  batchNumber: "",
+  dateAdded: new Date().toISOString().split("T")[0],
+  primaryPlantReadyDays: "",
+  secondaryPlantReadyDays: "",
+  secondaryR2PlantReadyDays: "",
+  secondaryR3PlantReadyDays: "",
+  plantReadyDaysChangeReason: "",
+  plantCmsId: "",
+  plantSubtypeId: ""
+})
 
 const BatchTable = () => {
   const [batches, setBatches] = useState([])
@@ -14,15 +27,7 @@ const BatchTable = () => {
   const [editingBatch, setEditingBatch] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
-  const [formData, setFormData] = useState({
-    batchNumber: "",
-    dateAdded: new Date().toISOString().split("T")[0],
-    primaryPlantReadyDays: "",
-    secondaryPlantReadyDays: "",
-    plantReadyDaysChangeReason: "",
-    plantCmsId: "",
-    plantSubtypeId: ""
-  })
+  const [formData, setFormData] = useState(blankBatchForm)
   const [initialEditDays, setInitialEditDays] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -98,8 +103,9 @@ const BatchTable = () => {
       const daysChanged =
         Number(formData.primaryPlantReadyDays) !==
           Number(initialEditDays.primary) ||
-        Number(formData.secondaryPlantReadyDays) !==
-          Number(initialEditDays.secondary)
+        Number(formData.secondaryPlantReadyDays) !== Number(initialEditDays.secondary) ||
+        Number(formData.secondaryR2PlantReadyDays) !== Number(initialEditDays.r2) ||
+        Number(formData.secondaryR3PlantReadyDays) !== Number(initialEditDays.r3)
       if (daysChanged && !formData.plantReadyDaysChangeReason?.trim()) {
         alert("Please enter a reason for changing plant ready days.")
         return
@@ -118,15 +124,7 @@ const BatchTable = () => {
         setIsFormOpen(false)
         setEditingBatch(null)
         setInitialEditDays(null)
-        setFormData({
-          batchNumber: "",
-          dateAdded: new Date().toISOString().split("T")[0],
-          primaryPlantReadyDays: "",
-          secondaryPlantReadyDays: "",
-          plantReadyDaysChangeReason: "",
-          plantCmsId: "",
-          plantSubtypeId: ""
-        })
+        setFormData(blankBatchForm())
         setRefresh(!refresh)
       }
     } catch (error) {
@@ -136,15 +134,7 @@ const BatchTable = () => {
     }
   }
   const resetForm = () => {
-    setFormData({
-      batchNumber: "",
-      dateAdded: new Date().toISOString().split("T")[0],
-      primaryPlantReadyDays: "",
-      secondaryPlantReadyDays: "",
-      plantReadyDaysChangeReason: "",
-      plantCmsId: "",
-      plantSubtypeId: ""
-    })
+    setFormData(blankBatchForm())
     setEditingBatch(null)
     setInitialEditDays(null)
     setIsFormOpen(false)
@@ -154,7 +144,9 @@ const BatchTable = () => {
     editingBatch &&
     initialEditDays &&
     (Number(formData.primaryPlantReadyDays) !== Number(initialEditDays.primary) ||
-      Number(formData.secondaryPlantReadyDays) !== Number(initialEditDays.secondary))
+      Number(formData.secondaryPlantReadyDays) !== Number(initialEditDays.secondary) ||
+      Number(formData.secondaryR2PlantReadyDays) !== Number(initialEditDays.r2) ||
+      Number(formData.secondaryR3PlantReadyDays) !== Number(initialEditDays.r3))
   return (
     <div className="p-6">
       {loading && <PageLoader />}
@@ -176,15 +168,7 @@ const BatchTable = () => {
           onClick={() => {
             setEditingBatch(null)
             setInitialEditDays(null)
-            setFormData({
-              batchNumber: "",
-              dateAdded: new Date().toISOString().split("T")[0],
-              primaryPlantReadyDays: "",
-              secondaryPlantReadyDays: "",
-              plantReadyDaysChangeReason: "",
-              plantCmsId: "",
-              plantSubtypeId: ""
-            })
+            setFormData(blankBatchForm())
             setIsFormOpen(true)
           }}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
@@ -210,7 +194,7 @@ const BatchTable = () => {
                 Primary Days
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Secondary Days
+                R1 / R2 / R3 days
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
@@ -231,14 +215,22 @@ const BatchTable = () => {
                   {new Date(batch.dateAdded).toLocaleDateString("en-GB")}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">{batch.primaryPlantReadyDays}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{batch.secondaryPlantReadyDays}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  {batch.secondaryPlantReadyDays}
+                  <span className="text-gray-400"> / </span>
+                  {batch.secondaryR2PlantReadyDays || "—"}
+                  <span className="text-gray-400"> / </span>
+                  {batch.secondaryR3PlantReadyDays || "—"}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <button
                     onClick={() => {
                       setEditingBatch(batch)
                       setInitialEditDays({
                         primary: batch.primaryPlantReadyDays,
-                        secondary: batch.secondaryPlantReadyDays
+                        secondary: batch.secondaryPlantReadyDays,
+                        r2: batch.secondaryR2PlantReadyDays || "",
+                        r3: batch.secondaryR3PlantReadyDays || ""
                       })
                       const pid = batch.plantCmsId?._id ?? batch.plantCmsId
                       setFormData({
@@ -246,6 +238,8 @@ const BatchTable = () => {
                         dateAdded: batch.dateAdded.split("T")[0],
                         primaryPlantReadyDays: batch.primaryPlantReadyDays,
                         secondaryPlantReadyDays: batch.secondaryPlantReadyDays,
+                        secondaryR2PlantReadyDays: batch.secondaryR2PlantReadyDays || "",
+                        secondaryR3PlantReadyDays: batch.secondaryR3PlantReadyDays || "",
                         plantReadyDaysChangeReason: "",
                         plantCmsId: pid ? String(pid) : "",
                         plantSubtypeId: batch.plantSubtypeId ? String(batch.plantSubtypeId) : ""
@@ -404,7 +398,17 @@ const BatchTable = () => {
                   required
                   disabled={!formData.plantCmsId}
                   value={formData.plantSubtypeId}
-                  onChange={(e) => setFormData({ ...formData, plantSubtypeId: e.target.value })}
+                  onChange={(e) => {
+                    const plantSubtypeId = e.target.value
+                    const name = subtypeOptions.find((s) => String(s._id) === plantSubtypeId)?.name
+                    const next = { ...formData, plantSubtypeId }
+                    if (!editingBatch && isG9SubtypeName(name)) {
+                      next.secondaryPlantReadyDays = G9_BATCH_READY_DAYS.r1
+                      next.secondaryR2PlantReadyDays = G9_BATCH_READY_DAYS.r2
+                      next.secondaryR3PlantReadyDays = G9_BATCH_READY_DAYS.r3
+                    }
+                    setFormData(next)
+                  }}
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white disabled:bg-gray-100"
                 >
                   <option value="">{formData.plantCmsId ? "Select subtype" : "Select plant first"}</option>
@@ -446,21 +450,38 @@ const BatchTable = () => {
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  Secondary Plant Ready Days
-                </label>
-                <input
-                  type="number"
-                  required
-                  min="1"
-                  value={formData.secondaryPlantReadyDays}
-                  onChange={(e) =>
-                    setFormData({ ...formData, secondaryPlantReadyDays: parseInt(e.target.value) })
-                  }
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                />
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["secondaryPlantReadyDays", "R1 ready days"],
+                  ["secondaryR2PlantReadyDays", "R2 ready days"],
+                  ["secondaryR3PlantReadyDays", "R3 ready days"]
+                ].map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-medium text-gray-700">{label}</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={formData[key]}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          [key]: e.target.value === "" ? "" : parseInt(e.target.value, 10)
+                        })
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                    />
+                  </div>
+                ))}
               </div>
+              {isG9SubtypeName(
+                subtypeOptions.find((s) => String(s._id) === String(formData.plantSubtypeId))?.name
+              ) && (
+                <p className="text-xs text-gray-500">
+                  G9 starts at {G9_BATCH_READY_DAYS.r1} days for R1, {G9_BATCH_READY_DAYS.r2} for R2, and{" "}
+                  {G9_BATCH_READY_DAYS.r3} for R3. Change any of them before saving.
+                </p>
+              )}
               {editingBatch && daysDirty && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700">

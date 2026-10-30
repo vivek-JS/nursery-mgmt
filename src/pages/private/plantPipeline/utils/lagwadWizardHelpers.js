@@ -2,7 +2,15 @@ import dayjs from "dayjs";
 
 export const DEFAULT_CAVITY = "8";
 export const DEFAULT_SECONDARY_R1_READY_DAYS = 30;
+export const DEFAULT_SECONDARY_R2_READY_DAYS = 40;
 export const DEFAULT_SECONDARY_R3_READY_DAYS = 40;
+
+/** G9 batch defaults: R1 30, R2 40, R3 stored on the batch (starts at the R3 default). */
+export const G9_BATCH_READY_DAYS = {
+  r1: DEFAULT_SECONDARY_R1_READY_DAYS,
+  r2: DEFAULT_SECONDARY_R2_READY_DAYS,
+  r3: DEFAULT_SECONDARY_R3_READY_DAYS,
+};
 
 export const EMPTY_SIZE_SPLIT = { R1: 0, R2: 0, R3: 0 };
 
@@ -33,11 +41,34 @@ export function activeSizeCount(split) {
   return [split.R1, split.R2, split.R3].filter((n) => n > 0).length;
 }
 
-export function secondaryReadyDaysForSize(size, batchSecondaryDays) {
-  const base = Number(batchSecondaryDays) || 0;
-  const r1Days = base > 0 ? base : DEFAULT_SECONDARY_R1_READY_DAYS;
-  if (String(size).toUpperCase() === "R3") return DEFAULT_SECONDARY_R3_READY_DAYS;
+function readySource(source) {
+  if (source && typeof source === "object") return source;
+  return { secondaryPlantReadyDays: Number(source) || 0 };
+}
+
+/** R1 uses secondary days. R2 and R3 use their own CMS fields, else 40. */
+export function secondaryReadyDaysForSize(size, source) {
+  const batch = readySource(source);
+  const r1Base = Number(batch.secondaryPlantReadyDays) || 0;
+  const r1Days = r1Base > 0 ? r1Base : DEFAULT_SECONDARY_R1_READY_DAYS;
+  const r2Explicit = Number(batch.secondaryR2PlantReadyDays) || 0;
+  const r2Days = r2Explicit > 0 ? r2Explicit : DEFAULT_SECONDARY_R2_READY_DAYS;
+  const r3Explicit = Number(batch.secondaryR3PlantReadyDays) || 0;
+  const r3Days = r3Explicit > 0 ? r3Explicit : DEFAULT_SECONDARY_R3_READY_DAYS;
+  const key = String(size ?? "").toUpperCase();
+  if (key === "R2") return r2Days;
+  if (key === "R3") return r3Days;
   return r1Days;
+}
+
+export function readyDaysBySizeFromSplit(splitNums, batchSecondaryDays) {
+  const out = {};
+  for (const size of ["R1", "R2", "R3"]) {
+    if ((splitNums?.[size] ?? 0) > 0) {
+      out[size] = secondaryReadyDaysForSize(size, batchSecondaryDays);
+    }
+  }
+  return out;
 }
 
 export function dateOfDispatchFromInwardAndReadyDays(inwardYmd, secondaryReadyDays) {
@@ -97,18 +128,22 @@ export function autoTraysFromSplit(splitNums, cavityNum) {
   );
 }
 
-export function validateLagwadStep0(input) {
+export function validateLagwadEntry(input) {
   if (!input.catalogReady) return "Loading plant catalog…";
   if (!input.plantId) return "Select plant";
   if (!input.subtypeId) return "Select subtype";
   if (!input.batchId && !String(input.batchName || "").trim()) {
     return "Select a batch";
   }
-  if (input.plantsNum < 1) return "Enter at least 1 plant in R1/R2/R3";
-  if (input.singleSizeLagwad && input.traysNum < 1) return "Enter tray count";
-  if (!input.pollyhouse) return "Select polyhouse / shed";
-  if (!input.inwardDate) return "Select sowing date";
+  if (input.plantsNum < 1) return "Enter plants in R2, or add R1 / R3";
+  if (!input.pollyhouse) return "Select shed";
+  if (!input.inwardDate) return "Select date";
+  if ((input.labourTotal ?? 0) < 1) return "Enter labour (ladies + gents)";
   return "";
+}
+
+export function validateLagwadStep0(input) {
+  return validateLagwadEntry({ ...input, labourTotal: 1 });
 }
 
 export function validateLagwadStep1(labourTotal) {
@@ -135,13 +170,14 @@ export function isBananaPlantName(name) {
   return /banana|keli|केळ/i.test(String(name ?? ""));
 }
 
+export function isG9SubtypeName(name) {
+  return /g-?\s*9|grand\s*naine|grand\s*nine|जी\s*9/i.test(String(name ?? ""));
+}
+
 /** Prefer G-9 subtype when present on banana. */
 export function findDefaultBananaSubtype(subtypes) {
   if (!subtypes?.length) return null;
-  const g9 = subtypes.find((s) =>
-    /g-?\s*9|grand\s*nine|जी\s*9/i.test(String(s.name ?? ""))
-  );
-  return g9 ?? subtypes[0];
+  return subtypes.find((s) => isG9SubtypeName(s.name)) ?? subtypes[0];
 }
 
 /** Most recently added batch for plant+subtype (fallback: first in list). */
