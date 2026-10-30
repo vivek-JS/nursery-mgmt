@@ -49,7 +49,7 @@ export default function SecondaryDirectLagwadWizard({
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [plants, setPlants] = useState([]);
   const [dispatchBatches, setDispatchBatches] = useState([]);
-  const [showR1, setShowR1] = useState(false);
+  const [showR2, setShowR2] = useState(false);
   const [showR3, setShowR3] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const defaultsAppliedRef = useRef(false);
@@ -76,7 +76,7 @@ export default function SecondaryDirectLagwadWizard({
     setInwardDate(dayjs().format("YYYY-MM-DD"));
     setLadies("");
     setGents("");
-    setShowR1(false);
+    setShowR2(false);
     setShowR3(false);
     setReviewOpen(false);
     defaultsAppliedRef.current = false;
@@ -218,11 +218,11 @@ export default function SecondaryDirectLagwadWizard({
   const splitNums = useMemo(() => {
     const parsed = parseSplitFromForm(splitForm);
     return {
-      R1: showR1 ? parsed.R1 : 0,
-      R2: parsed.R2,
+      R1: parsed.R1,
+      R2: showR2 ? parsed.R2 : 0,
       R3: showR3 ? parsed.R3 : 0,
     };
-  }, [splitForm, showR1, showR3]);
+  }, [splitForm, showR2, showR3]);
 
   const plantsNum = totalPlantsFromSplit(splitNums);
   const cavityNum = Math.max(1, Number(cavity) || Number(DEFAULT_CAVITY));
@@ -245,7 +245,7 @@ export default function SecondaryDirectLagwadWizard({
     setBatchId("");
     setBatchName("");
     clearCounts();
-    setShowR1(false);
+    setShowR2(false);
     setShowR3(false);
   };
 
@@ -446,13 +446,13 @@ export default function SecondaryDirectLagwadWizard({
         traysNum={traysNum}
         plantsNum={plantsNum}
         splitForm={splitForm}
-        showR1={showR1}
+        showR2={showR2}
         showR3={showR3}
-        onShowR1={() => setShowR1(true)}
+        onShowR2={() => setShowR2(true)}
         onShowR3={() => setShowR3(true)}
-        onHideR1={() => {
-          setShowR1(false);
-          setSplitForm((s) => ({ ...s, R1: "" }));
+        onHideR2={() => {
+          setShowR2(false);
+          setSplitForm((s) => ({ ...s, R2: "" }));
         }}
         onHideR3={() => {
           setShowR3(false);

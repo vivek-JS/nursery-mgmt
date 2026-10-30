@@ -78,11 +78,11 @@ export function LagwadEntryForm({
   locations,
   splitForm,
   onSplit,
-  showR1,
+  showR2,
   showR3,
-  onShowR1,
+  onShowR2,
   onShowR3,
-  onHideR1,
+  onHideR2,
   onHideR3,
   readySource,
   cavity,
@@ -184,17 +184,17 @@ export function LagwadEntryForm({
           <span className="text-[11px] text-slate-400">Ready days from CMS</span>
         </div>
         <div className="space-y-2">
-          {showR1 ? (
+          <SizeBox code="R1" days={r1Days} ready={r1Ready} value={splitForm.R1} onChange={(v) => onSplit("R1", v)} />
+          {showR2 ? (
             <SizeBox
-              code="R1"
-              days={r1Days}
-              ready={r1Ready}
-              value={splitForm.R1}
-              onChange={(v) => onSplit("R1", v)}
-              onRemove={onHideR1}
+              code="R2"
+              days={r2Days}
+              ready={r2Ready}
+              value={splitForm.R2}
+              onChange={(v) => onSplit("R2", v)}
+              onRemove={onHideR2}
             />
           ) : null}
-          <SizeBox code="R2" days={r2Days} ready={r2Ready} value={splitForm.R2} onChange={(v) => onSplit("R2", v)} />
           {showR3 ? (
             <SizeBox
               code="R3"
@@ -207,9 +207,9 @@ export function LagwadEntryForm({
           ) : null}
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {!showR1 ? (
-            <button type="button" className="lag-add" onClick={onShowR1}>
-              + R1 · {r1Days}d
+          {!showR2 ? (
+            <button type="button" className="lag-add" onClick={onShowR2}>
+              + R2 · {r2Days}d
             </button>
           ) : null}
           {!showR3 ? (

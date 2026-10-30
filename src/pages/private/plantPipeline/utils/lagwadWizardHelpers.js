@@ -135,7 +135,7 @@ export function validateLagwadEntry(input) {
   if (!input.batchId && !String(input.batchName || "").trim()) {
     return "Select a batch";
   }
-  if (input.plantsNum < 1) return "Enter plants in R2, or add R1 / R3";
+  if (input.plantsNum < 1) return "Enter plants in R1, or add R2 / R3";
   if (!input.pollyhouse) return "Select shed";
   if (!input.inwardDate) return "Select date";
   if ((input.labourTotal ?? 0) < 1) return "Enter labour (ladies + gents)";
