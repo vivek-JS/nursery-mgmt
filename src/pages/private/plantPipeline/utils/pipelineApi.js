@@ -33,7 +33,7 @@ export async function fetchSecondaryDashboard(upcomingDays = 7) {
 }
 
 export async function fetchDispatchBatches() {
-  const res = await request(API.BATCH.GET_BATCHES, {}, {});
+  const res = await request(API.BATCH.GET_BATCHES, {}, { page: 1, limit: 500 });
   const data = unpackData(res);
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.data)) return data.data;

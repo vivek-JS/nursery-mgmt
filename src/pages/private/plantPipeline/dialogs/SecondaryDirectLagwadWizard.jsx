@@ -4,6 +4,7 @@ import { Toast } from "helpers/toasts/toastHelper";
 import LagwadEntryDialog, { LagwadEntryForm, LagwadReviewDialog } from "./LagwadWizardView";
 import {
   createDispatchBatch,
+  fetchDispatchBatches,
   fetchLagwadPlants,
   submitSecondaryDirectLagwad,
   apiErrText,
@@ -89,6 +90,15 @@ export default function SecondaryDirectLagwadWizard({
   useEffect(() => {
     setDispatchBatches(dispatchBatchesProp);
   }, [dispatchBatchesProp]);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchDispatchBatches()
+      .then((rows) => {
+        if (Array.isArray(rows) && rows.length) setDispatchBatches(rows);
+      })
+      .catch(() => {});
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

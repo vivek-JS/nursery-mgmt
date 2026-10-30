@@ -11,9 +11,9 @@ const blankBatchForm = () => ({
   batchNumber: "",
   dateAdded: new Date().toISOString().split("T")[0],
   primaryPlantReadyDays: "",
-  secondaryPlantReadyDays: "",
-  secondaryR2PlantReadyDays: "",
-  secondaryR3PlantReadyDays: "",
+  secondaryPlantReadyDays: 30,
+  secondaryR2PlantReadyDays: 40,
+  secondaryR3PlantReadyDays: 40,
   plantReadyDaysChangeReason: "",
   plantCmsId: "",
   plantSubtypeId: ""
@@ -216,11 +216,11 @@ const BatchTable = () => {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">{batch.primaryPlantReadyDays}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {batch.secondaryPlantReadyDays}
+                  {batch.secondaryPlantReadyDays || 30}
                   <span className="text-gray-400"> / </span>
-                  {batch.secondaryR2PlantReadyDays || "—"}
+                  {batch.secondaryR2PlantReadyDays || 40}
                   <span className="text-gray-400"> / </span>
-                  {batch.secondaryR3PlantReadyDays || "—"}
+                  {batch.secondaryR3PlantReadyDays || 40}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <button
@@ -229,17 +229,17 @@ const BatchTable = () => {
                       setInitialEditDays({
                         primary: batch.primaryPlantReadyDays,
                         secondary: batch.secondaryPlantReadyDays,
-                        r2: batch.secondaryR2PlantReadyDays || "",
-                        r3: batch.secondaryR3PlantReadyDays || ""
+                        r2: batch.secondaryR2PlantReadyDays || 40,
+                        r3: batch.secondaryR3PlantReadyDays || 40
                       })
                       const pid = batch.plantCmsId?._id ?? batch.plantCmsId
                       setFormData({
                         batchNumber: batch.batchNumber,
                         dateAdded: batch.dateAdded.split("T")[0],
                         primaryPlantReadyDays: batch.primaryPlantReadyDays,
-                        secondaryPlantReadyDays: batch.secondaryPlantReadyDays,
-                        secondaryR2PlantReadyDays: batch.secondaryR2PlantReadyDays || "",
-                        secondaryR3PlantReadyDays: batch.secondaryR3PlantReadyDays || "",
+                        secondaryPlantReadyDays: batch.secondaryPlantReadyDays || 30,
+                        secondaryR2PlantReadyDays: batch.secondaryR2PlantReadyDays || 40,
+                        secondaryR3PlantReadyDays: batch.secondaryR3PlantReadyDays || 40,
                         plantReadyDaysChangeReason: "",
                         plantCmsId: pid ? String(pid) : "",
                         plantSubtypeId: batch.plantSubtypeId ? String(batch.plantSubtypeId) : ""
@@ -328,15 +328,7 @@ const BatchTable = () => {
           setIsFormOpen(false)
           setEditingBatch(null)
           setInitialEditDays(null)
-          setFormData({
-            batchNumber: "",
-            dateAdded: new Date().toISOString().split("T")[0],
-            primaryPlantReadyDays: "",
-            secondaryPlantReadyDays: "",
-            plantReadyDaysChangeReason: "",
-            plantCmsId: "",
-            plantSubtypeId: ""
-          })
+          setFormData(blankBatchForm())
         }}
         maxWidth="sm"
         fullWidth>
@@ -474,14 +466,15 @@ const BatchTable = () => {
                   </div>
                 ))}
               </div>
-              {isG9SubtypeName(
-                subtypeOptions.find((s) => String(s._id) === String(formData.plantSubtypeId))?.name
-              ) && (
-                <p className="text-xs text-gray-500">
-                  G9 starts at {G9_BATCH_READY_DAYS.r1} days for R1, {G9_BATCH_READY_DAYS.r2} for R2, and{" "}
-                  {G9_BATCH_READY_DAYS.r3} for R3. Change any of them before saving.
-                </p>
-              )}
+              <p className="text-xs text-gray-500">
+                Lagwad reads these days from the batch. A change applies to lagwad recorded after you save.
+                Rows already saved keep their ready date.
+                {isG9SubtypeName(
+                  subtypeOptions.find((s) => String(s._id) === String(formData.plantSubtypeId))?.name
+                )
+                  ? ` G9 starts at ${G9_BATCH_READY_DAYS.r1} / ${G9_BATCH_READY_DAYS.r2} / ${G9_BATCH_READY_DAYS.r3}.`
+                  : ""}
+              </p>
               {editingBatch && daysDirty && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700">
