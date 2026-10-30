@@ -869,6 +869,7 @@ export const API = {
       OFFLINE.PROFILE
     ),
     GET_PAYMENTS: new APIRouter("/order/payments", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_OUTSTANDING_BALANCES: new APIRouter("/order/outstanding-balances", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_VILLAGES: new APIRouter("/order/villages", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_DISTRICTS: new APIRouter("/order/districts", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TALUKAS: new APIRouter("/order/talukas", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -1205,6 +1206,10 @@ export const API = {
     GET_BY_DISPATCH: new APIRouter("freight-slips/dispatch/:dispatchId", HTTP_METHODS.GET),
     SAVE_TENTATIVE: new APIRouter("freight-slips/dispatch/:dispatchId/tentative", HTTP_METHODS.PUT),
     FINALIZE: new APIRouter("freight-slips/dispatch/:dispatchId/finalize", HTTP_METHODS.POST)
+  },
+  DRIVER_PAYMENT: {
+    LIST: new APIRouter("driver-payments", HTTP_METHODS.GET),
+    PAY: new APIRouter("driver-payments/:id/pay", HTTP_METHODS.POST)
   },
   SHADE: {
     CREATE_SHADE: new APIRouter("shade/create", HTTP_METHODS.POST),
@@ -1543,14 +1548,32 @@ export const API = {
     ASK_CAPACITY: new APIRouter("/sowing/capacity-ask", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_CAPACITY_SLOT: new APIRouter("/sowing/capacity-sheet/slot/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     DESTROY_SOW_BATCH: new APIRouter("/sowing/sow-batch/destroy", HTTP_METHODS.POST),
+    SET_SOW_BATCH_IRRELEVANT: new APIRouter("/sowing/sow-batch/irrelevant", HTTP_METHODS.POST),
+    RELEASE_SOW_BATCH_MORTALITY: new APIRouter(
+      "/sowing/sow-batch/mortality-to-excess",
+      HTTP_METHODS.POST
+    ),
+    GET_SOW_BATCH_STOCK: new APIRouter("/sowing/sow-batch-stock", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SOW_BATCH_STOCK_INTEL: new APIRouter(
+      "/sowing/sow-batch-stock/intel",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SOW_BATCH_STOCK_DETAIL: new APIRouter(
+      "/sowing/sow-batch-stock/:batchId",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS_LITE: new APIRouter("/sowing/today-sowing-cards-lite", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_ORDER_WISE_SOWING: new APIRouter("/sowing/order-wise", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_UNSOWN_SOW_BOARD: new APIRouter("/sowing/unsown-sow-board", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SOWING_COMPLETIONS: new APIRouter("/sowing/completions", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_DELIVERY_VS_READY: new APIRouter("/sowing/analytics/delivery-vs-ready", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_ADMIN_DIRECT_SOW_ORDERS: new APIRouter("/sowing/admin-direct-sow/orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     SUBMIT_ADMIN_DIRECT_SOW: new APIRouter("/sowing/admin-direct-sow", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SUBMIT_READY_PLANTS_SOW: new APIRouter("/sowing/ready-plants-sow", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_ORDER_SLOT_EXCESS: new APIRouter("/sowing/order/:orderId/slot-excess", HTTP_METHODS.GET, OFFLINE.PROFILE),
     COMPLETE_ORDER_FROM_EXCESS: new APIRouter("/sowing/order/:orderId/complete-from-excess", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_EXCESS_BATCHES: new APIRouter("/sowing/excess-batches", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -1623,6 +1646,14 @@ export const API = {
       OFFLINE.PROFILE
     ),
   },
+  /** Linked-device QR scan (Baileys) — SUPER_ADMIN only. Separate from WATI business API. */
+  WHATSAPP_CONNECTION: {
+    STATUS: new APIRouter("whatsapp-connection/status", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CONNECT: new APIRouter("whatsapp-connection/connect", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    PAIRING_CODE: new APIRouter("whatsapp-connection/pairing-code", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    TEST: new APIRouter("whatsapp-connection/test", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    LOGOUT: new APIRouter("whatsapp-connection/logout", HTTP_METHODS.POST, OFFLINE.PROFILE),
+  },
   // WATI proxy (backend-only; token in env). Use these for all WATI operations.
   WATI: {
     GET_TEMPLATES: new APIRouter("wati/templates", HTTP_METHODS.GET),
@@ -1658,6 +1689,12 @@ export const API = {
   CALL_LIST_PUBLIC: {
     GET_LIST: (id, token) => `/api/v1/call-list/${id}/${token}`,
     ADD_CALL_LOG: (id, token) => `/api/v1/call-list/${id}/${token}/call-log`,
+  },
+  FIELD_LEADS: {
+    BOARD: new APIRouter("/field-leads/board", HTTP_METHODS.GET)
+  },
+  FIELD_ATTENDANCE: {
+    BOARD: new APIRouter("/field-attendance/board", HTTP_METHODS.GET)
   },
   PUBLIC_LINKS: {
     CREATE_LINK: new APIRouter("/public-links/links", HTTP_METHODS.POST),

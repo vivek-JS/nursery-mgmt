@@ -31,6 +31,8 @@ import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn"
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet"
 import WarehouseIcon from "@mui/icons-material/Warehouse"
 import InsightsIcon from "@mui/icons-material/Insights"
+import AccessTimeIcon from "@mui/icons-material/AccessTime"
+import PlaceIcon from "@mui/icons-material/Place"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -111,6 +113,8 @@ export const DashboardMenus = [
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
   new MenuPath("Primary ops", <GrassIcon />, "/u/primary-mobile", null, ["SUPER_ADMIN", "ADMIN"]),
   new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", null, ["SUPER_ADMIN", "SUPERADMIN"]),
+  new MenuPath("Field Leads", <PlaceIcon />, "/u/field-leads", null, ["SUPER_ADMIN", "SUPERADMIN", "ADMIN"]),
+  new MenuPath("Field Attendance", <AccessTimeIcon />, "/u/field-attendance", null, ["SUPER_ADMIN", "SUPERADMIN", "ADMIN"]),
   new MenuPath("Rate Approvals", <PriceChangeIcon />, "/u/rate-approvals", null, ["SUPER_ADMIN", "SUPERADMIN"]),
   new MenuPath("Ram Agri Input", <DashboardIcon />, "/u/ram-agri-input"),
   new MenuPath("Stock", <WarehouseIcon />, "/u/inventory/ram-agri-stock"),
@@ -137,5 +141,12 @@ export const DashboardMenus = [
     ["SUPER_ADMIN", "SUPERADMIN", "OFFICE_ADMIN", "OFFICEADMIN"]
   ),
   new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
-  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", null, ["SUPER_ADMIN", "SUPERADMIN"])
+  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", null, ["SUPER_ADMIN", "SUPERADMIN"]),
+  new MenuPath(
+    "WhatsApp Connection",
+    <WhatsAppIcon />,
+    "/u/whatsapp-connection",
+    null,
+    ["SUPER_ADMIN", "SUPERADMIN"]
+  )
 ]

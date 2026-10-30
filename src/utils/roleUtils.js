@@ -249,6 +249,7 @@ export const useHasMenuAccess = (menuTitle) => {
   // Role-specific access controls - prioritize jobTitle
   switch (menuTitle) {
     case "WhatsApp Management":
+    case "WhatsApp Connection":
       return jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
     
     case "Payments": {

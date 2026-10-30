@@ -66,6 +66,7 @@ const DealerMyLedgerPage = React.lazy(() => import("pages/private/dealers/Dealer
 const CapacityInsights = React.lazy(() => import("pages/private/capacityinsights/CapacityInsights"))
 const AccountantDashboard = React.lazy(() => import("pages/private/accountant-dashboard"))
 const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/WhatsAppManagement"))
+const WhatsAppConnection = React.lazy(() => import("pages/private/whatsapp/WhatsAppConnection"))
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
@@ -78,6 +79,8 @@ const PrimarySowingEntry = React.lazy(() => import("pages/private/Sowing/Primary
 const PrimaryMobileOps = React.lazy(() => import("pages/private/primary/PrimaryMobileOps"))
 const SecondaryMobileOps = React.lazy(() => import("pages/private/secondary/SecondaryMobileOps"))
 const PublicFarmerLinks = React.lazy(() => import("pages/private/publicLinks/PublicFarmerLinks"))
+const FieldLeadsBoard = React.lazy(() => import("pages/private/field/FieldLeadsBoard"))
+const FieldAttendanceBoard = React.lazy(() => import("pages/private/field/FieldAttendanceBoard"))
 const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
@@ -180,6 +183,7 @@ export const PrivateRoutes = [
   { path: "/u/capacity-insights", component: CapacityInsights },
   { path: "/u/accountant-dashboard", component: AccountantDashboard },
   { path: "/u/whatsapp", component: WhatsAppManagement },
+  { path: "/u/whatsapp-connection", component: WhatsAppConnection },
   { path: "/u/sowing", component: SowingManagement },
   { path: "/u/plant-availability", component: PlantAvailability },
   { path: "/u/sowing-gap-analysis", component: SowingGapAnalysis },
@@ -193,6 +197,8 @@ export const PrivateRoutes = [
   { path: "/u/secondary-sowing-entry", component: SecondaryMobileOps },
   { path: "/u/secondary-mobile", component: SecondaryMobileOps },
   { path: "/u/public-links", component: PublicFarmerLinks },
+  { path: "/u/field-leads", component: FieldLeadsBoard },
+  { path: "/u/field-attendance", component: FieldAttendanceBoard },
   { path: "/u/flow-charts", component: FlowCharts },
   { path: "/u/order-bucketing", component: OrderBucketing },
   { path: "/u/tasks", component: TaskManagement },
