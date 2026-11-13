@@ -33,7 +33,7 @@ export async function fetchSecondaryDashboard(upcomingDays = 7) {
 }
 
 export async function fetchDispatchBatches() {
-  const res = await request(API.BATCH.GET_BATCHES, {}, {});
+  const res = await request(API.BATCH.GET_BATCHES, {}, { page: 1, limit: 500 });
   const data = unpackData(res);
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.data)) return data.data;
@@ -297,10 +297,10 @@ export async function fetchSowingAllowedPlants() {
   return mapPlantCmsRows(unpackData(res)).filter((p) => p.sowingAllowed);
 }
 
-/** All CMS plants — secondary lagwad includes Banana (direct, not lab sowing). */
+/** Lagwad crops are sowing-not-allowed plants (Banana G9 and the same kind). */
 export async function fetchLagwadPlants() {
   const res = await request(API.plantCms.GET_PLANTS, {}, {});
-  return mapPlantCmsRows(unpackData(res));
+  return mapPlantCmsRows(unpackData(res)).filter((p) => !p.sowingAllowed);
 }
 
 export { apiErrText };
