@@ -8,7 +8,6 @@ import { openSlotManageTab } from "../SlotsView/slotMetrics"
 import SecondaryDirectLagwadWizard from "../plantPipeline/dialogs/SecondaryDirectLagwadWizard"
 import { useLagwadMasterData } from "../plantPipeline/hooks/useLagwadMasterData"
 import { refId } from "../plantPipeline/utils/lagwadWizardHelpers"
-import { lagwadDropdownPlants, pickLagwadPlantId, pickLagwadSubtypeId } from "./lagwadPlantDefaults"
 import LagwadFilterBar from "./LagwadFilterBar"
 import LagwadLinesTable from "./LagwadLinesTable"
 import ReadyRollLedgerModal from "./ReadyRollLedgerModal"
@@ -72,11 +71,11 @@ const LagwadAnalysis = () => {
       try {
         const instance = NetworkManager(API.slots.GET_PLANTS)
         const response = await instance.request({}, { year })
-        const list = lagwadDropdownPlants(Array.isArray(response?.data) ? response.data : [])
+        const list = Array.isArray(response?.data) ? response.data : []
         if (cancelled) return
         setPlants(list)
-        // Keep a valid lagwad crop. Otherwise open on Banana.
-        setPlantId((prev) => pickLagwadPlantId(list, prev))
+        // Only seeds the first selection; an existing choice is left alone.
+        setPlantId((prev) => prev || (list[0]?.plantId ? String(list[0].plantId) : ""))
       } catch (e) {
         console.error("Failed to load plants:", e)
       }
@@ -88,12 +87,10 @@ const LagwadAnalysis = () => {
     }
   }, [year])
 
-  const selectedPlantName = plants.find((p) => String(p.plantId) === String(plantId))?.name
-
   useEffect(() => {
     let cancelled = false
-    if (!plantId || !selectedPlantName) {
-      if (!plantId) setSubtypes([])
+    if (!plantId) {
+      setSubtypes([])
       return undefined
     }
 
@@ -104,8 +101,12 @@ const LagwadAnalysis = () => {
         const list = response?.data?.subtypes || []
         if (cancelled) return
         setSubtypes(list)
-        // Keep the current subtype when it is still in the list. Banana opens on G9.
-        setSubtypeId((prev) => pickLagwadSubtypeId(list, prev, selectedPlantName))
+        // Keep the current subtype only when the fresh list still offers it.
+        setSubtypeId((prev) => {
+          const stillValid = list.some((s) => String(s.subtypeId) === String(prev))
+          if (stillValid) return prev
+          return list[0]?.subtypeId ? String(list[0].subtypeId) : ""
+        })
       } catch (e) {
         console.error("Failed to load subtypes:", e)
       }
@@ -115,7 +116,7 @@ const LagwadAnalysis = () => {
     return () => {
       cancelled = true
     }
-  }, [plantId, year, selectedPlantName])
+  }, [plantId, year])
 
   const slots = data?.slots || []
   const lines = data?.lines || []

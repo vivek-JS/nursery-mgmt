@@ -25,11 +25,13 @@ const EmployeeManagement = () => {
   const [searchQuery, setSearchQuery] = useState("")
   const [filterJobTitle, setFilterJobTitle] = useState("")
   const [loading, setLoading] = useState(false)
+  const [dispatchManagers, setDispatchManagers] = useState([])
   const [newEmployee, setNewEmployee] = useState({
     name: "",
     phoneNumber: "",
     jobTitle: "",
-    birthDate: ""
+    birthDate: "",
+    reportsTo: ""
   })
 
   const isSuperAdmin = useIsSuperAdmin()
@@ -50,6 +52,7 @@ const EmployeeManagement = () => {
     "ACCOUNTANT",
     "CASHIER",
     "DISPATCH_MANAGER",
+    "DISPATCH",
     "RAM_AGRI_SALES",
     "RAM_AGRI_SALES_MANAGER",
     "RAM_AGRI_SALES_OFFICE_MANAGER",
@@ -64,6 +67,9 @@ const EmployeeManagement = () => {
       const instance = NetworkManager(API.EMPLOYEE.GET_EMPLOYEE)
       const emps = await instance.request({}, { limit: 1000 })
       setEmployees(emps?.data?.data || [])
+      const managers = NetworkManager(API.EMPLOYEE.GET_EMPLOYEE)
+      const mgrs = await managers.request({}, { jobTitle: "SECONDARY", limit: 500 })
+      setDispatchManagers(mgrs?.data?.data || [])
     } catch (error) {
       console.error("Error fetching employees:", error)
       Toast.error("Failed to fetch employees")
@@ -80,7 +86,8 @@ const EmployeeManagement = () => {
     const { name, value } = e.target
     setNewEmployee((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
+      ...(name === "jobTitle" && value !== "DISPATCH" ? { reportsTo: "" } : {})
     }))
   }
 
@@ -89,7 +96,8 @@ const EmployeeManagement = () => {
       name: "",
       phoneNumber: "",
       jobTitle: "",
-      birthDate: ""
+      birthDate: "",
+      reportsTo: ""
     })
   }
 
@@ -113,10 +121,20 @@ const EmployeeManagement = () => {
       return
     }
 
+    if (newEmployee.jobTitle === "DISPATCH" && !newEmployee.reportsTo) {
+      Toast.error("Choose the secondary person this employee reports to")
+      return
+    }
+
+    const payload = {
+      ...newEmployee,
+      reportsTo: newEmployee.jobTitle === "DISPATCH" ? newEmployee.reportsTo : null
+    }
+
     try {
       if (isEdit) {
         const instance = NetworkManager(API.EMPLOYEE.UPDATE_EMPLOYEE)
-        const response = await instance.request(newEmployee)
+        const response = await instance.request(payload)
 
         if (response?.data?.status === "success" || response?.code === 200) {
           Toast.success("Employee updated successfully")
@@ -128,7 +146,7 @@ const EmployeeManagement = () => {
         }
       } else {
         const instance = NetworkManager(API.EMPLOYEE.ADD_EMPLOYEE_LOGIN)
-        const response = await instance.request(newEmployee)
+        const response = await instance.request(payload)
 
         if (response?.data?.status === "success" || response?.code === 201) {
           Toast.success("Employee added successfully")
@@ -157,6 +175,7 @@ const EmployeeManagement = () => {
       phoneNumber: employee.phoneNumber || "",
       jobTitle: employee.jobTitle || "",
       birthDate: employee.birthDate || "",
+      reportsTo: employee.reportsTo?._id || employee.reportsTo || "",
       _id: employee._id
     })
     setIsEdit(true)
@@ -285,6 +304,7 @@ const EmployeeManagement = () => {
         employeeData={newEmployee}
         onInputChange={handleInputChange}
         jobTitles={jobTitles}
+        dispatchManagers={dispatchManagers}
         isEdit={isEdit}
         loading={loading}
         canManageEmployees={canManageEmployees}

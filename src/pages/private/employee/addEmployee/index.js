@@ -46,6 +46,7 @@ const AddEmployeeModal = ({
   employeeData,
   onInputChange,
   jobTitles,
+  dispatchManagers = [],
   isEdit,
   loading = false,
   canManageEmployees = false
@@ -80,6 +81,10 @@ const AddEmployeeModal = ({
     // Job title validation
     if (!employeeData.jobTitle) {
       newErrors.jobTitle = "Job title is required"
+    }
+
+    if (employeeData.jobTitle === "DISPATCH" && !employeeData.reportsTo) {
+      newErrors.reportsTo = "Choose the secondary person this employee reports to"
     }
 
     setErrors(newErrors)
@@ -524,6 +529,46 @@ const AddEmployeeModal = ({
                     )}
                   </FormControl>
                 </Box>
+
+                {employeeData.jobTitle === "DISPATCH" && (
+                  <Box>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                      <PersonIcon sx={{ color: "primary.main", fontSize: 20 }} />
+                      <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 600 }}>
+                        Reports to
+                      </Typography>
+                    </Box>
+                    <FormControl fullWidth error={!!errors.reportsTo}>
+                      <InputLabel>Secondary *</InputLabel>
+                      <Select
+                        name="reportsTo"
+                        value={employeeData.reportsTo || ""}
+                        label="Secondary *"
+                        onChange={handleInputChange}
+                        disabled={isSubmitting}
+                        sx={{ borderRadius: 2 }}>
+                        <MenuItem value="" disabled>
+                          Select secondary
+                        </MenuItem>
+                        {dispatchManagers.map((mgr) => (
+                          <MenuItem key={mgr._id || mgr.id} value={mgr._id || mgr.id}>
+                            {mgr.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      {errors.reportsTo && (
+                        <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
+                          {errors.reportsTo}
+                        </Typography>
+                      )}
+                      {dispatchManagers.length === 0 && (
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
+                          Add a secondary employee first
+                        </Typography>
+                      )}
+                    </FormControl>
+                  </Box>
+                )}
 
                 {/* Submit Button */}
                 <Button

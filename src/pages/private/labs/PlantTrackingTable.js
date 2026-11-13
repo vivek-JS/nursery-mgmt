@@ -29,21 +29,6 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { batchPlantSubtypeLabel } from "utils/batchPlantDisplay"
 
-const BOTTLES_PER_TRAY = 30
-
-function traySplitLine(bottles) {
-  const n = Math.floor(Number(bottles) || 0)
-  if (n < 1) return ""
-  const complete = Math.floor(n / BOTTLES_PER_TRAY)
-  const leftover = n % BOTTLES_PER_TRAY
-  const trayWord = complete === 1 ? "tray" : "trays"
-  if (leftover === 0) {
-    return `${complete} complete ${trayWord}. 30 bottles = 1 complete tray.`
-  }
-  const bottleWord = leftover === 1 ? "bottle" : "bottles"
-  return `${complete} complete ${trayWord} + 1 incomplete tray of ${leftover} ${bottleWord}. 30 bottles = 1 complete tray. Leftover is never rounded up.`
-}
-
 const theme = createTheme({
   palette: {
     primary: {
@@ -106,7 +91,7 @@ const PlantTrackingTable = () => {
     outwardDate: new Date().toISOString().split("T")[0],
     batchNo: "",
     bottles: "",
-    size: "R1",
+    size: "",
     plants: "",
     rootingDate: ""
   })
@@ -176,7 +161,7 @@ const PlantTrackingTable = () => {
         //  setIsFormOpen(false)
         setNewEntry({
           outwardDate: new Date().toISOString().split("T")[0],
-          size: "R1",
+          size: "",
           bottles: "",
           plants: "",
           rootingDate: ""
@@ -384,11 +369,6 @@ const PlantTrackingTable = () => {
                 fullWidth
                 sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
               />
-              {traySplitLine(newEntry.bottles) ? (
-                <Typography variant="body2" color="text.secondary">
-                  {traySplitLine(newEntry.bottles)}
-                </Typography>
-              ) : null}
               <TextField
                 select
                 label="Size"
