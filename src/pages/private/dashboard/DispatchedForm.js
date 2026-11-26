@@ -422,6 +422,7 @@ const DispatchForm = ({
   mode = "create",
   dispatchData = null,
   readyDispatchGroupId = null,
+  initialFleet = null,
 }) => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"))
@@ -1886,6 +1887,43 @@ const DispatchForm = ({
       cancelled = true
     }
   }, [open, readyDispatchGroupId])
+
+  const initialFleetVehicleId = initialFleet?.vehicleId ? String(initialFleet.vehicleId) : ""
+  const initialFleetOwnerId = initialFleet?.ownerId ? String(initialFleet.ownerId) : ""
+  const initialFleetDriverId = initialFleet?.driverId ? String(initialFleet.driverId) : ""
+  const initialFleetDriverName = initialFleet?.driverName || ""
+  const initialFleetVehicleName = initialFleet?.vehicleName || ""
+  const initialFleetRouteNotes = initialFleet?.routeNotes || ""
+  const initialFleetDriverRemark = initialFleet?.driverRemark || ""
+  const initialFleetVehicleRemark = initialFleet?.vehicleRemark || ""
+
+  useEffect(() => {
+    if (!open || mode === "view" || !initialFleetVehicleId) return
+    setFleetAssignment({
+      ownerId: initialFleetOwnerId,
+      driverId: initialFleetDriverId,
+      vehicleId: initialFleetVehicleId,
+      routeNotes: initialFleetRouteNotes,
+      driverRemark: initialFleetDriverRemark,
+      vehicleRemark: initialFleetVehicleRemark,
+    })
+    setFormData((prev) => ({
+      ...prev,
+      ...(initialFleetDriverName ? { driverName: initialFleetDriverName } : {}),
+      ...(initialFleetVehicleName ? { vehicleName: initialFleetVehicleName } : {}),
+    }))
+  }, [
+    open,
+    mode,
+    initialFleetVehicleId,
+    initialFleetOwnerId,
+    initialFleetDriverId,
+    initialFleetDriverName,
+    initialFleetVehicleName,
+    initialFleetRouteNotes,
+    initialFleetDriverRemark,
+    initialFleetVehicleRemark,
+  ])
 
   useEffect(() => {
     if (!fleetAssignment.ownerId) {

@@ -11,10 +11,12 @@ import {
   IconButton,
   FormControlLabel,
   Switch,
-  ToggleButton,
-  ToggleButtonGroup,
+  Button,
+  Menu,
+  MenuItem,
 } from "@mui/material";
-import { Logout } from "@mui/icons-material";
+import { Logout, MoreHoriz } from "@mui/icons-material";
+import DispatchBoard from "./components/board/DispatchBoard";
 import { useUserRole, useIsDispatchManager, useUserData } from "utils/roleUtils";
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import { Loader } from "redux/dispatcher/Loader";
@@ -42,7 +44,8 @@ const DispatchedListPage = () => {
   const [whatsappMessagingEnabled, setWhatsappMessagingEnabled] = React.useState(
     () => !isWhatsappMessagingDisabled()
   );
-  const [pageTab, setPageTab] = React.useState("matrix");
+  const [moreView, setMoreView] = React.useState(null);
+  const [moreAnchor, setMoreAnchor] = React.useState(null);
 
   useEffect(() => {
     if (userData === undefined || userRole === undefined) return;
@@ -78,7 +81,7 @@ const DispatchedListPage = () => {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        bgcolor: "#e8efe9",
+        bgcolor: "#e8eef6",
       }}
     >
       <AppBar
@@ -136,6 +139,44 @@ const DispatchedListPage = () => {
               }
               sx={{ mr: 0.5, alignItems: "center", m: 0 }}
             />
+            <Button
+              size="small"
+              color="inherit"
+              startIcon={<MoreHoriz />}
+              onClick={(event) => setMoreAnchor(event.currentTarget)}
+              sx={{ textTransform: "none", fontWeight: 700, mr: 0.5 }}
+            >
+              More
+            </Button>
+            <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
+              <MenuItem
+                selected={moreView == null}
+                onClick={() => {
+                  setMoreView(null);
+                  setMoreAnchor(null);
+                }}
+              >
+                Dispatch board
+              </MenuItem>
+              <MenuItem
+                selected={moreView === "matrix"}
+                onClick={() => {
+                  setMoreView("matrix");
+                  setMoreAnchor(null);
+                }}
+              >
+                Pending by variety
+              </MenuItem>
+              <MenuItem
+                selected={moreView === "quick"}
+                onClick={() => {
+                  setMoreView("quick");
+                  setMoreAnchor(null);
+                }}
+              >
+                Quick complete
+              </MenuItem>
+            </Menu>
             <IconButton
               color="inherit"
               onClick={handleLogout}
@@ -167,21 +208,13 @@ const DispatchedListPage = () => {
           flexDirection: "column",
         }}
       >
-        <ToggleButtonGroup
-          exclusive
-          value={pageTab}
-          onChange={(_, v) => v && setPageTab(v)}
-          size="small"
-          sx={{ mb: 1, alignSelf: "flex-start", bgcolor: "rgba(255,255,255,0.9)", borderRadius: 2 }}
-        >
-          <ToggleButton value="matrix" sx={{ textTransform: "none", fontWeight: 700, px: 2 }}>
-            Pending by variety
-          </ToggleButton>
-          <ToggleButton value="quick" sx={{ textTransform: "none", fontWeight: 700, px: 2 }}>
-            Quick complete
-          </ToggleButton>
-        </ToggleButtonGroup>
-        {pageTab === "matrix" ? <RemainingDispatchQueue /> : <SecondaryAbsentQuickComplete />}
+        {moreView == null ? (
+          <DispatchBoard />
+        ) : moreView === "matrix" ? (
+          <RemainingDispatchQueue />
+        ) : (
+          <SecondaryAbsentQuickComplete />
+        )}
       </Box>
     </Box>
   );
