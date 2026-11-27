@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Box, Button, Typography } from "@mui/material";
 import { Close, FlashOn } from "@mui/icons-material";
 import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel";
-import { DayChip, PlaceChip, VarietyCount } from "./boardOrderBits";
+import { DayChip, OrderMeta } from "./boardOrderBits";
 import { vehicleTitle } from "./orderBoardUtils";
 
 export default function VehiclesColumn({
@@ -68,7 +68,7 @@ export default function VehiclesColumn({
       <Box sx={{ px: 1.15, pt: 1, pb: 0.4, flexShrink: 0 }}>
         <Typography sx={{ fontWeight: 800, fontSize: "0.92rem", color: "#0f172a" }}>3. Vehicles</Typography>
         <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: over ? "#2563eb" : "#94a3b8" }}>
-          {over ? "Release to add to this vehicle" : vehicleId ? "Drop anywhere in this column" : "Pick a vehicle, then drop or select orders"}
+          {over ? "Release to add to this vehicle" : vehicleId ? "Drop anywhere in this column" : "Select orders first, then pick a vehicle"}
         </Typography>
       </Box>
       <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", px: 1.1, pb: 1.1 }}>
@@ -146,7 +146,7 @@ export default function VehiclesColumn({
             ) : (
               <Box sx={{ mt: 0.6 }}>
                 {stagedOrders.map((row) => (
-                  <Box key={row.id} sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, py: 0.4, borderBottom: "1px solid #f1f5f9" }}>
+                  <Box key={row.id} sx={{ display: "flex", alignItems: "center", gap: 0.5, py: 0.65, borderBottom: "1px solid #e2e8f0" }}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.45 }}>
                         <Typography sx={{ flex: 1, fontWeight: 800, fontSize: "0.76rem" }} noWrap>
@@ -154,10 +154,13 @@ export default function VehiclesColumn({
                         </Typography>
                         <DayChip label={row.day} />
                       </Box>
-                      <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.4, mt: 0.15 }}>
-                        <VarietyCount variety={row.variety || row.plant} count={row.plants} />
-                        <PlaceChip taluka={row.taluka} village={row.village} />
-                      </Box>
+                      <OrderMeta
+                        variety={row.variety || row.plant}
+                        count={row.plants}
+                        taluka={row.taluka}
+                        village={row.village}
+                        phone={row.phone}
+                      />
                     </Box>
                     <Button
                       size="small"

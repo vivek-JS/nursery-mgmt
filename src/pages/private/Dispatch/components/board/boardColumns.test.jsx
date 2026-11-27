@@ -68,6 +68,7 @@ test("calling rows show variety, count, highlighted place, and Aaj without the d
   expect(screen.getByText("Grand Naine")).toBeInTheDocument();
   expect(screen.getByText((1200).toLocaleString())).toBeInTheDocument();
   expect(screen.getByText("Raver → Abit Khind")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /98765 43210/ })).toBeInTheDocument();
   expect(screen.queryByText(moment().format("DD/MM"))).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Plant, variety, taluka, village/ })).toBeInTheDocument();
   expect(screen.queryByPlaceholderText("Plant")).not.toBeInTheDocument();
@@ -77,10 +78,19 @@ test("calling rows show variety, count, highlighted place, and Aaj without the d
 });
 
 test("selecting a ready order moves it, and Aaj stays a word while other dates show the date", () => {
-  const onMove = jest.fn();
-  const { rerender } = render(
-    <ReadyColumn orders={[order(), later]} loading={false} stagedIds={new Set()} onMove={onMove} onEditQty={jest.fn()} savingQtyId="" />
-  );
+  const onToggle = jest.fn();
+  const onToggleGroup = jest.fn();
+  const columnProps = {
+    orders: [order(), later],
+    loading: false,
+    stagedIds: new Set(),
+    selectedIds: new Set(),
+    onToggle,
+    onToggleGroup,
+    onEditQty: jest.fn(),
+    savingQtyId: "",
+  };
+  const { rerender } = render(<ReadyColumn {...columnProps} />);
 
   expect(screen.getByText("Grand Naine")).toBeInTheDocument();
   expect(screen.getByText("Raver → Abit Khind")).toBeInTheDocument();
@@ -88,14 +98,12 @@ test("selecting a ready order moves it, and Aaj stays a word while other dates s
   expect(screen.queryByText(moment().format("DD/MM"))).not.toBeInTheDocument();
 
   fireEvent.click(screen.getAllByRole("checkbox")[0]);
-  expect(onMove).toHaveBeenCalledWith(["a1"]);
+  expect(onToggle).toHaveBeenCalledWith("a1");
 
   fireEvent.click(screen.getByRole("button", { name: "Select all" }));
-  expect(onMove).toHaveBeenLastCalledWith(["a1", "b2"]);
+  expect(onToggleGroup).toHaveBeenCalledWith(["a1", "b2"], true);
 
-  rerender(
-    <ReadyColumn orders={[order(), later]} loading={false} stagedIds={new Set(["a1"])} onMove={onMove} onEditQty={jest.fn()} savingQtyId="" />
-  );
+  rerender(<ReadyColumn {...columnProps} stagedIds={new Set(["a1"])} />);
   expect(screen.queryByText("Kiran chaudhari")).not.toBeInTheDocument();
   expect(screen.getByText("Old farmer")).toBeInTheDocument();
 

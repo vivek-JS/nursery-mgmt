@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Button, Checkbox, CircularProgress, IconButton, Popover, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { Edit, Search } from "@mui/icons-material";
-import { DayChip, PlaceChip, VarietyCount } from "./boardOrderBits";
+import { DayChip, OrderMeta, orderRowSx } from "./boardOrderBits";
 import {
   DISPATCH_DAY_OPTIONS,
   dispatchDayTitle,
@@ -9,6 +9,7 @@ import {
   orderDayLabel,
   orderFarmerName,
   orderMongoId,
+  orderPhone,
   orderPlantCount,
   orderPublicId,
   orderTaluka,
@@ -32,7 +33,7 @@ function pickCalendarDay(ymd) {
   return ymd;
 }
 
-export default function ReadyColumn({ orders, loading, stagedIds, onMove, onEditQty, savingQtyId }) {
+export default function ReadyColumn({ orders, loading, stagedIds, selectedIds, onToggle, onToggleGroup, onEditQty, savingQtyId }) {
   const [query, setQuery] = useState("");
   const [dayPick, setDayPick] = useState("");
   const [sortDir, setSortDir] = useState("asc");
@@ -210,6 +211,7 @@ export default function ReadyColumn({ orders, loading, stagedIds, onMove, onEdit
         ) : (
           groups.map((group, index) => {
             const ids = group.orders.map(orderMongoId).filter(Boolean);
+            const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
             const plants = group.orders.reduce((sum, order) => sum + orderPlantCount(order), 0);
             return (
               <Box key={group.name} sx={{ mb: 0.9 }}>
@@ -224,10 +226,10 @@ export default function ReadyColumn({ orders, loading, stagedIds, onMove, onEdit
                   <Button
                     size="small"
                     disabled={!ids.length}
-                    onClick={() => onMove(ids)}
+                    onClick={() => onToggleGroup(ids, !allSelected)}
                     sx={{ textTransform: "none", fontWeight: 800, fontSize: "0.7rem", minWidth: 0, py: 0.1, color: "#2563eb" }}
                   >
-                    Select all
+                    {allSelected ? "Clear" : "Select all"}
                   </Button>
                 </Box>
                 {group.orders.map((order) => {
@@ -240,25 +242,14 @@ export default function ReadyColumn({ orders, loading, stagedIds, onMove, onEdit
                         event.dataTransfer.setData("text/plain", id);
                         event.dataTransfer.effectAllowed = "move";
                       }}
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.35,
-                        py: 0.4,
-                        px: 0.3,
-                        mb: 0.35,
-                        borderRadius: 1.5,
-                        bgcolor: "#f8fafc",
-                        border: "1px solid #e2e8f0",
-                        cursor: "grab",
-                      }}
+                      sx={{ ...orderRowSx, cursor: "grab", bgcolor: selectedIds.has(id) ? "#eff6ff" : "#fff" }}
                     >
                       <Checkbox
                         size="small"
-                        checked={false}
-                        title="Add to the vehicle"
+                        checked={selectedIds.has(id)}
+                        title="Select order"
                         onMouseDown={(event) => event.stopPropagation()}
-                        onChange={() => onMove([id])}
+                        onChange={() => onToggle(id)}
                         sx={{ p: 0.3 }}
                       />
                       <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -268,10 +259,13 @@ export default function ReadyColumn({ orders, loading, stagedIds, onMove, onEdit
                             {orderPublicId(order)}
                           </Box>
                         </Typography>
-                        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.4, mt: 0.15 }}>
-                          <VarietyCount variety={orderVariety(order)} count={orderPlantCount(order)} />
-                          <PlaceChip taluka={orderTaluka(order)} village={orderVillage(order)} />
-                        </Box>
+                        <OrderMeta
+                          variety={orderVariety(order)}
+                          count={orderPlantCount(order)}
+                          taluka={orderTaluka(order)}
+                          village={orderVillage(order)}
+                          phone={orderPhone(order)}
+                        />
                       </Box>
                       <DayChip label={orderDayLabel(order)} />
                       <IconButton size="small" title="Edit plant count" onClick={(event) => openEdit(event, order)} sx={{ p: 0.35 }}>

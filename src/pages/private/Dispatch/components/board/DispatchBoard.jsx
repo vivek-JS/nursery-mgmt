@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, IconButton, Typography } from "@mui/material";
 import { Refresh } from "@mui/icons-material";
 import DispatchForm from "../../../dashboard/DispatchedForm";
@@ -16,6 +16,7 @@ import {
   orderMongoId,
   orderPlantCount,
   orderPlantLabel,
+  orderPhone,
   orderTaluka,
   orderVariety,
   orderVillage,
@@ -45,6 +46,7 @@ export default function DispatchBoard() {
   } = useDispatchBoardData();
 
   const [dayKey, setDayKey] = useState("TODAY");
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [fleetAssignment, setFleetAssignment] = useState(emptyFleetAssignment);
   const [ownerFleet, setOwnerFleet] = useState({ drivers: [], vehicles: [] });
   const [stagedByVehicle, setStagedByVehicle] = useState({});
@@ -119,20 +121,24 @@ export default function DispatchBoard() {
         variety: orderVariety(order),
         taluka: orderTaluka(order),
         village: orderVillage(order),
+        phone: orderPhone(order),
         day: orderDayLabel(order),
       }));
   }, [fleetAssignment.vehicleId, stagedByVehicle, readyById]);
+
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
 
   const assignToVehicle = (ids) => {
     const vehicleId = fleetAssignment.vehicleId;
     if (!vehicleId) {
       Toast.error("Select a vehicle first");
-      return;
+      return false;
     }
     const nextIds = [...new Set(ids.map(String).filter((id) => readyById.has(id)))];
     if (!nextIds.length) {
       Toast.error("Select a ready order, or drop one onto the vehicle");
-      return;
+      return false;
     }
     const moving = new Set(nextIds);
     setStagedByVehicle((prev) => {
@@ -141,6 +147,49 @@ export default function DispatchBoard() {
         next[id] = (list || []).filter((orderId) => !moving.has(orderId));
       });
       next[vehicleId] = [...new Set([...(next[vehicleId] || []), ...nextIds])];
+      return next;
+    });
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      nextIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    return true;
+  };
+
+  useEffect(() => {
+    const vehicleId = fleetAssignment.vehicleId;
+    if (!vehicleId) return;
+    const waiting = [...selectedIdsRef.current].filter((id) => readyById.has(id));
+    if (!waiting.length) return;
+    assignToVehicle(waiting);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fleetAssignment.vehicleId]);
+
+  const toggleReady = (id) => {
+    if (fleetAssignment.vehicleId) {
+      assignToVehicle([id]);
+      return;
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleReadyGroup = (ids, select) => {
+    if (fleetAssignment.vehicleId && select) {
+      assignToVehicle(ids);
+      return;
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((orderId) => {
+        if (select) next.add(orderId);
+        else next.delete(orderId);
+      });
       return next;
     });
   };
@@ -196,7 +245,7 @@ export default function DispatchBoard() {
     <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       <Box sx={{ display: "flex", alignItems: "center", mb: 1, px: 0.25 }}>
         <Typography sx={{ flex: 1, color: "#475569", fontSize: "0.78rem", fontWeight: 700 }}>
-          Mark ready for Aaj, Udya, or Parva. Select an order and it moves onto the vehicle.
+          Tick ready orders first, then pick a vehicle. They move onto it.
         </Typography>
         <IconButton size="small" title="Refresh" onClick={refresh}>
           <Refresh sx={{ fontSize: 18 }} />
@@ -230,9 +279,11 @@ export default function DispatchBoard() {
           orders={readyOrders}
           loading={readyLoading}
           stagedIds={stagedIds}
+          selectedIds={selectedIds}
           savingQtyId={savingQtyId}
           onEditQty={updatePlantCount}
-          onMove={assignToVehicle}
+          onToggle={toggleReady}
+          onToggleGroup={toggleReadyGroup}
         />
         <VehiclesColumn
           assignment={fleetAssignment}

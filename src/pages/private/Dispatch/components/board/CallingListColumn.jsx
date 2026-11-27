@@ -1,8 +1,7 @@
 import React from "react";
-import { Box, Button, CircularProgress, IconButton, Typography } from "@mui/material";
-import { Phone } from "@mui/icons-material";
+import { Box, Button, CircularProgress, Typography } from "@mui/material";
 import CallingListFilters from "./CallingListFilters";
-import { DayChip, PlaceChip, VarietyCount } from "./boardOrderBits";
+import { DayChip, OrderMeta, orderRowSx } from "./boardOrderBits";
 import {
   orderDeliveryDayLabel,
   orderFarmerName,
@@ -70,17 +69,7 @@ export default function CallingListColumn({
             const phone = orderPhone(order);
             const marking = markingIds.has(id);
             return (
-              <Box
-                key={id || orderPublicId(order)}
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.6,
-                  py: 0.55,
-                  px: 0.35,
-                  borderBottom: "1px solid #f1f5f9",
-                }}
-              >
+              <Box key={id || orderPublicId(order)} sx={orderRowSx}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography sx={{ fontWeight: 800, fontSize: "0.8rem", color: "#0f172a", lineHeight: 1.25 }} noWrap>
                     {orderFarmerName(order)}
@@ -88,22 +77,16 @@ export default function CallingListColumn({
                       {orderPublicId(order)}
                     </Box>
                   </Typography>
-                  <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.4, mt: 0.2 }}>
-                    <VarietyCount variety={orderVariety(order)} count={orderPlantCount(order)} />
-                    <PlaceChip taluka={orderTaluka(order)} village={orderVillage(order)} />
-                  </Box>
+                  <OrderMeta
+                    variety={orderVariety(order)}
+                    count={orderPlantCount(order)}
+                    taluka={orderTaluka(order)}
+                    village={orderVillage(order)}
+                    phone={phone}
+                    showMissingPhone
+                  />
                 </Box>
                 <DayChip label={orderDeliveryDayLabel(order)} />
-                <IconButton
-                  size="small"
-                  component={phone ? "a" : "button"}
-                  href={phone ? `tel:${phone}` : undefined}
-                  disabled={!phone}
-                  title={phone ? `Call ${phone}` : "No mobile"}
-                  sx={{ color: "#2563eb", p: 0.4 }}
-                >
-                  <Phone sx={{ fontSize: 15 }} />
-                </IconButton>
                 <Button
                   size="small"
                   variant="contained"
