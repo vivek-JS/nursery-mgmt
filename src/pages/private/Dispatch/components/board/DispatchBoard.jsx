@@ -163,7 +163,6 @@ export default function DispatchBoard() {
     const waiting = [...selectedIdsRef.current].filter((id) => readyById.has(id));
     if (!waiting.length) return;
     assignToVehicle(waiting);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fleetAssignment.vehicleId]);
 
   const toggleReady = (id) => {
